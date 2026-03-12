@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "vibe-travel": {
+      "command": "npx",
+      "args": ["tsx", "mcp/server.ts"],
+      "env": {
+        "GOOGLE_PLACES_API_KEY": "${GOOGLE_PLACES_API_KEY}",
+        "OPENWEATHER_API_KEY": "${OPENWEATHER_API_KEY}",
+        "YELP_API_KEY": "${YELP_API_KEY}",
+        "VIATOR_API_KEY": "${VIATOR_API_KEY}",
+        "EXPEDIA_RAPID_API_KEY": "${EXPEDIA_RAPID_API_KEY}"
+      }
+    }
+  }
+}
