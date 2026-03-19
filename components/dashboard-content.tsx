@@ -81,18 +81,28 @@ export function DashboardContent({ profile, trips, familyVibe }: DashboardConten
     .slice(0, 3)
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-8 lg:px-8 lg:py-12">
-      {/* Greeting */}
-      <div className="mb-8">
-        <h1 className="text-balance font-serif text-3xl text-foreground lg:text-4xl">
-          Hey, {displayName}
-        </h1>
-        <p className="mt-2 text-muted-foreground">
-          {upcomingTrip
-            ? "Your next adventure is coming up."
-            : "Where is your family headed next?"}
-        </p>
+    <div>
+      {/* Editorial greeting banner */}
+      <div className="relative overflow-hidden bg-[#0a0a0f] px-4 py-10 lg:px-8 lg:py-14">
+        {/* Glow orb */}
+        <div className="pointer-events-none absolute -right-32 -top-16 h-80 w-80 rounded-full bg-primary/10 blur-[100px]" />
+        <div className="pointer-events-none absolute -left-16 bottom-0 h-48 w-48 rounded-full bg-accent/8 blur-[80px]" />
+        <div className="relative mx-auto max-w-5xl">
+          <p className="mb-3 text-[11px] font-medium tracking-[0.22em] text-white/30 uppercase">
+            Welcome back
+          </p>
+          <h1 className="font-serif text-4xl leading-tight text-white lg:text-5xl">
+            Hey, {displayName}
+          </h1>
+          <p className="mt-3 text-base text-white/45">
+            {upcomingTrip
+              ? "Your next adventure is coming up."
+              : "Where is your family headed next?"}
+          </p>
+        </div>
       </div>
+
+      <div className="mx-auto max-w-5xl px-4 py-8 lg:px-8 lg:py-12">
 
       {/* Upcoming trip hero */}
       {upcomingTrip && countdown && (
@@ -517,6 +527,7 @@ export function DashboardContent({ profile, trips, familyVibe }: DashboardConten
           </div>
         )}
       </div>
+    </div>
     </div>
   )
 }
