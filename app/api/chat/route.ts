@@ -1,14 +1,14 @@
 import { streamText, convertToModelMessages, stepCountIs } from "ai"
 import { anthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
-import { searchPlaces } from "@/lib/travel-apis/google-places"
+import { searchPlaces, searchPlacesBatch } from "@/lib/travel-apis/google-places"
 import { getWeatherForecast } from "@/lib/travel-apis/openweather"
 import { searchTours } from "@/lib/travel-apis/viator"
 import { searchHotels } from "@/lib/travel-apis/expedia"
 import { createClient } from "@/lib/supabase/server"
 
 export async function POST(req: Request) {
-  const { messages, familyVibe, currentTrip } = await req.json()
+  const { messages, familyVibe, currentTrip, tripId } = await req.json()
 
   // Captured for use inside action tool closures
   const baseUrl = new URL(req.url).origin
@@ -38,6 +38,26 @@ Current trip being planned:
 `
     : "No active trip selected."
 
+  // Save the incoming user message
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (user) {
+    const lastUserMsg = [...messages].reverse().find((m: { role: string }) => m.role === "user")
+    const userText = lastUserMsg?.parts
+      ?.filter((p: { type: string }) => p.type === "text")
+      .map((p: { text: string }) => p.text)
+      .join("") ?? ""
+    if (userText) {
+      const { error: saveErr } = await supabase.from("chat_messages").insert({
+        user_id: user.id,
+        trip_id: tripId ?? null,
+        role: "user",
+        content: userText,
+      })
+      if (saveErr) console.error("[chat] Failed to save user message:", saveErr.message)
+    }
+  }
+
   const result = streamText({
     model: anthropic("claude-sonnet-4-20250514"),
     system: `You are Scout, VibeTravel's AI travel assistant — warm, knowledgeable, and thoughtful. You help design-conscious families plan trips that work for everyone.
@@ -54,10 +74,11 @@ Key behaviors:
 - Suggest day plans that include downtime and backup options
 - Be honest about what's actually stroller-friendly vs what claims to be
 - Recommend meals, snacks, and rest stops alongside activities
-- Keep responses concise and scannable (use bullet points, short paragraphs)
+- Keep responses concise and scannable (use numbered lists for attractions/activities, short paragraphs)
 - If asked about timing, factor in realistic family pace (getting ready, bathroom breaks, meltdowns)
 - Use your tools to look up real data when the user asks about specific places, weather, restaurants, tours, or hotels
 - For restaurants, use find_restaurants with a food type query (e.g. "Italian", "breakfast", "sushi")
+- When suggesting 2 or more named attractions or restaurants, call search_attractions_batch with those place names so real photos and details are shown to the user — do this before writing your text response
 
 You can take actions on the user's behalf:
 
@@ -86,6 +107,26 @@ Do all of this without asking for confirmation first — just do it, then report
         execute: async (input: { name: string; destination: string }) => {
           const result = await searchPlaces(input.name, input.destination)
           return result ?? { error: "Place not found or Google Places API not configured." }
+        },
+      },
+
+      search_attractions_batch: {
+        description:
+          "Look up real photos and details for multiple attractions or restaurants at once. Use this whenever you suggest a list of 2 or more named places.",
+        inputSchema: z.object({
+          attractions: z
+            .array(
+              z.object({
+                name: z.string().describe("Attraction or place name"),
+                destination: z.string().describe("City or destination"),
+              })
+            )
+            .max(5)
+            .describe("List of places to look up (max 5)"),
+        }),
+        execute: async (input: { attractions: { name: string; destination: string }[] }) => {
+          const map = await searchPlacesBatch(input.attractions)
+          return input.attractions.map(({ name }) => map.get(name) ?? { name, error: "Not found" })
         },
       },
 
@@ -289,6 +330,17 @@ Do all of this without asking for confirmation first — just do it, then report
           }
         },
       },
+    },
+    onFinish: async ({ text }: { text: string }) => {
+      if (user && text) {
+        const { error: saveErr } = await supabase.from("chat_messages").insert({
+          user_id: user.id,
+          trip_id: tripId ?? null,
+          role: "assistant",
+          content: text,
+        })
+        if (saveErr) console.error("[chat] Failed to save assistant message:", saveErr.message)
+      }
     },
   })
 

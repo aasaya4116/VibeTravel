@@ -31,5 +31,7 @@ export function AISidebarWrapper({ familyVibe }: AISidebarWrapperProps) {
       .then(({ data }: { data: Trip | null }) => setCurrentTrip(data ?? null))
   }, [pathname])
 
-  return <AISidebar familyVibe={familyVibe} currentTrip={currentTrip} />
+  const tripId = pathname.match(/^\/trips\/([^/]+)/)?.[1] ?? null
+
+  return <AISidebar familyVibe={familyVibe} currentTrip={currentTrip} tripId={tripId} />
 }

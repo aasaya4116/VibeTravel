@@ -2,33 +2,127 @@
 
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport } from "ai"
-import { useState, useRef, useEffect } from "react"
-import { X, Send, Sparkles, AlertCircle, RotateCcw } from "lucide-react"
+import { useState, useRef, useEffect, useCallback } from "react"
+import { X, Send, Sparkles, AlertCircle, RotateCcw, MapPin, Star } from "lucide-react"
 import type { FamilyVibe, Trip } from "@/lib/types"
+import type { PlaceResult } from "@/lib/travel-apis/google-places"
+
+function PlaceCard({ place, index }: { place: PlaceResult & { name: string }; index: number }) {
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-border bg-card p-3">
+      {/* Thumbnail */}
+      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-muted">
+        {place.photoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={place.photoUrl} alt={place.name} className="h-full w-full object-cover" />
+        ) : null}
+        <div className="absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary/90">
+          <span className="text-[9px] font-bold text-white leading-none">{index}</span>
+        </div>
+      </div>
+
+      {/* Info */}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-1">
+          <p className="text-sm font-medium text-foreground leading-snug">{place.name}</p>
+          {place.rating && (
+            <span className="flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground">
+              <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+              {place.rating}
+            </span>
+          )}
+        </div>
+        {place.address && (
+          <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{place.address}</p>
+        )}
+        <div className="mt-1 flex items-center gap-2">
+          {place.priceLevel && (
+            <span className="text-xs text-muted-foreground">{place.priceLevel}</span>
+          )}
+          {place.openNow !== null && (
+            <span className={`text-xs ${place.openNow ? "text-green-600" : "text-red-500"}`}>
+              {place.openNow ? "Open" : "Closed"}
+            </span>
+          )}
+          {place.googleMapsUri && (
+            <a
+              href={place.googleMapsUri}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto flex items-center gap-1 text-xs text-primary hover:underline"
+            >
+              <MapPin className="h-3 w-3" />
+              Maps
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
 
 interface AISidebarProps {
   familyVibe: FamilyVibe | null
   currentTrip: Trip | null
+  tripId: string | null
 }
 
-export function AISidebar({ familyVibe, currentTrip }: AISidebarProps) {
+export function AISidebar({ familyVibe, currentTrip, tripId }: AISidebarProps) {
   const [open, setOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const [input, setInput] = useState("")
+  const [historyLoaded, setHistoryLoaded] = useState(false)
 
-  const { messages, sendMessage, status, error } = useChat({
+  // Refs so the useChat closure always reads the latest prop values
+  const familyVibeRef = useRef(familyVibe)
+  const currentTripRef = useRef(currentTrip)
+  const tripIdRef = useRef(tripId)
+  useEffect(() => { familyVibeRef.current = familyVibe }, [familyVibe])
+  useEffect(() => { currentTripRef.current = currentTrip }, [currentTrip])
+  useEffect(() => { tripIdRef.current = tripId }, [tripId])
+
+  const prepareSendMessagesRequest = useCallback(({ id, messages }: { id: string; messages: unknown }) => ({
+    body: {
+      messages,
+      id,
+      familyVibe: familyVibeRef.current,
+      currentTrip: currentTripRef.current,
+      tripId: tripIdRef.current,
+    },
+  }), [])
+
+  const { messages, sendMessage, status, error, setMessages } = useChat({
     transport: new DefaultChatTransport({
       api: "/api/chat",
-      prepareSendMessagesRequest: ({ id, messages }) => ({
-        body: {
-          messages,
-          id,
-          familyVibe,
-          currentTrip,
-        },
-      }),
+      prepareSendMessagesRequest,
     }),
   })
+
+  // Load persisted history whenever the trip scope changes
+  useEffect(() => {
+    setHistoryLoaded(false)
+    const url = tripId
+      ? `/api/chat/history?trip_id=${tripId}`
+      : "/api/chat/history"
+    fetch(url)
+      .then((r) => r.json())
+      .then(({ messages: saved }) => {
+        if (saved?.length) {
+          setMessages(
+            saved.map((m: { id: string; role: string; content: string }) => ({
+              id: m.id,
+              role: m.role as "user" | "assistant",
+              parts: [{ type: "text" as const, text: m.content }],
+            }))
+          )
+        } else {
+          setMessages([])
+        }
+        setHistoryLoaded(true)
+      })
+      .catch(() => setHistoryLoaded(true))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tripId])
 
   const isStreaming = status === "streaming" || status === "submitted"
 
@@ -104,7 +198,7 @@ export function AISidebar({ familyVibe, currentTrip }: AISidebarProps) {
 
         {/* Messages */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4">
-          {messages.length === 0 ? (
+          {messages.length === 0 && historyLoaded ? (
             <div className="flex flex-col gap-4">
               <div className="rounded-2xl bg-primary/5 p-4">
                 <p className="mb-1 text-sm font-medium text-foreground">
@@ -144,24 +238,73 @@ export function AISidebar({ familyVibe, currentTrip }: AISidebarProps) {
                     .map((p) => p.text)
                     .join("") || ""
 
-                if (!text) return null
+                // Collect place results from tool invocations in this message
+                // In AI SDK v6: type = "tool-{toolName}", state = "output-available", result in `output`
+                const places: (PlaceResult & { name: string })[] = []
+                if (msg.role === "assistant") {
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  msg.parts?.forEach((p: any) => {
+                    if (!p.type?.startsWith("tool-") || p.state !== "output-available" || !p.output || p.output.error) return
+                    const toolName = p.type.slice(5)
+                    if (toolName === "search_attraction" || toolName === "find_restaurants") {
+                      places.push(p.output)
+                    }
+                    if (toolName === "search_attractions_batch" && Array.isArray(p.output)) {
+                      places.push(...p.output.filter((r: { error?: string }) => !r.error))
+                    }
+                  })
+                }
+
+                if (!text && places.length === 0) return null
+
+                // For assistant messages with place cards, interleave cards with numbered items
+                if (msg.role === "assistant" && places.length > 0) {
+                  const segments = text.split(/\n(?=\d+\. )/)
+                  const intro = segments[0]
+                  const items = segments.slice(1)
+                  return (
+                    <div key={msg.id} className="flex w-full flex-col items-start gap-2">
+                      {intro?.trim() && (
+                        <div className="max-w-[85%] rounded-2xl bg-muted px-4 py-3 text-sm leading-relaxed text-foreground">
+                          <div className="whitespace-pre-wrap">{intro}</div>
+                        </div>
+                      )}
+                      <div className="flex w-full flex-col gap-3">
+                        {items.length > 0
+                          ? items.map((item, i) => (
+                              <div key={i} className="flex flex-col gap-1.5">
+                                {places[i] && <PlaceCard place={places[i]} index={i + 1} />}
+                                <div className="rounded-2xl bg-muted px-4 py-3 text-sm leading-relaxed text-foreground">
+                                  <div className="whitespace-pre-wrap">{item}</div>
+                                </div>
+                              </div>
+                            ))
+                          : places.map((place, i) => (
+                              <PlaceCard key={i} place={place} index={i + 1} />
+                            ))}
+                      </div>
+                    </div>
+                  )
+                }
 
                 return (
                   <div
                     key={msg.id}
-                    className={`flex ${
-                      msg.role === "user" ? "justify-end" : "justify-start"
+                    className={`flex flex-col ${
+                      msg.role === "user" ? "items-end" : "items-start"
                     }`}
                   >
-                    <div
-                      className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                        msg.role === "user"
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-foreground"
-                      }`}
-                    >
-                      <div className="whitespace-pre-wrap">{text}</div>
-                    </div>
+                    {text && (
+                      <div
+                        className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                          msg.role === "user"
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-foreground"
+                        }`}
+                      >
+                        <div className="whitespace-pre-wrap">{text}</div>
+                      </div>
+                    )}
                   </div>
                 )
               })}
