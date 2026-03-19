@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import { redirect } from "next/navigation"
 import { VibeOnboarding } from "@/components/vibe-onboarding"
 
 export default async function VibeOnboardingPage({
@@ -10,6 +11,8 @@ export default async function VibeOnboardingPage({
   const {
     data: { user },
   } = await supabase.auth.getUser()
+
+  if (!user) redirect("/auth/login?next=/profile/vibe")
 
   let existingVibe = null
 

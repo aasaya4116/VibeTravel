@@ -190,6 +190,17 @@ export function SearchExplorer({
             ...(tripId && { trip_id: tripId }),
           }),
         })
+        if (res.status === 401) {
+          setSavedNames((prev) => {
+            const next = new Set(prev)
+            next.delete(attraction.name)
+            return next
+          })
+          toast.error("Sign in to save places", {
+            action: { label: "Sign in", onClick: () => window.location.assign("/auth/login?next=" + window.location.pathname) },
+          })
+          return
+        }
         if (!res.ok) throw new Error("Failed to save")
         if (tripId) {
           const newCount = savedNames.size + 1

@@ -169,6 +169,10 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
         }),
       })
 
+      if (res.status === 401) {
+        router.push("/auth/login?next=/profile/vibe")
+        return
+      }
       if (!res.ok) throw new Error("Failed to save")
 
       toast.success("Family vibe saved!")

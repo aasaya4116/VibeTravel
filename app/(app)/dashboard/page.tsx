@@ -27,6 +27,9 @@ export default async function DashboardPage() {
     familyVibe = vibeRes.data
   }
 
+  // Unauthenticated users → login
+  if (!user) redirect("/auth/login?next=/dashboard")
+
   // First-time users: no vibe and no trips → guide through onboarding
   if (!familyVibe && trips.length === 0) {
     redirect("/profile/vibe?onboarding=true")
