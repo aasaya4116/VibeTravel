@@ -159,7 +159,8 @@ export function DashboardContent({ profile, trips, familyVibe }: DashboardConten
         </div>
       )}
 
-      {/* Quick Actions */}
+      {/* Quick Actions — only shown once the user has completed onboarding */}
+      {trips.some(t => t.itinerary?.length > 0) && (
       <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Link
           href="/search"
@@ -233,6 +234,7 @@ export function DashboardContent({ profile, trips, familyVibe }: DashboardConten
           </Link>
         )}
       </div>
+      )}
 
       {/* Family Vibe Card */}
       {familyVibe && (
