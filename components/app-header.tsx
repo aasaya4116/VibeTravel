@@ -88,6 +88,12 @@ export function AppHeader() {
               <LogOut className="h-5 w-5" />
             </button>
             <button
+              onClick={() => window.dispatchEvent(new CustomEvent("open-scout-feedback"))}
+              className="hidden rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/40 transition-colors hover:bg-white/10 hover:text-white/70 md:block"
+            >
+              Give feedback
+            </button>
+            <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="rounded-lg p-2 text-white/50 transition-colors hover:bg-white/8 md:hidden"
               aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}

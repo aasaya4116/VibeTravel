@@ -70,8 +70,21 @@ interface AISidebarProps {
 
 export function AISidebar({ familyVibe, currentTrip, tripId }: AISidebarProps) {
   const [open, setOpen] = useState(false)
+  const [feedbackMode, setFeedbackMode] = useState(false)
   const { isDismissed, dismiss } = useOnboardingHints()
   const showScoutHint = !isDismissed("scout")
+
+  // Listen for feedback trigger from the app header
+  useEffect(() => {
+    function handleFeedbackOpen() {
+      setFeedbackMode(true)
+      setMessages([])
+      setOpen(true)
+      dismiss("scout")
+    }
+    window.addEventListener("open-scout-feedback", handleFeedbackOpen)
+    return () => window.removeEventListener("open-scout-feedback", handleFeedbackOpen)
+  }, [dismiss])
   const scrollRef = useRef<HTMLDivElement>(null)
   const [input, setInput] = useState("")
   const [historyLoaded, setHistoryLoaded] = useState(false)
@@ -96,7 +109,7 @@ export function AISidebar({ familyVibe, currentTrip, tripId }: AISidebarProps) {
 
   const { messages, sendMessage, status, error, setMessages } = useChat({
     transport: new DefaultChatTransport({
-      api: "/api/chat",
+      api: feedbackMode ? "/api/feedback/chat" : "/api/chat",
       prepareSendMessagesRequest,
     }),
   })
@@ -209,6 +222,11 @@ export function AISidebar({ familyVibe, currentTrip, tripId }: AISidebarProps) {
             <div className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-primary" />
               <h2 className="font-medium text-foreground">Scout</h2>
+              {feedbackMode && (
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                  Feedback
+                </span>
+              )}
             </div>
             <button
               onClick={() => setOpen(false)}
@@ -227,21 +245,32 @@ export function AISidebar({ familyVibe, currentTrip, tripId }: AISidebarProps) {
 
         {/* Messages */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4">
-          {messages.length === 0 && historyLoaded ? (
+          {messages.length === 0 && (feedbackMode || historyLoaded) ? (
             <div className="flex flex-col gap-4">
               <div className="rounded-2xl bg-primary/5 p-4">
-                <p className="mb-1 text-sm font-medium text-foreground">
-                  Hi, I{"'"}m Scout — your AI travel assistant.
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {familyVibe?.kids?.length
-                    ? `I see you're planning${currentTrip?.destination ? ` a trip to ${currentTrip.destination}` : ""} with ${familyVibe.kids.map((k: { name?: string; age?: number }) => k.name ? `${k.name}${k.age ? ` (${k.age})` : ""}` : `age ${k.age}`).join(" and ")}. What can I help with?`
-                    : currentTrip?.destination
-                    ? `I see you're planning a trip to ${currentTrip.destination}. What can I help with?`
-                    : "I know your family's vibe and I can look up real restaurants, attractions, and tips."}
-                </p>
+                {feedbackMode ? (
+                  <>
+                    <p className="mb-1 text-sm font-medium text-foreground">Hey! I&apos;m in feedback mode.</p>
+                    <p className="text-sm text-muted-foreground">
+                      How&apos;s trip planning going so far? What&apos;s working well, and what felt confusing or missing?
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mb-1 text-sm font-medium text-foreground">
+                      Hi, I{"'"}m Scout — your AI travel assistant.
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {familyVibe?.kids?.length
+                        ? `I see you're planning${currentTrip?.destination ? ` a trip to ${currentTrip.destination}` : ""} with ${familyVibe.kids.map((k: { name?: string; age?: number }) => k.name ? `${k.name}${k.age ? ` (${k.age})` : ""}` : `age ${k.age}`).join(" and ")}. What can I help with?`
+                        : currentTrip?.destination
+                        ? `I see you're planning a trip to ${currentTrip.destination}. What can I help with?`
+                        : "I know your family's vibe and I can look up real restaurants, attractions, and tips."}
+                    </p>
+                  </>
+                )}
               </div>
-              <div className="flex flex-col gap-2">
+              {!feedbackMode && <div className="flex flex-col gap-2">
                 {suggestedPrompts.map((prompt) => (
                   <button
                     key={prompt}
@@ -253,7 +282,7 @@ export function AISidebar({ familyVibe, currentTrip, tripId }: AISidebarProps) {
                     {prompt}
                   </button>
                 ))}
-              </div>
+              </div>}
             </div>
           ) : (
             <div className="flex flex-col gap-4">

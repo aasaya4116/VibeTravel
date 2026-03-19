@@ -7,6 +7,7 @@ import { toast } from "sonner"
 import { Plus, Map, Calendar, X, LogIn, Hotel, Trash2 } from "lucide-react"
 import { DestinationAutocomplete } from "@/components/destination-autocomplete"
 import type { Trip } from "@/lib/types"
+import { MilestonePulse } from "@/components/milestone-pulse"
 
 interface TripsOverviewProps {
   trips: Trip[]
@@ -16,6 +17,7 @@ interface TripsOverviewProps {
 export function TripsOverview({ trips, isLoggedIn }: TripsOverviewProps) {
   const router = useRouter()
   const [showCreate, setShowCreate] = useState(false)
+  const [pulseTrip, setPulseTrip] = useState<{ id: string } | null>(null)
   const [wizardStep, setWizardStep] = useState(1)
   const [title, setTitle] = useState("")
   const [destination, setDestination] = useState("")
@@ -85,6 +87,7 @@ export function TripsOverview({ trips, isLoggedIn }: TripsOverviewProps) {
 
       const { data: newTrip } = await res.json()
       toast.success("Trip created! Now let's find some places.")
+      setPulseTrip({ id: newTrip.id })
       router.push(`/search?trip=${newTrip.id}&dest=${encodeURIComponent(destination)}`)
     } catch {
       toast.error("Could not create trip")
@@ -94,6 +97,14 @@ export function TripsOverview({ trips, isLoggedIn }: TripsOverviewProps) {
   }
 
   return (
+    <>
+    {pulseTrip && (
+      <MilestonePulse
+        step="trip_created"
+        tripId={pulseTrip.id}
+        onDismiss={() => setPulseTrip(null)}
+      />
+    )}
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-8 lg:py-12">
       <div className="mb-8 flex items-center justify-between">
         <div>
@@ -352,5 +363,6 @@ export function TripsOverview({ trips, isLoggedIn }: TripsOverviewProps) {
         </div>
       )}
     </div>
+    </>
   )
 }

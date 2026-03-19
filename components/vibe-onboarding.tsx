@@ -4,6 +4,7 @@ import { useState, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { toast } from "sonner"
+import { MilestonePulse } from "@/components/milestone-pulse"
 import {
   ArrowLeft,
   ArrowRight,
@@ -58,6 +59,7 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
   const router = useRouter()
   const [step, setStep] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [showPulse, setShowPulse] = useState(false)
 
   const [familyName, setFamilyName] = useState(
     existingVibe?.family_name || ""
@@ -176,6 +178,7 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
       if (!res.ok) throw new Error("Failed to save")
 
       toast.success("Family vibe saved!")
+      setShowPulse(true)
       router.push(isOnboarding ? "/trips" : "/dashboard")
       router.refresh()
     } catch {
@@ -186,6 +189,10 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
   }
 
   return (
+    <>
+    {showPulse && (
+      <MilestonePulse step="vibe_saved" onDismiss={() => setShowPulse(false)} />
+    )}
     <div className="mx-auto max-w-2xl px-4 py-8 lg:py-12">
       {/* Back / skip link */}
       {isOnboarding ? (
@@ -490,5 +497,6 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
         </div>
       </div>
     </div>
+    </>
   )
 }

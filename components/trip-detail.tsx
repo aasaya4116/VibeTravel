@@ -26,6 +26,8 @@ import { getAttractionImage } from "@/lib/attraction-images"
 import { TripMap } from "@/components/trip-map"
 import { OnboardingHint } from "@/components/onboarding-hint"
 import { useOnboardingHints } from "@/hooks/use-onboarding-hints"
+import { MilestonePulse } from "@/components/milestone-pulse"
+import { OutcomeCheck } from "@/components/outcome-check"
 
 const STATUS_FLOW: Record<string, { next: string; label: string } | null> = {
   planning: { next: "active", label: "Mark as Active" },
@@ -50,6 +52,8 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
   const router = useRouter()
   const { isDismissed, dismiss } = useOnboardingHints()
   const [generating, setGenerating] = useState(false)
+  const [showItineraryPulse, setShowItineraryPulse] = useState(false)
+  const [showOutcomeCheck, setShowOutcomeCheck] = useState(false)
   const [deltaGenerating, setDeltaGenerating] = useState<string | null>(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [currentStatus, setCurrentStatus] = useState(trip.status)
@@ -127,6 +131,8 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
         throw new Error(data.error || "Failed to generate itinerary")
       }
       toast.success("Itinerary generated!")
+      setShowItineraryPulse(true)
+      setShowOutcomeCheck(true)
       router.refresh()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not generate itinerary")
@@ -158,6 +164,14 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
   }
 
   return (
+    <>
+    {showItineraryPulse && (
+      <MilestonePulse
+        step="itinerary_generated"
+        tripId={trip.id}
+        onDismiss={() => setShowItineraryPulse(false)}
+      />
+    )}
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-8 lg:py-12">
       {/* Back link */}
       <Link
@@ -334,6 +348,14 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
               </>
             )}
           </div>
+
+          {/* Outcome check — shown once after itinerary generates */}
+          {hasItinerary && showOutcomeCheck && (
+            <OutcomeCheck
+              tripId={trip.id}
+              onDismiss={() => setShowOutcomeCheck(false)}
+            />
+          )}
 
           {/* Action bar — always visible once itinerary exists */}
           {hasItinerary && (
@@ -693,5 +715,6 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
         </div>
       </div>
     </div>
+    </>
   )
 }
