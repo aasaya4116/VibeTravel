@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { X, Send, Sparkles, AlertCircle, RotateCcw, MapPin, Star } from "lucide-react"
 import type { FamilyVibe, Trip } from "@/lib/types"
 import type { PlaceResult } from "@/lib/travel-apis/google-places"
+import { useOnboardingHints } from "@/hooks/use-onboarding-hints"
 
 function PlaceCard({ place, index }: { place: PlaceResult & { name: string }; index: number }) {
   return (
@@ -69,6 +70,8 @@ interface AISidebarProps {
 
 export function AISidebar({ familyVibe, currentTrip, tripId }: AISidebarProps) {
   const [open, setOpen] = useState(false)
+  const { isDismissed, dismiss } = useOnboardingHints()
+  const showScoutHint = !isDismissed("scout")
   const scrollRef = useRef<HTMLDivElement>(null)
   const [input, setInput] = useState("")
   const [historyLoaded, setHistoryLoaded] = useState(false)
@@ -157,7 +160,7 @@ export function AISidebar({ familyVibe, currentTrip, tripId }: AISidebarProps) {
     <>
       {/* Toggle button */}
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => { setOpen(true); dismiss("scout") }}
         title="AI travel assistant — real restaurants, itineraries & more"
         className={`fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-primary-foreground shadow-lg transition-all hover:bg-primary/90 hover:shadow-xl ${
           open ? "scale-0 opacity-0 pointer-events-none" : "scale-100 opacity-100"
@@ -167,6 +170,32 @@ export function AISidebar({ familyVibe, currentTrip, tripId }: AISidebarProps) {
         <Sparkles className="h-5 w-5" />
         <span className="text-sm font-medium">Ask Scout</span>
       </button>
+
+      {/* Scout onboarding hint bubble */}
+      {showScoutHint && !open && (
+        <div className="fixed bottom-20 right-6 z-40 w-64 animate-in fade-in slide-in-from-bottom-2 duration-500 rounded-2xl border border-border bg-card p-4 shadow-xl">
+          <span
+            aria-hidden
+            className="absolute -bottom-1.5 right-8 h-2.5 w-2.5 rotate-45 border border-border bg-card"
+          />
+          <p className="pr-6 text-sm leading-snug text-foreground">
+            Try asking Scout to plan your whole trip — <span className="text-primary">&ldquo;Plan a trip to Tokyo for our family&rdquo;</span>
+          </p>
+          <button
+            onClick={() => dismiss("scout")}
+            aria-label="Dismiss tip"
+            className="absolute right-2.5 top-2.5 rounded-lg p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+          <button
+            onClick={() => dismiss("scout")}
+            className="mt-3 text-xs font-medium text-primary hover:underline"
+          >
+            Got it
+          </button>
+        </div>
+      )}
 
       {/* Sidebar panel */}
       <div

@@ -24,6 +24,8 @@ import type { Trip, SavedAttraction } from "@/lib/types"
 import { getBookingLink } from "@/lib/get-booking-link"
 import { getAttractionImage } from "@/lib/attraction-images"
 import { TripMap } from "@/components/trip-map"
+import { OnboardingHint } from "@/components/onboarding-hint"
+import { useOnboardingHints } from "@/hooks/use-onboarding-hints"
 
 const STATUS_FLOW: Record<string, { next: string; label: string } | null> = {
   planning: { next: "active", label: "Mark as Active" },
@@ -46,6 +48,7 @@ interface TripDetailProps {
 
 export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }: TripDetailProps) {
   const router = useRouter()
+  const { isDismissed, dismiss } = useOnboardingHints()
   const [generating, setGenerating] = useState(false)
   const [deltaGenerating, setDeltaGenerating] = useState<string | null>(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
@@ -535,13 +538,31 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
                     ))}
                   </div>
                   <div className="mt-6">
-                    <Link
-                      href={`/search?trip=${trip.id}&dest=${encodeURIComponent(trip.destination)}`}
-                      className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                    >
-                      <Search className="h-4 w-4" />
-                      Start searching {trip.destination}
-                    </Link>
+                    {!isDismissed("start-searching") ? (
+                      <OnboardingHint
+                        message={`Search for things to do in ${trip.destination} and tap the heart to save them here.`}
+                        side="top"
+                        align="start"
+                        onDismiss={() => dismiss("start-searching")}
+                      >
+                        <Link
+                          href={`/search?trip=${trip.id}&dest=${encodeURIComponent(trip.destination)}`}
+                          onClick={() => dismiss("start-searching")}
+                          className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                        >
+                          <Search className="h-4 w-4" />
+                          Start searching {trip.destination}
+                        </Link>
+                      </OnboardingHint>
+                    ) : (
+                      <Link
+                        href={`/search?trip=${trip.id}&dest=${encodeURIComponent(trip.destination)}`}
+                        className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                      >
+                        <Search className="h-4 w-4" />
+                        Start searching {trip.destination}
+                      </Link>
+                    )}
                   </div>
                 </div>
               ) : (

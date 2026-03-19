@@ -3,12 +3,13 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
-import { Search, SlidersHorizontal, X, Sparkles, AlertCircle, MapPin } from "lucide-react"
+import { Search, SlidersHorizontal, X, Sparkles, AlertCircle, MapPin, Heart } from "lucide-react"
 import { AttractionCard } from "@/components/attraction-card"
 import { SearchFilters } from "@/components/search-filters"
 import { DestinationAutocomplete } from "@/components/destination-autocomplete"
 import type { Attraction, FamilyVibe } from "@/lib/types"
 import { VlogStrip } from "@/components/vlog-strip"
+import { useOnboardingHints } from "@/hooks/use-onboarding-hints"
 
 interface SearchExplorerProps {
   familyVibe: FamilyVibe | null
@@ -45,6 +46,7 @@ export function SearchExplorer({
 }: SearchExplorerProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { isDismissed, dismiss } = useOnboardingHints()
 
   const [query, setQuery] = useState(searchParams.get("q") || "")
   const [destination, setDestination] = useState(initialDestination || searchParams.get("dest") || "")
@@ -728,6 +730,23 @@ export function SearchExplorer({
             <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
             <p className="text-sm leading-relaxed text-foreground">{summary}</p>
           </div>
+        </div>
+      )}
+
+      {/* Save hint — shown once when landing on search page with a trip context */}
+      {tripId && attractions.length > 0 && !isDismissed("save-hint") && (
+        <div className="mb-5 flex items-start gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 animate-in fade-in duration-500">
+          <Heart className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+          <p className="flex-1 text-sm text-foreground">
+            Tap the <span className="font-medium">heart</span> on any place to save it to your trip. Save 3 or more to unlock your AI itinerary.
+          </p>
+          <button
+            onClick={() => dismiss("save-hint")}
+            aria-label="Dismiss tip"
+            className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-primary/10 hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
 

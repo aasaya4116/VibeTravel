@@ -4,6 +4,8 @@ import Link from "next/link"
 import { Search, Map, Sparkles, ArrowRight, Plus, Baby, Pencil, Calendar, CheckCircle2, Circle } from "lucide-react"
 import type { Profile, Trip, FamilyVibe } from "@/lib/types"
 import { getCountryCode, getFlagUrl } from "@/lib/destination-flag"
+import { OnboardingHint } from "@/components/onboarding-hint"
+import { useOnboardingHints } from "@/hooks/use-onboarding-hints"
 
 const INSPIRATION: {
   destination: string
@@ -48,6 +50,7 @@ interface DashboardContentProps {
 }
 
 export function DashboardContent({ profile, trips, familyVibe }: DashboardContentProps) {
+  const { isDismissed, dismiss } = useOnboardingHints()
   const displayName = profile?.display_name ?? "Explorer"
 
   // Find the next upcoming or in-progress trip
@@ -174,19 +177,43 @@ export function DashboardContent({ profile, trips, familyVibe }: DashboardConten
           <ArrowRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" />
         </Link>
 
-        <Link
-          href="/trips"
-          className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-5 transition-all hover:border-primary/30 hover:shadow-md"
-        >
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent">
-            <Map className="h-6 w-6" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="font-medium text-foreground">Plan a Trip</p>
-            <p className="text-sm text-muted-foreground">Build your itinerary day by day</p>
-          </div>
-          <ArrowRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" />
-        </Link>
+        {trips.length === 0 && familyVibe && !isDismissed("plan-trip") ? (
+          <OnboardingHint
+            message="Start here — create your first trip. Scout can plan the whole thing from scratch."
+            side="bottom"
+            align="start"
+            onDismiss={() => dismiss("plan-trip")}
+          >
+            <Link
+              href="/trips"
+              onClick={() => dismiss("plan-trip")}
+              className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-5 transition-all hover:border-primary/30 hover:shadow-md"
+            >
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent">
+                <Map className="h-6 w-6" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-foreground">Plan a Trip</p>
+                <p className="text-sm text-muted-foreground">Build your itinerary day by day</p>
+              </div>
+              <ArrowRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" />
+            </Link>
+          </OnboardingHint>
+        ) : (
+          <Link
+            href="/trips"
+            className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-5 transition-all hover:border-primary/30 hover:shadow-md"
+          >
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent">
+              <Map className="h-6 w-6" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="font-medium text-foreground">Plan a Trip</p>
+              <p className="text-sm text-muted-foreground">Build your itinerary day by day</p>
+            </div>
+            <ArrowRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" />
+          </Link>
+        )}
 
         {!familyVibe && (
           <Link
