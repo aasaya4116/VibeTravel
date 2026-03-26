@@ -22,19 +22,18 @@ export default function SignUpSuccessPage() {
             </svg>
           </div>
           <h1 className="font-serif text-2xl text-foreground">
-            Check your email
+            You{"'"}re all set!
           </h1>
           <p className="mt-3 text-muted-foreground">
-            We{"'"}ve sent you a confirmation link. Click it to activate your
-            VibeTravel account and start planning your family{"'"}s next
-            adventure.
+            Your VibeTravel account is ready. Start planning your family{"'"}s
+            next adventure.
           </p>
         </div>
         <Link
-          href="/auth/login"
-          className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+          href="/dashboard"
+          className="inline-block rounded-xl bg-primary px-6 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
         >
-          Back to sign in
+          Go to dashboard
         </Link>
       </div>
     </div>

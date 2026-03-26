@@ -36,7 +36,7 @@ export default function SignUpPage() {
       if (error) {
         setError(error.message)
       } else {
-        router.push("/auth/sign-up-success")
+        router.push("/dashboard")
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.")
