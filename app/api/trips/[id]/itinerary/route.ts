@@ -6,6 +6,10 @@ import { z } from "zod"
 import type { ItineraryDay } from "@/lib/types"
 import { getWeatherForecast } from "@/lib/travel-apis/openweather"
 
+// Opus itinerary generation on multi-day trips can exceed the default
+// serverless timeout; give the function headroom before Vercel kills it.
+export const maxDuration = 60
+
 const itineraryItemSchema = z.object({
   attraction_name: z.string(),
   start_time: z.string(),
