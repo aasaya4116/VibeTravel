@@ -25,7 +25,7 @@ export async function POST(req: Request) {
   }
 
   const result = streamText({
-    model: anthropic("claude-sonnet-4-20250514"),
+    model: anthropic("claude-sonnet-4-5-20250929"),
     system: `You are Scout in feedback mode — your job is to have a warm, conversational chat with this VibeTravel beta tester to understand their experience.
 
 Your goal: find out whether they got what they came for. Did trip planning actually work for their family?

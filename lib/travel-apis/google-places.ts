@@ -53,8 +53,9 @@ export async function searchPlaces(
     if (!place) return null
 
     const photoRef = place.photos?.[0]?.name
+    // Route through our own proxy so the Google API key is never exposed to the client.
     const photoUrl = photoRef
-      ? `https://places.googleapis.com/v1/${photoRef}/media?maxHeightPx=800&maxWidthPx=1200&key=${API_KEY}`
+      ? `/api/place-photo?ref=${encodeURIComponent(photoRef)}`
       : null
 
     return {

@@ -146,8 +146,10 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
 
   const isDelta = !!deltaInstruction && trip.itinerary && trip.itinerary.length > 0
 
-  const result = await generateText({
-    model: anthropic("claude-sonnet-4-6"),
+  let result: { output?: unknown }
+  try {
+    result = await generateText({
+    model: anthropic("claude-sonnet-4-5-20250929"),
     output: Output.object({ schema: itineraryOutputSchema }),
     system: isDelta
       ? `You are VibeTravel's itinerary refinement assistant. You receive an existing day-by-day itinerary and a specific improvement request.
@@ -198,7 +200,14 @@ ${attractions.map((a) => `- ${a.name} (${(a as { estimatedDuration?: string }).e
 Generate a COMPLETE day-by-day itinerary. Include all saved attractions AND recommend additional real activities, restaurants, and experiences to fill out each day. Mark each item: recommended: false for saved attractions, recommended: true for your suggestions.`,
       },
     ],
-  })
+    })
+  } catch (err) {
+    console.error("[itinerary] generation failed:", err)
+    return NextResponse.json(
+      { error: "Itinerary generation failed. Please try again." },
+      { status: 502 }
+    )
+  }
 
   const parsed = result.output as {
     days: {
