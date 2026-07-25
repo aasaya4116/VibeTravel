@@ -149,7 +149,7 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
   let result: { output?: unknown }
   try {
     result = await generateText({
-    model: anthropic("claude-sonnet-4-5-20250929"),
+    model: anthropic("claude-opus-4-8"),
     output: Output.object({ schema: itineraryOutputSchema }),
     system: isDelta
       ? `You are VibeTravel's itinerary refinement assistant. You receive an existing day-by-day itinerary and a specific improvement request.

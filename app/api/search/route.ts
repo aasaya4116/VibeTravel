@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     : ""
 
   const result = await generateText({
-    model: anthropic("claude-haiku-4-5-20251001"),
+    model: anthropic("claude-sonnet-4-5-20250929"),
     output: Output.object({ schema: searchResultSchema }),
     system: `You are VibeTravel's attraction search engine. Return REAL attractions that exist in the destination.
 
