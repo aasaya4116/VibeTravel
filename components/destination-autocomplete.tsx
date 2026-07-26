@@ -22,11 +22,12 @@ export function DestinationAutocomplete({
   const containerRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLUListElement>(null)
 
+  // Show all matches (the list scrolls); an empty box lists every destination.
   const filtered = value.trim()
     ? destinations.filter((d) =>
         d.toLowerCase().includes(value.toLowerCase())
-      ).slice(0, 8)
-    : destinations.slice(0, 8)
+      )
+    : destinations
 
   const showDropdown = open && filtered.length > 0
 

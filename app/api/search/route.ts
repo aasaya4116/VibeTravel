@@ -5,6 +5,10 @@ import { getWikipediaImages } from "@/lib/wikipedia-image"
 import { getAttractionImage } from "@/lib/attraction-images"
 import { searchPlacesBatch } from "@/lib/travel-apis/google-places"
 
+// Search generates a list then enriches it; give it headroom over the
+// default serverless limit while we keep the model fast (Haiku).
+export const maxDuration = 30
+
 const attractionSchema = z.object({
   name: z.string(),
   description: z.string().describe("2-3 sentences max"),
@@ -21,7 +25,7 @@ const attractionSchema = z.object({
 })
 
 const searchResultSchema = z.object({
-  attractions: z.array(attractionSchema).describe("Return 12-16 results, ranked by relevance to the query"),
+  attractions: z.array(attractionSchema).describe("Return 8-10 results, ranked by relevance to the query"),
   searchSummary: z.string().describe("1 sentence summary"),
 })
 
@@ -42,13 +46,13 @@ export async function POST(req: Request) {
     : ""
 
   const result = await generateText({
-    model: anthropic("claude-sonnet-4-5-20250929"),
+    model: anthropic("claude-haiku-4-5-20251001"),
     output: Output.object({ schema: searchResultSchema }),
     system: `You are VibeTravel's attraction search engine. Return REAL attractions that exist in the destination.
 
 Rules:
 - QUERY RELEVANCE IS THE TOP PRIORITY. If the user mentions specific interests (Disney, Nintendo, anime, etc.), the most iconic matching attractions MUST appear first.
-- Return 12-16 real, family-friendly attractions ranked by how well they match the query
+- Return 8-10 real, family-friendly attractions ranked by how well they match the query
 - Never omit a famous, highly-relevant attraction in favor of generic alternatives
 - Theme parks, brand experiences, and entertainment venues are valid and important results
 - Keep descriptions to 2-3 sentences, tips to 1-2 per attraction
