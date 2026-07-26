@@ -1,12 +1,12 @@
-import { generateText, Output } from "ai"
+import { streamObject } from "ai"
 import { anthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
-import { getWikipediaImages } from "@/lib/wikipedia-image"
+import { getWikipediaImage } from "@/lib/wikipedia-image"
 import { getAttractionImage } from "@/lib/attraction-images"
-import { searchPlacesBatch } from "@/lib/travel-apis/google-places"
+import { searchPlaces } from "@/lib/travel-apis/google-places"
 
-// Search generates a list then enriches it; give it headroom over the
-// default serverless limit while we keep the model fast (Haiku).
+// Search streams results as they generate; keep headroom over the default
+// serverless limit while the model (Haiku) stays fast.
 export const maxDuration = 30
 
 const attractionSchema = z.object({
@@ -24,10 +24,36 @@ const attractionSchema = z.object({
   tips: z.array(z.string()).describe("1-2 short insider tips"),
 })
 
-const searchResultSchema = z.object({
-  attractions: z.array(attractionSchema).describe("Return 8-10 results, ranked by relevance to the query"),
-  searchSummary: z.string().describe("1 sentence summary"),
-})
+type AiAttraction = z.infer<typeof attractionSchema>
+
+// Enrich one AI-generated attraction with real photo/rating/hours data.
+// Falls back gracefully when a provider misses or isn't configured.
+async function enrichAttraction(attraction: AiAttraction, destination: string) {
+  const [place, wikiImage] = await Promise.all([
+    searchPlaces(attraction.name, destination || attraction.location),
+    getWikipediaImage(attraction.name, attraction.location),
+  ])
+
+  const imageSource = place?.photoUrl ? "google" : wikiImage ? "wikipedia" : "fallback"
+  const ratingSource = place?.rating != null ? "google" : "ai"
+
+  return {
+    ...attraction,
+    rating: place?.rating ?? attraction.rating,
+    priceRange: place?.priceLevel ?? attraction.priceRange,
+    imageUrl:
+      place?.photoUrl ||
+      wikiImage ||
+      getAttractionImage(attraction.category, attraction.name),
+    ...(place && {
+      openNow: place.openNow,
+      weekdayHours: place.weekdayHours,
+      googleMapsUri: place.googleMapsUri,
+      accessibleEntrance: place.accessibleEntrance,
+    }),
+    _sources: { image: imageSource, rating: ratingSource },
+  }
+}
 
 export async function POST(req: Request) {
   const { query, destination, filters, familyVibe } = await req.json()
@@ -45,9 +71,12 @@ export async function POST(req: Request) {
     ? `Family: kids=${JSON.stringify(familyVibe.kids)}, style=${familyVibe.travel_style?.join(", ") || "any"}, sensory=${familyVibe.sensory_needs?.join(", ") || "none"}, pace=${familyVibe.pace || "moderate"}, dietary=${familyVibe.dietary?.join(", ") || "none"}`
     : ""
 
-  const result = await generateText({
+  // Stream the attractions array element-by-element; each completed element is
+  // enriched with real data and pushed to the client as one NDJSON line.
+  const { elementStream } = streamObject({
     model: anthropic("claude-haiku-4-5-20251001"),
-    output: Output.object({ schema: searchResultSchema }),
+    output: "array",
+    schema: attractionSchema,
     system: `You are VibeTravel's attraction search engine. Return REAL attractions that exist in the destination.
 
 Rules:
@@ -57,61 +86,32 @@ Rules:
 - Theme parks, brand experiences, and entertainment venues are valid and important results
 - Keep descriptions to 2-3 sentences, tips to 1-2 per attraction
 - Use one of these categories: Museum, Nature, Creative Play, Playground, Cultural, Adventure, Restaurant, Aquarium, Zoo, Theme Park, Entertainment`,
-    messages: [
-      {
-        role: "user",
-        content: `Find family attractions in ${destination || "the area"} that match this query: "${query}"
+    prompt: `Find family attractions in ${destination || "the area"} that match this query: "${query}"
 ${filterContext}
 ${vibeContext}`.trim(),
-      },
-    ],
   })
 
-  const output = result.output as { attractions: { name: string; location: string; category: string; rating: number | null; priceRange: string }[]; searchSummary: string } | undefined
-
-  if (!output?.attractions?.length) {
-    return Response.json({ attractions: [], searchSummary: "No results found." })
-  }
-
-  // Fetch Wikipedia images + Google Places data in parallel
-  // Google Places covers all categories including restaurants — no Yelp needed
-  const [wikiImages, placesData] = await Promise.all([
-    getWikipediaImages(
-      output.attractions.map((a) => ({ name: a.name, location: a.location }))
-    ),
-    searchPlacesBatch(
-      output.attractions.map((a) => ({ name: a.name, destination: destination || a.location }))
-    ),
-  ])
-
-  // Enrich each attraction with real data where available
-  const enriched = output.attractions.map((attraction) => {
-    const place = placesData.get(attraction.name)
-    const wikiImage = wikiImages.get(attraction.name)
-
-    const imageSource = place?.photoUrl ? "google" : wikiImage ? "wikipedia" : "fallback"
-    const ratingSource = place?.rating != null ? "google" : "ai"
-
-    return {
-      ...attraction,
-      rating: place?.rating ?? attraction.rating,
-      priceRange: place?.priceLevel ?? attraction.priceRange,
-      imageUrl:
-        place?.photoUrl ||
-        wikiImage ||
-        getAttractionImage(attraction.category, attraction.name),
-      ...(place && {
-        openNow: place.openNow,
-        weekdayHours: place.weekdayHours,
-        googleMapsUri: place.googleMapsUri,
-        accessibleEntrance: place.accessibleEntrance,
-      }),
-      _sources: { image: imageSource, rating: ratingSource },
-    }
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        for await (const attraction of elementStream) {
+          const enriched = await enrichAttraction(attraction, destination || "")
+          controller.enqueue(encoder.encode(JSON.stringify(enriched) + "\n"))
+        }
+      } catch (err) {
+        console.error("[search] stream error:", err)
+      } finally {
+        controller.close()
+      }
+    },
   })
 
-  return Response.json({
-    attractions: enriched,
-    searchSummary: output.searchSummary,
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
+    },
   })
 }

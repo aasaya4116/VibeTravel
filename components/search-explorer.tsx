@@ -131,12 +131,44 @@ export function SearchExplorer({
           }),
         })
 
-        if (!response.ok) throw new Error("Search failed")
+        if (!response.ok || !response.body) throw new Error("Search failed")
 
-        const data = await response.json()
-        setAttractions(data.attractions || [])
-        setSummary(data.searchSummary || "")
         setActiveSearch({ query: searchQuery, destination: searchDest, filters: searchFilters })
+
+        // Results stream as newline-delimited JSON — one enriched attraction per
+        // line. Append each as it arrives so cards render incrementally.
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ""
+        let count = 0
+
+        const pushLine = (line: string) => {
+          const trimmed = line.trim()
+          if (!trimmed) return
+          try {
+            const attraction = JSON.parse(trimmed) as Attraction
+            count++
+            setAttractions((prev) => [...prev, attraction])
+          } catch {
+            // ignore a malformed or partial line
+          }
+        }
+
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split("\n")
+          buffer = lines.pop() ?? ""
+          for (const line of lines) pushLine(line)
+        }
+        pushLine(buffer)
+
+        setSummary(
+          count > 0
+            ? `Found ${count} spot${count !== 1 ? "s" : ""}${searchDest ? ` in ${searchDest}` : ""} matching "${searchQuery || "your family"}".`
+            : ""
+        )
       } catch (err) {
         console.error("Search error:", err)
         setSearchError("Something went wrong with your search. Please try again.")
