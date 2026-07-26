@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Search, Map, Sparkles, ArrowRight, Plus, Baby, Pencil, Calendar, CheckCircle2, Circle } from "lucide-react"
+import { Search, Map, Sparkles, ArrowRight, Plus, Baby, Pencil, Calendar, Check } from "lucide-react"
 import type { Profile, Trip, FamilyVibe } from "@/lib/types"
 import { getCountryCode, getFlagUrl } from "@/lib/destination-flag"
 import { OnboardingHint } from "@/components/onboarding-hint"
@@ -80,25 +80,86 @@ export function DashboardContent({ profile, trips, familyVibe }: DashboardConten
     .sort((a, b) => b.score - a.score)
     .slice(0, 3)
 
+  // Onboarding progress + the single most useful next action (drives the hero card)
+  const hasItinerary = trips.some((t) => (t.itinerary?.length ?? 0) > 0)
+  const onboardingSteps = [
+    { label: "Set your family vibe", done: !!familyVibe },
+    { label: "Create a trip", done: trips.length > 0 },
+    { label: "Generate your itinerary", done: hasItinerary },
+  ]
+  const nextStep = !familyVibe
+    ? { title: "Set your family vibe", desc: "Tell us about your kids and travel style.", cta: "Set your vibe", href: "/profile/vibe" }
+    : trips.length === 0
+      ? { title: "Start a new trip", desc: "Choose a destination and dates.", cta: "Create a trip", href: "/trips" }
+      : { title: "Build your itinerary", desc: "Save 3+ spots, then generate a plan.", cta: "Go to your trip", href: `/trips/${trips[0].id}` }
+
+  const vibeSummary = upcomingTrip
+    ? "Your next adventure is coming up."
+    : familyVibe
+      ? "Your family vibe is set. Let's find where it takes you."
+      : "Where is your family headed next?"
+
   return (
     <div>
-      {/* Editorial greeting banner */}
-      <div className="relative overflow-hidden bg-[#0a0a0f] px-4 py-10 lg:px-8 lg:py-14">
-        {/* Glow orb */}
-        <div className="pointer-events-none absolute -right-32 -top-16 h-80 w-80 rounded-full bg-primary/10 blur-[100px]" />
-        <div className="pointer-events-none absolute -left-16 bottom-0 h-48 w-48 rounded-full bg-accent/8 blur-[80px]" />
-        <div className="relative mx-auto max-w-5xl">
-          <p className="mb-3 text-[11px] font-medium tracking-[0.22em] text-white/30 uppercase">
-            Welcome back
-          </p>
-          <h1 className="font-serif text-4xl leading-tight text-white lg:text-5xl">
-            Hey, {displayName}
-          </h1>
-          <p className="mt-3 text-base text-white/45">
-            {upcomingTrip
-              ? "Your next adventure is coming up."
-              : "Where is your family headed next?"}
-          </p>
+      {/* Cinematic welcome band */}
+      <div className="relative overflow-hidden bg-[#0a0a0f] px-4 py-12 lg:px-8 lg:py-16">
+        {/* Glow orbs */}
+        <div className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-primary/15 blur-[120px]" />
+        <div className="pointer-events-none absolute -left-16 bottom-0 h-48 w-48 rounded-full bg-accent/10 blur-[90px]" />
+        <div className="relative mx-auto flex max-w-5xl flex-col items-start justify-between gap-9 lg:flex-row lg:items-end">
+          <div>
+            <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.22em] text-white/35">
+              Welcome back
+            </p>
+            <h1 className="font-serif text-4xl leading-[1.08] tracking-tight text-white lg:text-5xl">
+              Hey, {displayName}.
+              <br />
+              {upcomingTrip ? (
+                <>
+                  Your next adventure <em className="italic text-primary">awaits.</em>
+                </>
+              ) : (
+                <>
+                  Where&apos;s your family <em className="italic text-primary">headed next?</em>
+                </>
+              )}
+            </h1>
+            <p className="mt-4 max-w-md text-base text-white/50">{vibeSummary}</p>
+          </div>
+
+          {/* Floating glass card — echoes the homepage's layered UI cards */}
+          {!hasItinerary && (
+            <div className="w-full shrink-0 rounded-2xl border border-white/[0.12] bg-black/50 p-5 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.6)] backdrop-blur-xl lg:w-80">
+              <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-white/35">
+                Pick up where you left off
+              </p>
+              <h3 className="mt-2 font-serif text-2xl text-white">{nextStep.title}</h3>
+              <p className="mt-1 text-xs text-white/45">{nextStep.desc}</p>
+              <div className="mt-4 flex flex-col gap-2.5">
+                {onboardingSteps.map((s) => (
+                  <div key={s.label} className="flex items-center gap-2.5 text-xs">
+                    <span
+                      className={`grid h-4 w-4 shrink-0 place-items-center rounded-full border ${
+                        s.done ? "border-primary bg-primary" : "border-white/20"
+                      }`}
+                    >
+                      {s.done && <Check className="h-2.5 w-2.5 text-white" />}
+                    </span>
+                    <span className={s.done ? "text-white/30 line-through" : "text-white/55"}>
+                      {s.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <Link
+                href={nextStep.href}
+                className="mt-5 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white transition-all hover:gap-3"
+              >
+                {nextStep.cta}
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          )}
         </div>
       </div>
 
@@ -259,7 +320,7 @@ export function DashboardContent({ profile, trips, familyVibe }: DashboardConten
               Edit
             </Link>
           </div>
-          <div className="rounded-2xl border border-border bg-card p-5">
+          <div className="rounded-2xl border border-border bg-card p-5 card-soft">
             <div className="flex flex-wrap gap-6">
               {familyVibe.kids?.length > 0 && (
                 <div className="flex items-start gap-3">
@@ -327,65 +388,6 @@ export function DashboardContent({ profile, trips, familyVibe }: DashboardConten
         </div>
       )}
 
-      {/* Getting Started Checklist — shown until first itinerary is generated */}
-      {!trips.some(t => t.itinerary?.length > 0) && (
-        <div className="mb-8 rounded-2xl border border-border bg-card p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <h2 className="font-medium text-foreground">Get started</h2>
-          </div>
-          <div className="flex flex-col gap-3">
-            {[
-              {
-                done: !!familyVibe,
-                label: "Set your family vibe",
-                description: "Tell us about your kids, travel style, and needs",
-                href: "/profile/vibe",
-                cta: "Set vibe",
-              },
-              {
-                done: trips.length > 0,
-                label: "Create a trip",
-                description: "Pick a destination and dates",
-                href: "/trips",
-                cta: "Create trip",
-              },
-              {
-                done: false,
-                label: "Generate your itinerary",
-                description: "Save 3+ attractions to a trip, then generate a day-by-day plan",
-                href: trips.length > 0 ? `/trips/${trips[0].id}` : "/trips",
-                cta: "Go to trip",
-              },
-            ].map((step, i) => (
-              <div key={i} className="flex items-start gap-3">
-                {step.done ? (
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                ) : (
-                  <Circle className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground/40" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className={`text-sm font-medium ${step.done ? "text-muted-foreground line-through" : "text-foreground"}`}>
-                    {step.label}
-                  </p>
-                  {!step.done && (
-                    <p className="text-xs text-muted-foreground">{step.description}</p>
-                  )}
-                </div>
-                {!step.done && (
-                  <Link
-                    href={step.href}
-                    className="shrink-0 rounded-lg bg-primary/10 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/20"
-                  >
-                    {step.cta}
-                  </Link>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Destination Inspiration */}
       <div className="mb-8">
         <div className="mb-4">
@@ -405,7 +407,7 @@ export function DashboardContent({ profile, trips, familyVibe }: DashboardConten
               <Link
                 key={card.destination}
                 href={`/search?dest=${encodeURIComponent(`${card.destination}, ${card.country}`)}`}
-                className="group flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 transition-all hover:border-primary/30 hover:shadow-md"
+                className="group flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 card-soft transition-all hover:border-primary/30 hover:shadow-md"
               >
                 <div className="flex items-center gap-3">
                   {code ? (
@@ -474,7 +476,7 @@ export function DashboardContent({ profile, trips, familyVibe }: DashboardConten
               <Link
                 key={trip.id}
                 href={`/trips/${trip.id}`}
-                className="group rounded-2xl border border-border bg-card p-5 transition-all hover:border-primary/30 hover:shadow-md"
+                className="group rounded-2xl border border-border bg-card p-5 card-soft transition-all hover:border-primary/30 hover:shadow-md"
               >
                 <div className="mb-2 flex items-center gap-2">
                   <span
