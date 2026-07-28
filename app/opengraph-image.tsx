@@ -16,14 +16,15 @@ export default function OpengraphImage() {
           flexDirection: "column",
           justifyContent: "center",
           padding: "88px",
-          background:
-            "radial-gradient(1000px 520px at 88% -8%, rgba(226,112,58,0.38), transparent), #0b0b0f",
+          backgroundColor: "#0b0b0f",
+          backgroundImage:
+            "linear-gradient(215deg, rgba(226,112,58,0.42), rgba(11,11,15,0) 55%)",
           color: "#ffffff",
           fontFamily: "sans-serif",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "18px", marginBottom: "34px" }}>
-          <div style={{ width: "56px", height: "56px", borderRadius: "14px", background: "#d4652a", display: "flex" }} />
+          <div style={{ width: "56px", height: "56px", borderRadius: "14px", backgroundColor: "#d4652a", display: "flex" }} />
           <div style={{ display: "flex", fontSize: "32px", letterSpacing: "0.5px" }}>VibeTravel</div>
         </div>
         <div style={{ display: "flex", fontSize: "78px", fontWeight: 700, lineHeight: 1.05 }}>
