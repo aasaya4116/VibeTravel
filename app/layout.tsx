@@ -11,9 +11,24 @@ const dmSerif = DM_Serif_Display({
 })
 
 export const metadata: Metadata = {
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_SITE_URL || "https://vibe-travel-six.vercel.app"
+  ),
   title: "VibeTravel - Family Travel, Reimagined",
   description:
     "Discover attractions that match your family's unique vibe. Plan smarter trips with AI-powered search and itinerary building.",
+  openGraph: {
+    title: "VibeTravel — Family travel, by vibe.",
+    description:
+      "AI trip planning that knows your kids' ages, sensory needs, and travel pace. Real plans, real destinations.",
+    siteName: "VibeTravel",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "VibeTravel — Family travel, by vibe.",
+    description: "AI trip planning for families. Real plans, real destinations.",
+  },
 }
 
 export const viewport: Viewport = {

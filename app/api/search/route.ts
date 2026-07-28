@@ -1,4 +1,4 @@
-import { streamObject } from "ai"
+import { streamObject, generateText } from "ai"
 import { anthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
 import { getWikipediaImage } from "@/lib/wikipedia-image"
@@ -56,7 +56,12 @@ async function enrichAttraction(attraction: AiAttraction, destination: string) {
 }
 
 export async function POST(req: Request) {
-  const { query, destination, filters, familyVibe } = await req.json()
+  const body = await req.json().catch(() => ({}))
+  // Clamp user-controlled inputs on this public, unauthenticated endpoint.
+  const query = String(body?.query ?? "").slice(0, 300)
+  const destination = String(body?.destination ?? "").slice(0, 200)
+  const filters = body?.filters
+  const familyVibe = body?.familyVibe
 
   // Explicit filter budget takes precedence; fall back to profile budget preference
   const effectiveBudget = filters?.budget || familyVibe?.budget_preference || "any"
@@ -70,6 +75,14 @@ export async function POST(req: Request) {
   const vibeContext = familyVibe
     ? `Family: kids=${JSON.stringify(familyVibe.kids)}, style=${familyVibe.travel_style?.join(", ") || "any"}, sensory=${familyVibe.sensory_needs?.join(", ") || "none"}, pace=${familyVibe.pace || "moderate"}, dietary=${familyVibe.dietary?.join(", ") || "none"}`
     : ""
+
+  // Kick off a one-line summary in parallel — cheap and doesn't block results.
+  const summaryPromise = generateText({
+    model: anthropic("claude-haiku-4-5-20251001"),
+    prompt: `In one warm, concise sentence (max 20 words, no preamble), summarize a family-friendly attraction search for "${query || "family activities"}"${destination ? ` in ${destination}` : ""}.`,
+  })
+    .then((r) => r.text.trim())
+    .catch(() => "")
 
   // Stream the attractions array element-by-element; each completed element is
   // enriched with real data and pushed to the client as one NDJSON line.
@@ -98,6 +111,11 @@ ${vibeContext}`.trim(),
         for await (const attraction of elementStream) {
           const enriched = await enrichAttraction(attraction, destination || "")
           controller.enqueue(encoder.encode(JSON.stringify(enriched) + "\n"))
+        }
+        // Summary arrives last so it never delays the first results.
+        const summary = await summaryPromise
+        if (summary) {
+          controller.enqueue(encoder.encode(JSON.stringify({ summary }) + "\n"))
         }
       } catch (err) {
         console.error("[search] stream error:", err)

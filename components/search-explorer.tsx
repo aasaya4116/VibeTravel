@@ -141,14 +141,24 @@ export function SearchExplorer({
         const decoder = new TextDecoder()
         let buffer = ""
         let count = 0
+        let gotSummary = false
 
         const pushLine = (line: string) => {
           const trimmed = line.trim()
           if (!trimmed) return
           try {
-            const attraction = JSON.parse(trimmed) as Attraction
-            count++
-            setAttractions((prev) => [...prev, attraction])
+            const obj = JSON.parse(trimmed)
+            // A summary line has no attraction name; everything else is a result.
+            if (obj && typeof obj.summary === "string") {
+              setSummary(obj.summary)
+              gotSummary = true
+              return
+            }
+            const attraction = obj as Attraction
+            if (attraction?.name) {
+              count++
+              setAttractions((prev) => [...prev, attraction])
+            }
           } catch {
             // ignore a malformed or partial line
           }
@@ -164,11 +174,14 @@ export function SearchExplorer({
         }
         pushLine(buffer)
 
-        setSummary(
-          count > 0
-            ? `Found ${count} spot${count !== 1 ? "s" : ""}${searchDest ? ` in ${searchDest}` : ""} matching "${searchQuery || "your family"}".`
-            : ""
-        )
+        // Fall back to a derived summary only if the AI one didn't arrive.
+        if (!gotSummary) {
+          setSummary(
+            count > 0
+              ? `Found ${count} spot${count !== 1 ? "s" : ""}${searchDest ? ` in ${searchDest}` : ""} matching "${searchQuery || "your family"}".`
+              : ""
+          )
+        }
       } catch (err) {
         console.error("Search error:", err)
         setSearchError("Something went wrong with your search. Please try again.")

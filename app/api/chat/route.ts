@@ -10,6 +10,17 @@ import { createClient } from "@/lib/supabase/server"
 export async function POST(req: Request) {
   const { messages, familyVibe, currentTrip, tripId } = await req.json()
 
+  // Guard this public, unauthenticated endpoint against runaway cost/abuse.
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return Response.json({ error: "No messages provided." }, { status: 400 })
+  }
+  if (messages.length > 60 || JSON.stringify(messages).length > 100_000) {
+    return Response.json(
+      { error: "This conversation is too long — start a new chat." },
+      { status: 413 }
+    )
+  }
+
   // Captured for use inside action tool closures
   const baseUrl = new URL(req.url).origin
   const cookieHeader = req.headers.get("cookie") ?? ""
