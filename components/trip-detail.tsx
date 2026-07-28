@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { ItineraryGenerating } from "@/components/itinerary-generating"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -414,7 +415,9 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
             </div>
           )}
 
-          {trip.itinerary && trip.itinerary.length > 0 ? (
+          {generating ? (
+            <ItineraryGenerating destination={trip.destination} regenerate={hasItinerary} />
+          ) : trip.itinerary && trip.itinerary.length > 0 ? (
             <div className="flex flex-col gap-4">
               {/* Trip Map */}
               <TripMap destination={trip.destination} itinerary={trip.itinerary} />
