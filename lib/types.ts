@@ -49,24 +49,31 @@ export interface ItineraryItem {
 }
 
 export interface Attraction {
+  googlePlaceId?: string
   name: string
   description: string
   category: string
   vibes: string[]
   ageRange: string
-  strollerFriendly: boolean
+  strollerFriendly: boolean | null
   sensoryNotes?: string
   estimatedDuration: string
-  priceRange: string
+  priceRange: string | null
   location: string
   imageUrl?: string
   rating?: number
+  userRatingCount?: number | null
   tips?: string[]
+  familyFitReason?: string
+  verifiedPlace?: boolean
   // Real-data enrichment fields (present when API keys are configured)
   openNow?: boolean | null
   weekdayHours?: string[] | null
   googleMapsUri?: string | null
+  websiteUri?: string | null
   accessibleEntrance?: boolean | null
+  businessStatus?: "OPERATIONAL" | "CLOSED_TEMPORARILY" | "CLOSED_PERMANENTLY" | "FUTURE_OPENING" | null
+  primaryType?: string | null
   yelpUrl?: string
   yelpReviewCount?: number
   _sources?: { image: "google" | "wikipedia" | "yelp" | "fallback"; rating: "google" | "yelp" | "ai" }

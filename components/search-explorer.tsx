@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
-import { Search, SlidersHorizontal, X, Sparkles, AlertCircle, MapPin, Heart } from "lucide-react"
+import { Search, SlidersHorizontal, X, Sparkles, AlertCircle, MapPin, Heart, ShieldCheck } from "lucide-react"
 import { AttractionCard } from "@/components/attraction-card"
 import { SearchFilters } from "@/components/search-filters"
 import { DestinationAutocomplete } from "@/components/destination-autocomplete"
@@ -102,9 +102,9 @@ export function SearchExplorer({
       const searchDest = overrideDestination !== undefined ? overrideDestination : destination
       const searchFilters = overrideFilters !== undefined ? overrideFilters : filters
 
-      if (!searchQuery.trim() && !searchDest.trim()) {
+      if (!searchDest.trim()) {
         setSearchError(
-          "Enter a search (e.g. kid-friendly museums) or a city/region to explore."
+          "Choose a city or region so every result can be verified in the right place."
         )
         setHasSearched(true)
         return
@@ -122,7 +122,7 @@ export function SearchExplorer({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             query: searchQuery || "family-friendly attractions",
-            destination: searchDest || "the area",
+            destination: searchDest,
             filters:
               JSON.stringify(searchFilters) !== JSON.stringify(defaultFilters)
                 ? searchFilters
@@ -131,7 +131,11 @@ export function SearchExplorer({
           }),
         })
 
-        if (!response.ok || !response.body) throw new Error("Search failed")
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}))
+          throw new Error(payload.error || "Search failed")
+        }
+        if (!response.body) throw new Error("Search failed")
 
         setActiveSearch({ query: searchQuery, destination: searchDest, filters: searchFilters })
 
@@ -174,17 +178,21 @@ export function SearchExplorer({
         }
         pushLine(buffer)
 
-        // Fall back to a derived summary only if the AI one didn't arrive.
+        // Fall back to a derived summary only if the server one didn't arrive.
         if (!gotSummary) {
           setSummary(
             count > 0
-              ? `Found ${count} spot${count !== 1 ? "s" : ""}${searchDest ? ` in ${searchDest}` : ""} matching "${searchQuery || "your family"}".`
+              ? `${count} Google-verified place${count !== 1 ? "s" : ""} in ${searchDest}.`
               : ""
           )
         }
       } catch (err) {
         console.error("Search error:", err)
-        setSearchError("Something went wrong with your search. Please try again.")
+        setSearchError(
+          err instanceof Error
+            ? err.message
+            : "Something went wrong with your search. Please try again."
+        )
       } finally {
         setLoading(false)
       }
@@ -195,9 +203,9 @@ export function SearchExplorer({
   const autoSearched = useRef(false)
   useEffect(() => {
     if (autoSearched.current) return
-    if (initialDestination) {
+    if (destination) {
       autoSearched.current = true
-      handleSearch(undefined, "family-friendly attractions")
+      handleSearch(undefined, query || "family-friendly attractions", destination)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -475,6 +483,7 @@ export function SearchExplorer({
                 if (searchError) setSearchError(null)
               }}
               placeholder="Try: 'kid-friendly modern art' or 'nature + toddler'"
+              aria-label="What kind of family activity are you looking for?"
               className="w-full rounded-xl border border-input bg-background py-3 pl-12 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
@@ -485,11 +494,13 @@ export function SearchExplorer({
               if (searchError) setSearchError(null)
             }}
             className="sm:w-56"
+            required
           />
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => setShowFilters(!showFilters)}
+              aria-label="Search filters"
               className={`flex items-center gap-2 rounded-xl border px-4 py-3 text-sm font-medium transition-colors ${
                 showFilters || hasFiltersActive(filters)
                   ? "border-primary bg-primary/10 text-primary"
@@ -506,7 +517,7 @@ export function SearchExplorer({
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !destination.trim()}
               className="flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               {loading ? (
@@ -580,7 +591,7 @@ export function SearchExplorer({
           )}
           {activeSearch.filters.strollerFriendly && (
             <span className="flex items-center gap-1 rounded-full bg-muted px-3 py-1 text-xs font-medium text-foreground">
-              Stroller-friendly
+              Step-free entrance
               <button
                 onClick={() => {
                   const f = { ...filters, strollerFriendly: false }
@@ -675,7 +686,7 @@ export function SearchExplorer({
         <div className="mb-6 rounded-2xl border border-dashed border-border bg-card p-8 text-center">
           <Search className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
           <p className="font-medium text-foreground">
-            No matches
+            No verified matches
             {activeSearch?.query ? ` for "${activeSearch.query}"` : ""}
             {activeSearch?.destination ? ` in ${activeSearch.destination}` : ""}
           </p>
@@ -731,7 +742,12 @@ export function SearchExplorer({
                 key={suggestion}
                 onClick={() => {
                   setQuery(suggestion)
-                  handleSearch(undefined, suggestion)
+                  if (destination.trim()) {
+                    handleSearch(undefined, suggestion)
+                  } else {
+                    setSearchError("Great choice — now choose a city or region to search.")
+                    setHasSearched(false)
+                  }
                 }}
                 className="rounded-full border border-border bg-card px-3 py-1.5 text-xs text-foreground transition-colors hover:border-primary/30 hover:bg-primary/5"
               >
@@ -748,10 +764,10 @@ export function SearchExplorer({
 
           <div className="mb-8">
             <h2 className="mb-1 font-serif text-2xl text-foreground">
-              Popular for Families
+              Trip Inspiration
             </h2>
             <p className="mb-5 text-sm text-muted-foreground">
-              Kid-tested, parent-approved destinations to get you started.
+              Examples to spark ideas—not live listings. Choose a destination above for current Google-verified details.
             </p>
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               {sampleDestinations.map((attraction, i) => (
@@ -761,6 +777,8 @@ export function SearchExplorer({
                   isSaved={savedNames.has(attraction.name)}
                   onToggleSave={() => toggleSave(attraction)}
                   tripTitle={tripTitle}
+                  isInspiration
+                  showSave={false}
                 />
               ))}
             </div>
@@ -770,10 +788,13 @@ export function SearchExplorer({
 
       {/* Summary */}
       {summary && (
-        <div className="mb-6 rounded-2xl border border-primary/20 bg-primary/5 px-5 py-4">
+        <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
           <div className="flex items-start gap-3">
-            <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-            <p className="text-sm leading-relaxed text-foreground">{summary}</p>
+            <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-700 dark:text-emerald-400" />
+            <div>
+              <p className="text-sm font-medium text-emerald-900 dark:text-emerald-200">Verified place results</p>
+              <p className="mt-0.5 text-sm leading-relaxed text-emerald-800/80 dark:text-emerald-300/80">{summary}</p>
+            </div>
           </div>
         </div>
       )}

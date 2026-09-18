@@ -9,6 +9,8 @@ interface DestinationAutocompleteProps {
   onChange: (value: string) => void
   placeholder?: string
   className?: string
+  ariaLabel?: string
+  required?: boolean
 }
 
 export function DestinationAutocomplete({
@@ -16,6 +18,8 @@ export function DestinationAutocomplete({
   onChange,
   placeholder = "City or region",
   className = "",
+  ariaLabel = "Destination city or region",
+  required = false,
 }: DestinationAutocompleteProps) {
   const [open, setOpen] = useState(false)
   const [highlightIndex, setHighlightIndex] = useState(-1)
@@ -103,6 +107,8 @@ export function DestinationAutocomplete({
         onFocus={() => setOpen(true)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
+        aria-label={ariaLabel}
+        required={required}
         className="w-full rounded-xl border border-input bg-background py-3 pl-9 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         role="combobox"
         aria-expanded={showDropdown}

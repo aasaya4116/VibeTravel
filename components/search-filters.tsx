@@ -145,7 +145,7 @@ export function SearchFilters({ filters, onChange, onClose }: SearchFiltersProps
           </div>
         </div>
 
-        {/* Stroller */}
+        {/* Verified entrance accessibility */}
         <div>
           <label className="mb-2 block text-xs font-medium text-muted-foreground">
             Accessibility
@@ -163,7 +163,7 @@ export function SearchFilters({ filters, onChange, onClose }: SearchFiltersProps
                 : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
             }`}
           >
-            Stroller-friendly
+            Step-free entrance (verified)
           </button>
         </div>
       </div>

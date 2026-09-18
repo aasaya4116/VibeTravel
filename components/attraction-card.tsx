@@ -14,6 +14,7 @@ import {
   ExternalLink,
   CheckCircle,
   XCircle,
+  ShieldCheck,
 } from "lucide-react"
 import { useState } from "react"
 import type { Attraction } from "@/lib/types"
@@ -46,6 +47,8 @@ interface AttractionCardProps {
   isSaved: boolean
   onToggleSave: () => void
   tripTitle?: string | null
+  isInspiration?: boolean
+  showSave?: boolean
 }
 
 export function AttractionCard({
@@ -53,6 +56,8 @@ export function AttractionCard({
   isSaved,
   onToggleSave,
   tripTitle = null,
+  isInspiration = false,
+  showSave = true,
 }: AttractionCardProps) {
   const [expanded, setExpanded] = useState(false)
   const gradientClass = categoryColors[attraction.category] || "from-slate-500/20 to-gray-500/20"
@@ -103,6 +108,11 @@ export function AttractionCard({
               <span className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Star className="h-3 w-3 fill-primary text-primary" />
                 {attraction.rating}
+                {attraction.userRatingCount != null && (
+                  <span className="text-muted-foreground/70">
+                    ({attraction.userRatingCount.toLocaleString()})
+                  </span>
+                )}
               </span>
               {attraction._sources?.rating && (
                 <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
@@ -115,11 +125,17 @@ export function AttractionCard({
               )}
             </div>
           )}
+          {attraction.verifiedPlace && (
+            <div className="mb-1 inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
+              <ShieldCheck className="h-3 w-3" />
+              Place verified by Google
+            </div>
+          )}
           <h3 className="text-lg font-medium text-foreground">
             {attraction.name}
           </h3>
         </div>
-        <div className="flex shrink-0 flex-col items-center gap-0.5">
+        {showSave && <div className="flex shrink-0 flex-col items-center gap-0.5">
           <button
             onClick={onToggleSave}
             className={`rounded-full p-2 transition-colors ${
@@ -140,15 +156,35 @@ export function AttractionCard({
               In trip
             </span>
           )}
-        </div>
+        </div>}
       </div>
+
+      {isInspiration && (
+        <p className="mb-3 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+          Inspiration example · Not a live listing
+        </p>
+      )}
 
       {/* Description */}
       <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
         {attraction.description}
       </p>
 
+      {attraction.familyFitReason && (
+        <div className="mb-4 rounded-xl border border-primary/15 bg-primary/5 px-3.5 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
+            Why it matched
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-foreground/80">
+            {attraction.familyFitReason}
+          </p>
+        </div>
+      )}
+
       {/* Vibe Tags */}
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        AI planning tags
+      </p>
       <div className="mb-4 flex flex-wrap gap-1.5">
         {attraction.vibes.map((vibe) => (
           <span
@@ -168,15 +204,17 @@ export function AttractionCard({
         </span>
         <span className="flex items-center gap-1">
           <Clock className="h-3.5 w-3.5" />
-          {attraction.estimatedDuration}
+          Est. {attraction.estimatedDuration}
         </span>
-        <span className="flex items-center gap-1">
-          <DollarSign className="h-3.5 w-3.5" />
-          {attraction.priceRange}
-        </span>
+        {attraction.priceRange && (
+          <span className="flex items-center gap-1">
+            <DollarSign className="h-3.5 w-3.5" />
+            {attraction.priceRange}
+          </span>
+        )}
         <span className="flex items-center gap-1">
           <Baby className="h-3.5 w-3.5" />
-          {attraction.ageRange}
+          Suggested: {attraction.ageRange}
         </span>
       </div>
 
@@ -196,12 +234,22 @@ export function AttractionCard({
       {expanded && (
         <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4">
           <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <Accessibility className="h-3.5 w-3.5" />
-              {attraction.strollerFriendly
-                ? "Stroller-friendly"
-                : "Not stroller-friendly"}
-            </span>
+            {attraction.strollerFriendly != null && (
+              <span className="flex items-center gap-1">
+                <Accessibility className="h-3.5 w-3.5" />
+                {attraction.strollerFriendly
+                  ? "Stroller-friendly guidance"
+                  : "Stroller access may be difficult"}
+              </span>
+            )}
+            {attraction.accessibleEntrance != null && (
+              <span className="flex items-center gap-1">
+                <Accessibility className="h-3.5 w-3.5" />
+                {attraction.accessibleEntrance
+                  ? "Step-free entrance · Google"
+                  : "No step-free entrance reported"}
+              </span>
+            )}
             {attraction.openNow != null && (
               <span className={`flex items-center gap-1 font-medium ${attraction.openNow ? "text-emerald-600 dark:text-emerald-400" : "text-red-500 dark:text-red-400"}`}>
                 {attraction.openNow
@@ -212,7 +260,7 @@ export function AttractionCard({
             {attraction.sensoryNotes && (
               <span className="flex items-center gap-1">
                 <Volume2 className="h-3.5 w-3.5" />
-                {attraction.sensoryNotes}
+                Planning note: {attraction.sensoryNotes}
               </span>
             )}
           </div>
@@ -220,7 +268,7 @@ export function AttractionCard({
           {attraction.tips && attraction.tips.length > 0 && (
             <div>
               <p className="mb-1.5 text-xs font-medium text-foreground">
-                Insider tips:
+                Planning tips (AI):
               </p>
               <ul className="flex flex-col gap-1">
                 {attraction.tips.map((tip, i) => (
@@ -237,7 +285,7 @@ export function AttractionCard({
           )}
 
           {/* External links */}
-          {(attraction.googleMapsUri || attraction.yelpUrl) && (
+          {(attraction.googleMapsUri || attraction.websiteUri || attraction.yelpUrl) && (
             <div className="flex flex-wrap gap-2">
               {attraction.googleMapsUri && (
                 <a
@@ -248,6 +296,17 @@ export function AttractionCard({
                 >
                   <ExternalLink className="h-3 w-3" />
                   Google Maps
+                </a>
+              )}
+              {attraction.websiteUri && (
+                <a
+                  href={attraction.websiteUri}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                  Official website
                 </a>
               )}
               {attraction.yelpUrl && (
@@ -268,6 +327,11 @@ export function AttractionCard({
           {attraction._sources && (
             <div className="flex items-center gap-1.5 border-t border-border pt-2">
               <span className="text-[10px] text-muted-foreground/60">Data:</span>
+              {attraction.verifiedPlace && (
+                <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
+                  ✓ Place identity · Google
+                </span>
+              )}
               <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
                 attraction._sources.image === "google" ? "bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400"
                 : attraction._sources.image === "yelp" ? "bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-400"
