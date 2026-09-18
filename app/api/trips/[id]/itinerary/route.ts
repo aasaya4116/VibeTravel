@@ -3,7 +3,7 @@ import { NextResponse } from "next/server"
 import { generateText, Output } from "ai"
 import { anthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
-import type { ItineraryDay } from "@/lib/types"
+import type { Attraction, ItineraryDay } from "@/lib/types"
 import { getWeatherForecast } from "@/lib/travel-apis/openweather"
 
 // Opus itinerary generation on multi-day trips can exceed the default
@@ -79,10 +79,10 @@ export async function POST(
   const familyVibe = vibeResult.data
   const savedAttractions = savedResult.data ?? []
 
-  const attractions = savedAttractions.map((sa) => ({
+  const attractions: Attraction[] = savedAttractions.map((sa) => ({
     name: sa.attraction_name,
     ...sa.attraction_data,
-  }))
+  })) as Attraction[]
 
   if (attractions.length < 3) {
     return NextResponse.json(
@@ -172,6 +172,7 @@ ${weatherContext ? "- Use the weather forecast when placing outdoor vs indoor ac
 Rules:
 - Build one day per calendar day in the trip range.
 - ALWAYS include ALL of the user's saved attractions (marked as recommended: false).
+- If a saved attraction has a preferred date, schedule it on that exact date.
 - FILL IN THE GAPS: For each day, recommend additional real activities, restaurants, cafes, parks, or experiences in ${trip.destination} that complement the saved attractions. These are marked as recommended: true.
 - Aim for 2-4 activities per day depending on duration and family pace. A full day should have a morning activity, a lunch spot or break, an afternoon activity, and optionally an evening activity.
 - Recommended activities must be REAL places that actually exist in ${trip.destination}. Include the full name of the place.
@@ -199,7 +200,7 @@ Return the COMPLETE updated itinerary with all days. Keep all existing items, on
 ${accommodationContext}
 ${vibeContext}${weatherContext}
 The family has saved these ${attractions.length} attractions (use these EXACT names, mark as recommended: false):
-${attractions.map((a) => `- ${a.name} (${(a as { estimatedDuration?: string }).estimatedDuration ?? "1-2 hours"})`).join("\n")}
+${attractions.map((a) => `- ${a.name} (${a.estimatedDuration || "1-2 hours"})${a.plannedDate ? ` — preferred date: ${a.plannedDate}` : ""}`).join("\n")}
 
 Generate a COMPLETE day-by-day itinerary. Include all saved attractions AND recommend additional real activities, restaurants, and experiences to fill out each day. Mark each item: recommended: false for saved attractions, recommended: true for your suggestions.`,
       },

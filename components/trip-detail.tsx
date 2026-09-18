@@ -24,6 +24,7 @@ import {
 import type { Trip, SavedAttraction } from "@/lib/types"
 import { getBookingLink } from "@/lib/get-booking-link"
 import { getAttractionImage } from "@/lib/attraction-images"
+import { formatPlannedDate } from "@/lib/trip-planning"
 import { TripMap } from "@/components/trip-map"
 import { OnboardingHint } from "@/components/onboarding-hint"
 import { useOnboardingHints } from "@/hooks/use-onboarding-hints"
@@ -541,7 +542,7 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
                       {
                         step: "2",
                         title: "Save 3 or more",
-                        desc: "Tap the heart on any attraction to add it to this trip.",
+                        desc: "Use Add to trip on any attraction and choose an optional day.",
                         done: false,
                       },
                       {
@@ -565,7 +566,7 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
                   <div className="mt-6">
                     {!isDismissed("start-searching") ? (
                       <OnboardingHint
-                        message={`Search for things to do in ${trip.destination} and tap the heart to save them here.`}
+                        message={`Search for things to do in ${trip.destination} and use Add to trip to plan them here.`}
                         side="top"
                         align="start"
                         onDismiss={() => dismiss("start-searching")}
@@ -691,6 +692,12 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
                     <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
                       <MapPin className="h-3 w-3" />
                       {sa.attraction_data.location}
+                    </p>
+                  )}
+                  {sa.attraction_data?.plannedDate && (
+                    <p className="mt-1 flex items-center gap-1 text-xs font-medium text-primary">
+                      <Calendar className="h-3 w-3" />
+                      Planned for {formatPlannedDate(sa.attraction_data.plannedDate)}
                     </p>
                   )}
                   {sa.attraction_data?.vibes && (

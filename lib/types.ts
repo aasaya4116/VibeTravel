@@ -33,6 +33,11 @@ export interface Trip {
   updated_at: string
 }
 
+export type TripOption = Pick<
+  Trip,
+  "id" | "title" | "destination" | "start_date" | "end_date"
+>
+
 export interface ItineraryDay {
   date: string
   items: ItineraryItem[]
@@ -74,6 +79,8 @@ export interface Attraction {
   accessibleEntrance?: boolean | null
   businessStatus?: "OPERATIONAL" | "CLOSED_TEMPORARILY" | "CLOSED_PERMANENTLY" | "FUTURE_OPENING" | null
   primaryType?: string | null
+  // Optional user planning preference, stored inside saved_attractions.attraction_data.
+  plannedDate?: string | null
   yelpUrl?: string
   yelpReviewCount?: number
   _sources?: { image: "google" | "wikipedia" | "yelp" | "fallback"; rating: "google" | "yelp" | "ai" }

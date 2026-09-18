@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  Heart,
   Clock,
   DollarSign,
   Baby,
@@ -15,10 +14,14 @@ import {
   CheckCircle,
   XCircle,
   ShieldCheck,
+  Plus,
+  Check,
+  CalendarDays,
 } from "lucide-react"
 import { useState } from "react"
 import type { Attraction } from "@/lib/types"
 import { getAttractionImage } from "@/lib/attraction-images"
+import { formatPlannedDate } from "@/lib/trip-planning"
 
 const categoryColors: Record<string, string> = {
   Museum: "from-indigo-500/20 to-purple-500/20",
@@ -45,8 +48,9 @@ const categoryEmoji: Record<string, string> = {
 interface AttractionCardProps {
   attraction: Attraction
   isSaved: boolean
-  onToggleSave: () => void
+  onPlan: () => void
   tripTitle?: string | null
+  plannedDate?: string | null
   isInspiration?: boolean
   showSave?: boolean
 }
@@ -54,8 +58,9 @@ interface AttractionCardProps {
 export function AttractionCard({
   attraction,
   isSaved,
-  onToggleSave,
+  onPlan,
   tripTitle = null,
+  plannedDate = null,
   isInspiration = false,
   showSave = true,
 }: AttractionCardProps) {
@@ -135,25 +140,27 @@ export function AttractionCard({
             {attraction.name}
           </h3>
         </div>
-        {showSave && <div className="flex shrink-0 flex-col items-center gap-0.5">
+        {showSave && <div className="flex shrink-0 flex-col items-end gap-1">
           <button
-            onClick={onToggleSave}
-            className={`rounded-full p-2 transition-colors ${
+            onClick={onPlan}
+            className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
               isSaved
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400"
+                : "bg-primary text-primary-foreground hover:bg-primary/90"
             }`}
             aria-label={
               isSaved
-                ? tripTitle ? `Remove from "${tripTitle}"` : "Remove from saved"
-                : tripTitle ? `Add to "${tripTitle}"` : "Save to wishlist"
+                ? tripTitle ? `Edit trip plan for ${attraction.name} in ${tripTitle}` : `Edit trip plan for ${attraction.name}`
+                : `Add ${attraction.name} to a trip`
             }
           >
-            <Heart className={`h-5 w-5 ${isSaved ? "fill-primary" : ""}`} />
+            {isSaved ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+            {isSaved ? "In trip" : "Add to trip"}
           </button>
-          {isSaved && tripTitle && (
-            <span className="text-[9px] font-medium leading-tight text-primary">
-              In trip
+          {isSaved && plannedDate && (
+            <span className="flex items-center gap-1 text-[10px] font-medium leading-tight text-muted-foreground">
+              <CalendarDays className="h-3 w-3" />
+              {formatPlannedDate(plannedDate)}
             </span>
           )}
         </div>}

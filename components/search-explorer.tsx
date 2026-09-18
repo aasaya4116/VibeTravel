@@ -3,19 +3,21 @@
 import { useState, useCallback, useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
-import { Search, SlidersHorizontal, X, Sparkles, AlertCircle, MapPin, Heart, ShieldCheck } from "lucide-react"
+import { Search, SlidersHorizontal, X, Sparkles, AlertCircle, ShieldCheck } from "lucide-react"
 import { AttractionCard } from "@/components/attraction-card"
+import { AddToTripDialog } from "@/components/add-to-trip-dialog"
+import { TripPlanningTray } from "@/components/trip-planning-tray"
 import { SearchFilters } from "@/components/search-filters"
 import { DestinationAutocomplete } from "@/components/destination-autocomplete"
-import type { Attraction, FamilyVibe } from "@/lib/types"
+import type { Attraction, FamilyVibe, SavedAttraction, TripOption } from "@/lib/types"
 import { VlogStrip } from "@/components/vlog-strip"
-import { useOnboardingHints } from "@/hooks/use-onboarding-hints"
 
 interface SearchExplorerProps {
   familyVibe: FamilyVibe | null
-  savedAttractionNames: string[]
+  initialSavedAttractions: SavedAttraction[]
+  availableTrips: TripOption[]
+  isLoggedIn: boolean
   tripId?: string | null
-  tripTitle?: string | null
   initialDestination?: string | null
 }
 
@@ -39,14 +41,14 @@ function hasFiltersActive(f: Filters) {
 
 export function SearchExplorer({
   familyVibe,
-  savedAttractionNames,
+  initialSavedAttractions,
+  availableTrips,
+  isLoggedIn,
   tripId = null,
-  tripTitle = null,
   initialDestination = null,
 }: SearchExplorerProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { isDismissed, dismiss } = useOnboardingHints()
 
   const [query, setQuery] = useState(searchParams.get("q") || "")
   const [destination, setDestination] = useState(initialDestination || searchParams.get("dest") || "")
@@ -62,8 +64,21 @@ export function SearchExplorer({
   })
   const [searchError, setSearchError] = useState<string | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
-  const [savedNames, setSavedNames] = useState<Set<string>>(
-    new Set(savedAttractionNames)
+  const [selectedTripId, setSelectedTripId] = useState<string | null>(tripId)
+  const [savedAttractions, setSavedAttractions] = useState<SavedAttraction[]>(
+    initialSavedAttractions
+  )
+  const [pendingAttraction, setPendingAttraction] = useState<Attraction | null>(null)
+  const [savingPlace, setSavingPlace] = useState(false)
+
+  const selectedTrip =
+    availableTrips.find((trip) => trip.id === selectedTripId) ?? null
+  const selectedTripTitle = selectedTrip?.title ?? null
+  const selectedTripSaves = selectedTripId
+    ? savedAttractions.filter((saved) => saved.trip_id === selectedTripId)
+    : []
+  const savedByName = new Map(
+    selectedTripSaves.map((saved) => [saved.attraction_name, saved])
   )
   // Tracks what was committed to the last search run
   const [activeSearch, setActiveSearch] = useState<{
@@ -76,7 +91,7 @@ export function SearchExplorer({
   useEffect(() => {
     const timeout = setTimeout(() => {
       const params = new URLSearchParams()
-      if (tripId) params.set("trip", tripId)
+      if (selectedTripId) params.set("trip", selectedTripId)
       if (query) params.set("q", query)
       if (destination) params.set("dest", destination)
       if (filters.ageRange) params.set("age", filters.ageRange)
@@ -87,7 +102,7 @@ export function SearchExplorer({
       router.replace(qs ? `?${qs}` : "/search", { scroll: false })
     }, 500)
     return () => clearTimeout(timeout)
-  }, [tripId, query, destination, filters, router])
+  }, [selectedTripId, query, destination, filters, router])
 
   // Accepts optional overrides so pill removals can clear a field and immediately re-run
   const handleSearch = useCallback(
@@ -210,74 +225,121 @@ export function SearchExplorer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const toggleSave = useCallback(async (attraction: Attraction) => {
-    const isSaved = savedNames.has(attraction.name)
+  function handleTripChange(nextTripId: string | null) {
+    setSelectedTripId(nextTripId)
+    if (!nextTripId) return
 
-    if (isSaved) {
-      setSavedNames((prev) => {
-        const next = new Set(prev)
-        next.delete(attraction.name)
-        return next
-      })
-      try {
-        const res = await fetch("/api/attractions/save", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            attraction_name: attraction.name,
-            ...(tripId && { trip_id: tripId }),
-          }),
-        })
-        if (!res.ok) throw new Error("Failed to unsave")
-        toast.success("Removed from saved")
-      } catch {
-        setSavedNames((prev) => new Set(prev).add(attraction.name))
-      }
-    } else {
-      setSavedNames((prev) => new Set(prev).add(attraction.name))
-      try {
-        const res = await fetch("/api/attractions/save", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            attraction_name: attraction.name,
-            attraction_data: attraction,
-            ...(tripId && { trip_id: tripId }),
-          }),
-        })
-        if (res.status === 401) {
-          setSavedNames((prev) => {
-            const next = new Set(prev)
-            next.delete(attraction.name)
-            return next
-          })
-          toast.error("Sign in to save places", {
-            action: { label: "Sign in", onClick: () => window.location.assign("/auth/login?next=" + window.location.pathname) },
-          })
-          return
-        }
-        if (!res.ok) throw new Error("Failed to save")
-        if (tripId) {
-          const newCount = savedNames.size + 1
-          if (newCount < 3) {
-            toast.success(`${newCount} of 3 saved — ${3 - newCount} more to generate your itinerary`)
-          } else if (newCount === 3) {
-            toast.success(`3 places saved — you're ready to generate your itinerary!`)
-          } else {
-            toast.success(`Added to "${tripTitle}"`)
-          }
-        } else {
-          toast.success("Saved to wishlist")
-        }
-      } catch {
-        setSavedNames((prev) => {
-          const next = new Set(prev)
-          next.delete(attraction.name)
-          return next
-        })
-      }
+    const nextTrip = availableTrips.find((trip) => trip.id === nextTripId)
+    if (nextTrip && !destination.trim()) {
+      setDestination(nextTrip.destination)
     }
-  }, [savedNames, tripId, tripTitle])
+  }
+
+  async function savePlaceToTrip(targetTripId: string, plannedDate: string | null) {
+    if (!pendingAttraction || savingPlace) return
+    setSavingPlace(true)
+
+    try {
+      const existing = savedAttractions.find(
+        (saved) =>
+          saved.trip_id === targetTripId &&
+          saved.attraction_name === pendingAttraction.name
+      )
+      const res = await fetch("/api/attractions/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          attraction_name: pendingAttraction.name,
+          attraction_data: { ...pendingAttraction, plannedDate },
+          trip_id: targetTripId,
+        }),
+      })
+
+      if (res.status === 401) {
+        toast.error("Sign in to add places to a trip", {
+          action: {
+            label: "Sign in",
+            onClick: () => window.location.assign("/auth/login?next=/search"),
+          },
+        })
+        return
+      }
+
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok || !payload.data) {
+        throw new Error(payload.error || "Could not add this place")
+      }
+
+      setSavedAttractions((previous) => [
+        ...previous.filter(
+          (saved) =>
+            !(
+              saved.trip_id === targetTripId &&
+              saved.attraction_name === pendingAttraction.name
+            )
+        ),
+        payload.data as SavedAttraction,
+      ])
+      setSelectedTripId(targetTripId)
+      setPendingAttraction(null)
+
+      const previousCount = savedAttractions.filter(
+        (saved) => saved.trip_id === targetTripId
+      ).length
+      const newCount = previousCount + (existing ? 0 : 1)
+      const targetTrip = availableTrips.find((trip) => trip.id === targetTripId)
+
+      if (existing) {
+        toast.success(plannedDate ? "Trip day updated" : "Place updated in your trip")
+      } else if (newCount < 3) {
+        toast.success(
+          `Added to "${targetTrip?.title || "your trip"}" · ${3 - newCount} more to unlock the itinerary`
+        )
+      } else if (newCount === 3) {
+        toast.success("Three places saved — your itinerary is ready to build!")
+      } else {
+        toast.success(`Added to "${targetTrip?.title || "your trip"}"`)
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not add this place")
+    } finally {
+      setSavingPlace(false)
+    }
+  }
+
+  async function removePlaceFromTrip(targetTripId: string) {
+    if (!pendingAttraction || savingPlace) return
+    setSavingPlace(true)
+
+    try {
+      const res = await fetch("/api/attractions/save", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          attraction_name: pendingAttraction.name,
+          trip_id: targetTripId,
+        }),
+      })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(payload.error || "Could not remove this place")
+
+      setSavedAttractions((previous) =>
+        previous.filter(
+          (saved) =>
+            !(
+              saved.trip_id === targetTripId &&
+              saved.attraction_name === pendingAttraction.name
+            )
+        )
+      )
+      setPendingAttraction(null)
+      toast.success("Removed from trip")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not remove this place")
+    } finally {
+      setSavingPlace(false)
+    }
+  }
 
   const suggestedSearches = destination
     ? [
@@ -459,7 +521,7 @@ export function SearchExplorer({
   ]
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8 lg:px-8">
+    <div className="mx-auto max-w-6xl px-4 py-8 pb-36 lg:px-8">
       {/* Search Header */}
       <div className="mb-8">
         <h1 className="font-serif text-3xl text-foreground lg:text-4xl">
@@ -637,29 +699,6 @@ export function SearchExplorer({
         </div>
       )}
 
-      {/* Trip context banner */}
-      {tripId && tripTitle ? (
-        <div className="mb-6 flex items-center gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-5 py-3">
-          <MapPin className="h-5 w-5 shrink-0 text-primary" />
-          <p className="text-sm text-foreground">
-            Saving to: <strong>{tripTitle}</strong>
-          </p>
-          <a href="/trips" className="ml-auto shrink-0 text-xs font-medium text-primary underline-offset-4 hover:underline">
-            Change trip
-          </a>
-        </div>
-      ) : (
-        <div className="mb-6 flex items-center gap-3 rounded-2xl border border-border bg-muted/40 px-5 py-3">
-          <MapPin className="h-5 w-5 shrink-0 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
-            No trip selected — saves go to your wishlist.
-          </p>
-          <a href="/trips" className="ml-auto shrink-0 text-xs font-medium text-foreground underline-offset-4 hover:underline">
-            Select a trip
-          </a>
-        </div>
-      )}
-
       {/* Search Error */}
       {searchError && (
         <div className="mb-6 flex items-center gap-3 rounded-2xl border border-destructive/20 bg-destructive/5 px-5 py-4">
@@ -774,9 +813,8 @@ export function SearchExplorer({
                 <AttractionCard
                   key={`sample-${attraction.name}-${i}`}
                   attraction={attraction}
-                  isSaved={savedNames.has(attraction.name)}
-                  onToggleSave={() => toggleSave(attraction)}
-                  tripTitle={tripTitle}
+                  isSaved={false}
+                  onPlan={() => {}}
                   isInspiration
                   showSave={false}
                 />
@@ -799,38 +837,25 @@ export function SearchExplorer({
         </div>
       )}
 
-      {/* Save hint — shown once when landing on search page with a trip context */}
-      {tripId && attractions.length > 0 && !isDismissed("save-hint") && (
-        <div className="mb-5 flex items-start gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 animate-in fade-in duration-500">
-          <Heart className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-          <p className="flex-1 text-sm text-foreground">
-            Tap the <span className="font-medium">heart</span> on any place to save it to your trip. Save 3 or more to unlock your AI itinerary.
-          </p>
-          <button
-            onClick={() => dismiss("save-hint")}
-            aria-label="Dismiss tip"
-            className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-primary/10 hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-
       {/* Results + Vlog Sidebar */}
       <div className="flex gap-6 items-start">
         {/* Results Grid */}
         <div className="min-w-0 flex-1">
           {(attractions.length > 0 || loading) && (
             <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-              {attractions.map((attraction, i) => (
-                <AttractionCard
-                  key={`${attraction.name}-${i}`}
-                  attraction={attraction}
-                  isSaved={savedNames.has(attraction.name)}
-                  onToggleSave={() => toggleSave(attraction)}
-                  tripTitle={tripTitle}
-                />
-              ))}
+              {attractions.map((attraction, i) => {
+                const saved = savedByName.get(attraction.name)
+                return (
+                  <AttractionCard
+                    key={`${attraction.name}-${i}`}
+                    attraction={attraction}
+                    isSaved={!!saved}
+                    onPlan={() => setPendingAttraction(attraction)}
+                    tripTitle={selectedTripTitle}
+                    plannedDate={saved?.attraction_data?.plannedDate}
+                  />
+                )
+              })}
               {loading && attractions.length === 0 && (
                 <>
                   {[1, 2, 3, 4].map((i) => (
@@ -859,6 +884,26 @@ export function SearchExplorer({
           <VlogStrip destination={destination} />
         )}
       </div>
+
+      <TripPlanningTray
+        trips={availableTrips}
+        selectedTrip={selectedTrip}
+        savedAttractions={savedAttractions}
+        isLoggedIn={isLoggedIn}
+        onTripChange={handleTripChange}
+      />
+
+      <AddToTripDialog
+        attraction={pendingAttraction}
+        trips={availableTrips}
+        savedAttractions={savedAttractions}
+        defaultTripId={selectedTripId}
+        isLoggedIn={isLoggedIn}
+        saving={savingPlace}
+        onClose={() => setPendingAttraction(null)}
+        onSave={savePlaceToTrip}
+        onRemove={removePlaceFromTrip}
+      />
     </div>
   )
 }

@@ -182,15 +182,29 @@ export async function POST(req: Request) {
     : "No family profile is available; give general family planning guidance."
 
   const encoder = new TextEncoder()
+  let streamCancelled = false
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const emittedIds = new Set<string>()
 
+      const enqueue = (value: string) => {
+        if (streamCancelled || controller.desiredSize === null) return false
+        try {
+          controller.enqueue(encoder.encode(value))
+          return true
+        } catch {
+          // The browser can cancel a streamed search when the user navigates or
+          // starts another search. That is expected, so stop work quietly.
+          streamCancelled = true
+          return false
+        }
+      }
+
       const emit = async (place: PlaceResult, recommendation: AiRecommendation) => {
-        if (emittedIds.has(place.id)) return
+        if (streamCancelled || emittedIds.has(place.id)) return
         emittedIds.add(place.id)
         const attraction = await toAttraction(place, recommendation)
-        controller.enqueue(encoder.encode(JSON.stringify(attraction) + "\n"))
+        enqueue(JSON.stringify(attraction) + "\n")
       }
 
       try {
@@ -219,34 +233,45 @@ ${JSON.stringify(candidateData)}`,
 
           try {
             for await (const recommendation of elementStream) {
+              if (streamCancelled) break
               const place = candidateById.get(recommendation.placeId)
               if (place) await emit(place, recommendation)
             }
           } catch (error) {
-            console.error("[search] AI ranking error; using verified provider order:", error)
+            if (!streamCancelled) {
+              console.error("[search] AI ranking error; using verified provider order:", error)
+            }
           }
 
           // Reliability fallback: if AI omits candidates or fails, still return
           // real Google places in provider relevance order.
           for (const place of candidates) {
+            if (streamCancelled) break
             if (!emittedIds.has(place.id)) {
               await emit(place, fallbackRecommendation(place))
             }
           }
 
-          controller.enqueue(
-            encoder.encode(
-              JSON.stringify({
-                summary: `${candidates.length} Google-verified place${candidates.length === 1 ? "" : "s"} in ${destination}, ranked for your family.`,
-              }) + "\n"
-            )
+          enqueue(
+            JSON.stringify({
+              summary: `${candidates.length} Google-verified place${candidates.length === 1 ? "" : "s"} in ${destination}, ranked for your family.`,
+            }) + "\n"
           )
         }
       } catch (error) {
-        console.error("[search] stream error:", error)
+        if (!streamCancelled) console.error("[search] stream error:", error)
       } finally {
-        controller.close()
+        if (!streamCancelled && controller.desiredSize !== null) {
+          try {
+            controller.close()
+          } catch {
+            // The client disconnected between the state check and close.
+          }
+        }
       }
+    },
+    cancel() {
+      streamCancelled = true
     },
   })
 
