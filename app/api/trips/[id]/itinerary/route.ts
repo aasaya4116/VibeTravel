@@ -4,6 +4,7 @@ import { generateText, Output } from "ai"
 import { anthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
 import type { Attraction, ItineraryDay } from "@/lib/types"
+import { mergeRegeneratedDay } from "@/lib/itinerary-editing"
 import { getWeatherForecast } from "@/lib/travel-apis/openweather"
 
 // Opus itinerary generation on multi-day trips can exceed the default
@@ -34,6 +35,7 @@ export async function POST(
   const { id: tripId } = await params
   const body = await req.json().catch(() => ({}))
   const deltaInstruction: string | undefined = body?.instruction
+  const targetDayDate: string | undefined = body?.dayDate
   const supabase = await createClient()
   const {
     data: { user },
@@ -84,19 +86,26 @@ export async function POST(
     ...sa.attraction_data,
   })) as Attraction[]
 
-  if (attractions.length < 3) {
+  if (attractions.length < 3 && (!trip.itinerary || trip.itinerary.length === 0)) {
     return NextResponse.json(
       { error: "Save at least 3 attractions to this trip before generating an itinerary." },
       { status: 400 }
     )
   }
 
-  // Delta mode: requires an existing itinerary to refine
-  if (deltaInstruction && (!trip.itinerary || trip.itinerary.length === 0)) {
+  // Refinements require an existing itinerary.
+  if ((deltaInstruction || targetDayDate) && (!trip.itinerary || trip.itinerary.length === 0)) {
     return NextResponse.json(
       { error: "No existing itinerary to refine. Generate one first." },
       { status: 400 }
     )
+  }
+
+  const targetDay = targetDayDate
+    ? (trip.itinerary as ItineraryDay[]).find((day) => day.date === targetDayDate)
+    : null
+  if (targetDayDate && !targetDay) {
+    return NextResponse.json({ error: "Itinerary day not found" }, { status: 404 })
   }
 
   const savedNames = new Set(attractions.map((a) => a.name))
@@ -148,6 +157,7 @@ Note: ${weatherForecast.summary}
 When rain is likely (>50%), prioritize indoor activities for that day.`
     : ""
 
+  const isTargetDay = !!targetDayDate && !!targetDay
   const isDelta = !!deltaInstruction && trip.itinerary && trip.itinerary.length > 0
 
   let result: { output?: unknown }
@@ -155,8 +165,20 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
     result = await generateText({
     model: anthropic("claude-opus-4-8"),
     output: Output.object({ schema: itineraryOutputSchema }),
-    system: isDelta
-      ? `You are VibeTravel's itinerary refinement assistant. You receive an existing day-by-day itinerary and a specific improvement request.
+    system: isTargetDay
+      ? `You are VibeTravel's single-day itinerary planner. Rebuild only the requested day of an existing family trip.
+
+Rules:
+- Return exactly one day using the requested date.
+- KEEP every user-picked item where recommended is false, including its current times and notes.
+- Replace or improve the AI-suggested items where recommended is true.
+- Build a realistic day with 2-4 activities, meal or rest breaks, and reasonable travel buffers.
+- Recommended activities must be REAL places that actually exist in ${trip.destination}.
+- Match the family's vibe, kids' ages, sensory needs, mobility needs, and pace.
+- date must be YYYY-MM-DD.
+${weatherContext ? "- Use the weather forecast when choosing indoor versus outdoor activities." : ""}`
+      : isDelta
+        ? `You are VibeTravel's itinerary refinement assistant. You receive an existing day-by-day itinerary and a specific improvement request.
 
 Rules:
 - KEEP all existing itinerary items exactly as-is (especially user-saved attractions marked as recommended: false).
@@ -167,7 +189,7 @@ Rules:
 - Preserve all original dates and day structure. Return ALL days, including unchanged ones.
 - date must be YYYY-MM-DD for each day.
 ${weatherContext ? "- Use the weather forecast when placing outdoor vs indoor activities." : ""}`
-      : `You are VibeTravel's itinerary builder. You create complete, realistic, family-friendly day plans.
+        : `You are VibeTravel's itinerary builder. You create complete, realistic, family-friendly day plans.
 
 Rules:
 - Build one day per calendar day in the trip range.
@@ -186,8 +208,16 @@ ${weatherContext ? "- Use the weather forecast to schedule outdoor activities on
     messages: [
       {
         role: "user",
-        content: isDelta
-          ? `Trip: ${trip.title}, destination: ${trip.destination}. Dates: ${dateRangeDesc}.
+        content: isTargetDay
+          ? `Trip: ${trip.title}, destination: ${trip.destination}. Rebuild date: ${targetDayDate}.
+${accommodationContext}
+${vibeContext}${weatherContext}
+Current day:
+${JSON.stringify(targetDay, null, 2)}
+
+Return only the rebuilt day for ${targetDayDate}. Preserve every item marked recommended: false.`
+          : isDelta
+            ? `Trip: ${trip.title}, destination: ${trip.destination}. Dates: ${dateRangeDesc}.
 ${accommodationContext}
 ${vibeContext}${weatherContext}
 Improvement request: ${deltaInstruction}
@@ -196,7 +226,7 @@ Existing itinerary to refine:
 ${JSON.stringify(trip.itinerary, null, 2)}
 
 Return the COMPLETE updated itinerary with all days. Keep all existing items, only add or adjust AI-suggested items.`
-          : `Trip: ${trip.title}, destination: ${trip.destination}. Dates: ${dateRangeDesc}.
+            : `Trip: ${trip.title}, destination: ${trip.destination}. Dates: ${dateRangeDesc}.
 ${accommodationContext}
 ${vibeContext}${weatherContext}
 The family has saved these ${attractions.length} attractions (use these EXACT names, mark as recommended: false):
@@ -228,17 +258,44 @@ Generate a COMPLETE day-by-day itinerary. Include all saved attractions AND reco
     )
   }
 
-  const itinerary: ItineraryDay[] = parsed.days.map((day) => ({
+  const generatedDays: ItineraryDay[] = parsed.days.map((day) => ({
     date: day.date,
     items: day.items.map((item, i) => ({
-      id: `item-${day.date}-${i}`,
+      id:
+        targetDay?.items.find(
+          (existing) =>
+            existing.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
+        )?.id ?? `item-${day.date}-${i}-${crypto.randomUUID()}`,
       attraction_name: item.attraction_name,
       start_time: item.start_time,
       end_time: item.end_time,
       notes: item.notes,
-      recommended: item.recommended ?? !savedNames.has(item.attraction_name),
+      recommended: isTargetDay
+        ? !targetDay?.items.some(
+            (existing) =>
+              existing.recommended === false &&
+              existing.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
+          )
+        : item.recommended ?? !savedNames.has(item.attraction_name),
     })),
   }))
+
+  let itinerary = generatedDays
+  if (isTargetDay && targetDayDate && targetDay) {
+    const rebuiltDay = generatedDays.find((day) => day.date === targetDayDate)
+    if (!rebuiltDay) {
+      return NextResponse.json(
+        { error: "Could not regenerate the selected day" },
+        { status: 500 }
+      )
+    }
+
+    itinerary = mergeRegeneratedDay(
+      trip.itinerary as ItineraryDay[],
+      targetDayDate,
+      rebuiltDay
+    )
+  }
 
   const { error: updateError } = await supabase
     .from("trips")

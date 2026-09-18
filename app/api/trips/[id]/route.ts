@@ -1,5 +1,23 @@
 import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { z } from "zod"
+
+const itineraryItemSchema = z.object({
+  id: z.string().min(1).max(200),
+  attraction_name: z.string().min(1).max(300),
+  start_time: z.string().max(40),
+  end_time: z.string().max(40),
+  notes: z.string().max(2000).optional(),
+  recommended: z.boolean().optional(),
+  attraction_data: z.record(z.string(), z.unknown()).optional(),
+})
+
+const itinerarySchema = z.array(
+  z.object({
+    date: z.string().min(1).max(40),
+    items: z.array(itineraryItemSchema).max(30),
+  })
+).max(31)
 
 export async function PATCH(
   req: Request,
@@ -20,6 +38,15 @@ export async function PATCH(
   const updates: Record<string, unknown> = {}
   for (const key of allowed) {
     if (key in body) updates[key] = body[key]
+  }
+
+  if ("itinerary" in body) {
+    const parsed = itinerarySchema.safeParse(body.itinerary)
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid itinerary" }, { status: 400 })
+    }
+    updates.itinerary = parsed.data
+    updates.updated_at = new Date().toISOString()
   }
 
   if (Object.keys(updates).length === 0) {

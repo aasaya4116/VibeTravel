@@ -10,7 +10,6 @@ import {
   Map as MapIcon,
   Calendar,
   Search,
-  Clock,
   Wand2,
   Sparkles,
   Loader2,
@@ -18,12 +17,9 @@ import {
   Hotel,
   Pencil,
   X,
-  ExternalLink,
 } from "lucide-react"
 import type { Trip, SavedAttraction } from "@/lib/types"
-import { getBookingLink } from "@/lib/get-booking-link"
-import { getAttractionImage } from "@/lib/attraction-images"
-import { TripMap } from "@/components/trip-map"
+import { EditableItinerary } from "@/components/editable-itinerary"
 import { TripDayOrganizer } from "@/components/trip-day-organizer"
 import { OnboardingHint } from "@/components/onboarding-hint"
 import { useOnboardingHints } from "@/hooks/use-onboarding-hints"
@@ -107,21 +103,20 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
     }
   }
 
-  // Build a name → imageUrl map from saved attractions for quick lookup
-  const savedImageMap = new Map<string, string>()
-  for (const sa of savedAttractions) {
-    const img = sa.attraction_data?.imageUrl
-    if (img && sa.attraction_name) {
-      savedImageMap.set(sa.attraction_name.toLowerCase(), img)
-    }
-  }
-
   const hasItinerary = trip.itinerary && trip.itinerary.length > 0
   const canGenerate = savedAttractions.length >= 3 && !hasItinerary
   const canRegenerate = savedAttractions.length >= 3 && hasItinerary
 
   async function handleGenerateItinerary() {
     if ((!canGenerate && !canRegenerate) || generating) return
+    if (
+      hasItinerary &&
+      !window.confirm(
+        "Rebuilding the full itinerary will replace your manual edits. Refresh a single day instead if you want to keep the rest of the plan. Continue?"
+      )
+    ) {
+      return
+    }
     setGenerating(true)
     try {
       const res = await fetch(`/api/trips/${trip.id}/itinerary`, {
@@ -383,7 +378,7 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
                   ) : (
                     <>
                       <Wand2 className="h-4 w-4" />
-                      Regenerate itinerary
+                      Rebuild entire itinerary
                     </>
                   )}
                 </button>
@@ -418,107 +413,12 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
           {generating ? (
             <ItineraryGenerating destination={trip.destination} regenerate={hasItinerary} />
           ) : trip.itinerary && trip.itinerary.length > 0 ? (
-            <div className="flex flex-col gap-4">
-              {/* Trip Map */}
-              <TripMap destination={trip.destination} itinerary={trip.itinerary} />
-
-              {/* Legend */}
-              <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-primary/10 text-primary"><Clock className="h-3 w-3" /></span>
-                  Your picks
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-accent/10 text-accent"><Sparkles className="h-3 w-3" /></span>
-                  AI suggestions
-                </span>
-              </div>
-              {trip.itinerary.map((day, i) => (
-                <div
-                  key={i}
-                  className="rounded-2xl border border-border bg-card p-5"
-                >
-                  <h3 className="mb-3 font-medium text-foreground">
-                    Day {i + 1} -- {day.date}
-                  </h3>
-                  <div className="flex flex-col gap-2">
-                    {day.items.map((item) => (
-                      <div
-                        key={item.id}
-                        className={`flex items-start gap-3 rounded-xl p-3 ${
-                          item.recommended
-                            ? "border border-dashed border-accent/30 bg-accent/5"
-                            : "bg-background"
-                        }`}
-                      >
-                        {(() => {
-                          const name = item.attraction_name ?? ""
-                          const img =
-                            item.attraction_data?.imageUrl ||
-                            (name ? savedImageMap.get(name.toLowerCase()) : undefined) ||
-                            (name ? getAttractionImage(item.attraction_data?.category ?? "Cultural", name) : undefined)
-                          return (
-                            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-muted">
-                              {img && (
-                                <img
-                                  src={img}
-                                  alt={name}
-                                  className="h-full w-full object-cover"
-                                  onError={(e) => {
-                                    e.currentTarget.style.display = "none"
-                                  }}
-                                />
-                              )}
-                              <div className={`absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full ${
-                                item.recommended ? "bg-accent/90" : "bg-primary/90"
-                              }`}>
-                                {item.recommended
-                                  ? <Sparkles className="h-2.5 w-2.5 text-white" />
-                                  : <Clock className="h-2.5 w-2.5 text-white" />}
-                              </div>
-                            </div>
-                          )
-                        })()}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium text-foreground">
-                              {item.attraction_name}
-                            </p>
-                            {item.recommended && (
-                              <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
-                                Suggested
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {item.start_time} - {item.end_time}
-                          </p>
-                          {item.notes && (
-                            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                              {item.notes.replace(/^#+\s*/gm, "").trim()}
-                            </p>
-                          )}
-                          {(() => {
-                            const booking = getBookingLink(item, trip.destination)
-                            return booking ? (
-                              <a
-                                href={booking.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="mt-2 inline-flex items-center gap-1 rounded-lg border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:border-primary/30 hover:text-primary"
-                              >
-                                <ExternalLink className="h-3 w-3" />
-                                {booking.label}
-                              </a>
-                            ) : null
-                          })()}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <EditableItinerary
+              tripId={trip.id}
+              destination={trip.destination}
+              initialItinerary={trip.itinerary}
+              savedAttractions={savedAttractions}
+            />
           ) : (
             <div className="flex flex-col gap-4">
               {savedAttractions.length === 0 ? (

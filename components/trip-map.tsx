@@ -31,7 +31,7 @@ export function TripMap({ destination, itinerary }: TripMapProps) {
   const [collapsed, setCollapsed] = useState(false)
   const [geocoded, setGeocoded] = useState<Record<string, { lat: number; lng: number } | null>>({})
   const [loading, setLoading] = useState(false)
-  const [fetched, setFetched] = useState(false)
+  const [fetchedKey, setFetchedKey] = useState("")
 
   // All unique attraction names across all days
   const allPlaces = useMemo(() => {
@@ -45,11 +45,14 @@ export function TripMap({ destination, itinerary }: TripMapProps) {
         }
       }
     }
-    return out.slice(0, 25)
+    return out.sort((a, b) => a.localeCompare(b)).slice(0, 25)
   }, [itinerary])
 
+  const placesKey = `${destination}|${allPlaces.join("|")}`
+  const hasFetchedPlaces = fetchedKey === placesKey
+
   useEffect(() => {
-    if (fetched || allPlaces.length === 0) return
+    if (hasFetchedPlaces || allPlaces.length === 0) return
     setLoading(true)
     const params = new URLSearchParams()
     params.set("dest", destination)
@@ -59,11 +62,11 @@ export function TripMap({ destination, itinerary }: TripMapProps) {
       .then((r) => r.json())
       .then((data) => {
         setGeocoded(data.results ?? {})
-        setFetched(true)
+        setFetchedKey(placesKey)
       })
-      .catch(() => setFetched(true))
+      .catch(() => setFetchedKey(placesKey))
       .finally(() => setLoading(false))
-  }, [allPlaces, destination, fetched])
+  }, [allPlaces, destination, hasFetchedPlaces, placesKey])
 
   // Build the list of places to show on map for the current day selection
   const visiblePlaces = useMemo((): GeocodedPlace[] => {
@@ -146,7 +149,7 @@ export function TripMap({ destination, itinerary }: TripMapProps) {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               <p className="text-xs text-muted-foreground">Locating attractions…</p>
             </div>
-          ) : fetched && visiblePlaces.length === 0 ? (
+          ) : hasFetchedPlaces && visiblePlaces.length === 0 ? (
             <div className="flex h-40 items-center justify-center text-xs text-muted-foreground">
               Could not locate attractions on map
             </div>
