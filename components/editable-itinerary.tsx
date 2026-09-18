@@ -4,11 +4,16 @@ import { useEffect, useRef, useState } from "react"
 import {
   ArrowDown,
   ArrowUp,
+  AlertTriangle,
+  BusFront,
+  Car,
   Check,
   Clock,
   ExternalLink,
+  Footprints,
   Loader2,
   Pencil,
+  Route,
   Sparkles,
   Trash2,
   Wand2,
@@ -25,7 +30,15 @@ import {
   restoreItineraryItem,
   updateItineraryItem,
 } from "@/lib/itinerary-editing"
+import {
+  getActivityMinutes,
+  getTravelSegments,
+  optimizeDayForTravel,
+  type TravelMode,
+} from "@/lib/itinerary-logistics"
+import { useItineraryLocations } from "@/hooks/use-itinerary-locations"
 import { TripMap } from "@/components/trip-map"
+import { ItineraryTravelSegment } from "@/components/itinerary-travel-segment"
 
 interface EditableItineraryProps {
   tripId: string
@@ -52,6 +65,13 @@ function formatDayDate(value: string) {
   })
 }
 
+function formatDuration(minutes: number) {
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remainder = minutes % 60
+  return remainder ? `${hours}h ${remainder}m` : `${hours}h`
+}
+
 export function EditableItinerary({
   tripId,
   destination,
@@ -63,11 +83,21 @@ export function EditableItinerary({
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle")
   const [regeneratingDate, setRegeneratingDate] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null)
+  const [travelMode, setTravelMode] = useState<TravelMode>("transit")
+  const { locations, loading: locationsLoading, ready: locationsReady } =
+    useItineraryLocations(destination, itinerary)
 
   useEffect(() => {
     itineraryRef.current = initialItinerary
     setItinerary(initialItinerary)
   }, [initialItinerary])
+
+  useEffect(() => {
+    const storedMode = window.localStorage.getItem("vibetravel-travel-mode")
+    if (storedMode === "walking" || storedMode === "transit" || storedMode === "driving") {
+      setTravelMode(storedMode)
+    }
+  }, [])
 
   const savedImageMap = new Map<string, string>()
   for (const saved of savedAttractions) {
@@ -77,6 +107,11 @@ export function EditableItinerary({
 
   const busy = saveStatus === "saving" || regeneratingDate !== null
   const controlsLocked = busy || editDraft !== null
+
+  function selectTravelMode(mode: TravelMode) {
+    setTravelMode(mode)
+    window.localStorage.setItem("vibetravel-travel-mode", mode)
+  }
 
   function applyItinerary(next: ItineraryDay[]) {
     itineraryRef.current = next
@@ -199,9 +234,36 @@ export function EditableItinerary({
     }
   }
 
+  async function handleOptimizeDay(dayIndex: number) {
+    if (controlsLocked || !locationsReady) return
+    const current = itineraryRef.current
+    const optimizedDay = optimizeDayForTravel(
+      current[dayIndex],
+      locations,
+      travelMode
+    )
+    if (optimizedDay === current[dayIndex]) {
+      toast.info("VibeTravel needs at least two located stops to optimize this day")
+      return
+    }
+
+    const next = current.map((day, index) =>
+      index === dayIndex ? optimizedDay : day
+    )
+    const saved = await persistItinerary(next, current)
+    if (saved) {
+      toast.success("Day optimized with estimated travel time between stops")
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4">
-      <TripMap destination={destination} itinerary={itinerary} />
+      <TripMap
+        itinerary={itinerary}
+        locations={locations}
+        locationsLoading={locationsLoading}
+        locationsReady={locationsReady}
+      />
 
       <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
@@ -227,29 +289,106 @@ export function EditableItinerary({
         </span>
       </div>
 
-      {itinerary.map((day, dayIndex) => (
-        <section
+      <div className="flex flex-col gap-3 rounded-2xl border border-border bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+            <Route className="h-4 w-4 text-primary" />
+            Estimated travel
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Includes a family-friendly buffer. Open Directions for live routes.
+          </p>
+        </div>
+        <div
+          className="inline-flex w-fit rounded-xl bg-muted p-1"
+          role="group"
+          aria-label="Travel mode"
+        >
+          {([
+            { value: "walking", label: "Walk", icon: Footprints },
+            { value: "transit", label: "Transit", icon: BusFront },
+            { value: "driving", label: "Drive", icon: Car },
+          ] as const).map(({ value, label, icon: Icon }) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => selectTravelMode(value)}
+              aria-pressed={travelMode === value}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                travelMode === value
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {itinerary.map((day, dayIndex) => {
+        const travelSegments = getTravelSegments(day, locations, travelMode)
+        const travelMinutes = travelSegments.reduce(
+          (total, segment) => total + (segment.durationMinutes ?? 0),
+          0
+        )
+        const warningCount = travelSegments.filter((segment) =>
+          ["tight", "overlap", "far"].includes(segment.status)
+        ).length
+
+        return (
+          <section
           key={day.date}
           className="overflow-hidden rounded-2xl border border-border bg-card"
         >
-          <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/30 px-5 py-4">
+          <div className="flex flex-col gap-3 border-b border-border bg-muted/30 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-xs font-medium text-primary">Day {dayIndex + 1}</p>
               <h3 className="font-medium text-foreground">{formatDayDate(day.date)}</h3>
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                <span>{day.items.length} {day.items.length === 1 ? "stop" : "stops"}</span>
+                <span aria-hidden="true">·</span>
+                <span>{formatDuration(getActivityMinutes(day))} activities</span>
+                <span aria-hidden="true">·</span>
+                <span>
+                  {locationsReady
+                    ? `${formatDuration(travelMinutes)} ${travelMode}`
+                    : "Estimating travel…"}
+                </span>
+                {warningCount > 0 && (
+                  <span className="inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-300">
+                    <AlertTriangle className="h-3 w-3" />
+                    {warningCount} {warningCount === 1 ? "warning" : "warnings"}
+                  </span>
+                )}
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={() => void handleRegenerateDay(day.date)}
-              disabled={controlsLocked}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-primary/30 hover:text-primary disabled:opacity-50"
-            >
-              {regeneratingDate === day.date ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Wand2 className="h-3.5 w-3.5" />
-              )}
-              {regeneratingDate === day.date ? "Refreshing…" : "Refresh day"}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleOptimizeDay(dayIndex)}
+                disabled={controlsLocked || !locationsReady || day.items.length < 2}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+                title="Reorder stops and update times with estimated travel buffers"
+              >
+                <Route className="h-3.5 w-3.5" />
+                Optimize route
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleRegenerateDay(day.date)}
+                disabled={controlsLocked}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-primary/30 hover:text-primary disabled:opacity-50"
+              >
+                {regeneratingDate === day.date ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Wand2 className="h-3.5 w-3.5" />
+                )}
+                {regeneratingDate === day.date ? "Refreshing…" : "Refresh day"}
+              </button>
+            </div>
           </div>
 
           {day.items.length > 0 ? (
@@ -454,6 +593,13 @@ export function EditableItinerary({
                         </div>
                       </div>
                     )}
+                    {travelSegments[itemIndex] && (
+                      <ItineraryTravelSegment
+                        segment={travelSegments[itemIndex]}
+                        mode={travelMode}
+                        destination={destination}
+                      />
+                    )}
                   </div>
                 )
               })}
@@ -463,8 +609,9 @@ export function EditableItinerary({
               This day is open. Move a stop here from another day or refresh it for new ideas.
             </p>
           )}
-        </section>
-      ))}
+          </section>
+        )
+      })}
     </div>
   )
 }
