@@ -44,3 +44,31 @@ export function formatPlannedDate(value: string): string {
     timeZone: "UTC",
   })
 }
+
+export function estimateDurationHours(value?: string | null): number {
+  const duration = value?.trim().toLowerCase()
+  if (!duration) return 2
+  if (duration.includes("full day")) return 8
+
+  const hourRange = duration.match(
+    /(\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(\d+(?:\.\d+)?)\s*hours?/
+  )
+  if (hourRange) return Number(hourRange[2])
+
+  const hours = Array.from(duration.matchAll(/(\d+(?:\.\d+)?)\s*hours?/g)).map(
+    (match) => Number(match[1])
+  )
+  if (hours.length > 0) return Math.max(...hours)
+
+  const minuteRange = duration.match(
+    /(\d+(?:\.\d+)?)\s*(?:-|–|—|to)\s*(\d+(?:\.\d+)?)\s*(?:minutes?|mins?)/
+  )
+  if (minuteRange) return Number(minuteRange[2]) / 60
+
+  const minutes = Array.from(
+    duration.matchAll(/(\d+(?:\.\d+)?)\s*(?:minutes?|mins?)/g)
+  ).map((match) => Number(match[1]))
+  if (minutes.length > 0) return Math.max(...minutes) / 60
+
+  return 2
+}

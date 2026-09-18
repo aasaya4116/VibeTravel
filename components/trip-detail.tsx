@@ -11,7 +11,6 @@ import {
   Calendar,
   Search,
   Clock,
-  MapPin,
   Wand2,
   Sparkles,
   Loader2,
@@ -24,8 +23,8 @@ import {
 import type { Trip, SavedAttraction } from "@/lib/types"
 import { getBookingLink } from "@/lib/get-booking-link"
 import { getAttractionImage } from "@/lib/attraction-images"
-import { formatPlannedDate } from "@/lib/trip-planning"
 import { TripMap } from "@/components/trip-map"
+import { TripDayOrganizer } from "@/components/trip-day-organizer"
 import { OnboardingHint } from "@/components/onboarding-hint"
 import { useOnboardingHints } from "@/hooks/use-onboarding-hints"
 import { MilestonePulse } from "@/components/milestone-pulse"
@@ -653,76 +652,11 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
           )}
         </div>
 
-        {/* Saved Attractions Sidebar */}
-        <div>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-serif text-xl text-foreground">Saved Places</h2>
-            {!hasItinerary && (
-              <span className="text-xs text-muted-foreground">
-                {savedAttractions.length >= 3
-                  ? "Ready to generate"
-                  : `${savedAttractions.length}/3 to generate`}
-              </span>
-            )}
-          </div>
-          {!hasItinerary && savedAttractions.length > 0 && savedAttractions.length < 3 && (
-            <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-primary transition-all duration-500"
-                style={{ width: `${(savedAttractions.length / 3) * 100}%` }}
-              />
-            </div>
-          )}
-          {!hasItinerary && savedAttractions.length >= 3 && (
-            <p className="mb-3 text-xs text-muted-foreground">
-              These places will be woven into your day-by-day itinerary.
-            </p>
-          )}
-          {savedAttractions.length > 0 ? (
-            <div className="flex flex-col gap-3">
-              {savedAttractions.map((sa) => (
-                <div
-                  key={sa.id}
-                  className="rounded-xl border border-border bg-card p-4"
-                >
-                  <h4 className="text-sm font-medium text-foreground">
-                    {sa.attraction_name}
-                  </h4>
-                  {sa.attraction_data?.location && (
-                    <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                      <MapPin className="h-3 w-3" />
-                      {sa.attraction_data.location}
-                    </p>
-                  )}
-                  {sa.attraction_data?.plannedDate && (
-                    <p className="mt-1 flex items-center gap-1 text-xs font-medium text-primary">
-                      <Calendar className="h-3 w-3" />
-                      Planned for {formatPlannedDate(sa.attraction_data.plannedDate)}
-                    </p>
-                  )}
-                  {sa.attraction_data?.vibes && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {sa.attraction_data.vibes.slice(0, 3).map((v) => (
-                        <span
-                          key={v}
-                          className="rounded-full bg-primary/5 px-2 py-0.5 text-[10px] font-medium text-primary"
-                        >
-                          {v}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-dashed border-border p-6 text-center">
-              <p className="text-sm text-muted-foreground">
-                No saved places yet. Explore attractions and save them here.
-              </p>
-            </div>
-          )}
-        </div>
+        <TripDayOrganizer
+          trip={trip}
+          savedAttractions={savedAttractions}
+          hasItinerary={hasItinerary}
+        />
       </div>
     </div>
     </>

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { formatPlannedDate, getTripDateOptions } from "./trip-planning"
+import {
+  estimateDurationHours,
+  formatPlannedDate,
+  getTripDateOptions,
+} from "./trip-planning"
 import type { TripOption } from "./types"
 
 const baseTrip: TripOption = {
@@ -25,5 +29,16 @@ describe("trip planning date helpers", () => {
 
   it("formats a saved planning date", () => {
     expect(formatPlannedDate("2026-10-03")).toBe("Sat, Oct 3")
+  })
+
+  it("uses the longer end of a duration range when estimating a day", () => {
+    expect(estimateDurationHours("2–4 hours")).toBe(4)
+    expect(estimateDurationHours("30 minutes to 1 hour")).toBe(1)
+  })
+
+  it("handles full days, minutes, and missing estimates", () => {
+    expect(estimateDurationHours("Full day")).toBe(8)
+    expect(estimateDurationHours("45 mins")).toBe(0.75)
+    expect(estimateDurationHours()).toBe(2)
   })
 })
