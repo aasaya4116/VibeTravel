@@ -71,6 +71,8 @@ export interface Attraction {
   userRatingCount?: number | null
   tips?: string[]
   familyFitReason?: string
+  familyFitSignals?: FamilyFitSignal[]
+  personalizedForFamily?: boolean
   verifiedPlace?: boolean
   // Real-data enrichment fields (present when API keys are configured)
   openNow?: boolean | null
@@ -85,6 +87,20 @@ export interface Attraction {
   yelpUrl?: string
   yelpReviewCount?: number
   _sources?: { image: "google" | "wikipedia" | "yelp" | "fallback"; rating: "google" | "yelp" | "ai" }
+}
+
+export type FamilyFitSignalType =
+  | "age"
+  | "sensory"
+  | "pace"
+  | "style"
+  | "budget"
+  | "dietary"
+  | "general"
+
+export interface FamilyFitSignal {
+  type: FamilyFitSignalType
+  label: string
 }
 
 export interface SavedAttraction {

@@ -17,11 +17,23 @@ import {
   Plus,
   Check,
   CalendarDays,
+  MessageCircle,
+  Sparkles,
 } from "lucide-react"
 import { useState } from "react"
 import type { Attraction } from "@/lib/types"
 import { getAttractionImage } from "@/lib/attraction-images"
 import { formatPlannedDate } from "@/lib/trip-planning"
+import type { RecommendationFeedbackReason } from "@/lib/recommendation-personalization"
+
+const feedbackOptions: {
+  value: RecommendationFeedbackReason
+  label: string
+}[] = [
+  { value: "too_busy", label: "Too busy" },
+  { value: "too_expensive", label: "Too expensive" },
+  { value: "not_age_appropriate", label: "Not age-appropriate" },
+]
 
 const categoryColors: Record<string, string> = {
   Museum: "from-indigo-500/20 to-purple-500/20",
@@ -53,6 +65,8 @@ interface AttractionCardProps {
   plannedDate?: string | null
   isInspiration?: boolean
   showSave?: boolean
+  feedbackReason?: RecommendationFeedbackReason | null
+  onFitFeedback?: (reason: RecommendationFeedbackReason | null) => void
 }
 
 export function AttractionCard({
@@ -63,8 +77,11 @@ export function AttractionCard({
   plannedDate = null,
   isInspiration = false,
   showSave = true,
+  feedbackReason = null,
+  onFitFeedback,
 }: AttractionCardProps) {
   const [expanded, setExpanded] = useState(false)
+  const [showFeedback, setShowFeedback] = useState(false)
   const gradientClass = categoryColors[attraction.category] || "from-slate-500/20 to-gray-500/20"
   const emoji = categoryEmoji[attraction.category] || "📍"
 
@@ -178,13 +195,81 @@ export function AttractionCard({
       </p>
 
       {attraction.familyFitReason && (
-        <div className="mb-4 rounded-xl border border-primary/15 bg-primary/5 px-3.5 py-3">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-primary">
-            Why it matched
+        <div className="mb-4 rounded-xl border border-primary/15 bg-primary/5 px-3.5 py-3.5">
+          <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+            <Sparkles className="h-3 w-3" />
+            {attraction.personalizedForFamily
+              ? "Why this fits your family"
+              : "Why it matched"}
           </p>
           <p className="mt-1 text-xs leading-relaxed text-foreground/80">
             {attraction.familyFitReason}
           </p>
+          {attraction.familyFitSignals && attraction.familyFitSignals.length > 0 && (
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {attraction.familyFitSignals.map((signal, index) => (
+                <span
+                  key={`${signal.type}-${signal.label}-${index}`}
+                  className="rounded-full border border-primary/15 bg-background/70 px-2.5 py-1 text-[10px] font-medium text-foreground/75"
+                >
+                  {signal.label}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {onFitFeedback && (
+            <div className="mt-3 border-t border-primary/10 pt-2.5">
+              {feedbackReason ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
+                    <CheckCircle className="h-3.5 w-3.5" />
+                    Got it — future results will adjust
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowFeedback(!showFeedback)}
+                    className="text-[11px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : !showFeedback ? (
+                <button
+                  type="button"
+                  onClick={() => setShowFeedback(true)}
+                  className="inline-flex min-h-8 items-center gap-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <MessageCircle className="h-3.5 w-3.5" /> Not a fit? Tell us why
+                </button>
+              ) : null}
+
+              {showFeedback && (
+                <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label={`Why ${attraction.name} is not a fit`}>
+                  {feedbackOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        onFitFeedback(
+                          feedbackReason === option.value ? null : option.value
+                        )
+                        setShowFeedback(false)
+                      }}
+                      aria-pressed={feedbackReason === option.value}
+                      className={`min-h-8 rounded-full border px-2.5 text-[10px] font-medium transition-colors ${
+                        feedbackReason === option.value
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-background text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

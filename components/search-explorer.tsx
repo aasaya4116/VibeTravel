@@ -11,6 +11,17 @@ import { SearchFilters } from "@/components/search-filters"
 import { DestinationAutocomplete } from "@/components/destination-autocomplete"
 import type { Attraction, FamilyVibe, SavedAttraction, TripOption } from "@/lib/types"
 import { VlogStrip } from "@/components/vlog-strip"
+import { FamilyFitBanner } from "@/components/family-fit-banner"
+import {
+  createRecommendationFeedback,
+  normalizeRecommendationFeedback,
+  placeFeedbackKey,
+  recordRecommendationFeedback,
+  type RecommendationFeedback,
+  type RecommendationFeedbackReason,
+} from "@/lib/recommendation-personalization"
+
+const recommendationFeedbackStorageKey = "vibetravel-recommendation-feedback"
 
 interface SearchExplorerProps {
   familyVibe: FamilyVibe | null
@@ -70,6 +81,10 @@ export function SearchExplorer({
   )
   const [pendingAttraction, setPendingAttraction] = useState<Attraction | null>(null)
   const [savingPlace, setSavingPlace] = useState(false)
+  const [recommendationFeedback, setRecommendationFeedback] = useState<
+    RecommendationFeedback[]
+  >([])
+  const [feedbackReady, setFeedbackReady] = useState(false)
 
   const selectedTrip =
     availableTrips.find((trip) => trip.id === selectedTripId) ?? null
@@ -79,6 +94,9 @@ export function SearchExplorer({
     : []
   const savedByName = new Map(
     selectedTripSaves.map((saved) => [saved.attraction_name, saved])
+  )
+  const feedbackByPlace = new Map(
+    recommendationFeedback.map((feedback) => [feedback.placeKey, feedback])
   )
   // Tracks what was committed to the last search run
   const [activeSearch, setActiveSearch] = useState<{
@@ -103,6 +121,19 @@ export function SearchExplorer({
     }, 500)
     return () => clearTimeout(timeout)
   }, [selectedTripId, query, destination, filters, router])
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(recommendationFeedbackStorageKey)
+      setRecommendationFeedback(
+        normalizeRecommendationFeedback(stored ? JSON.parse(stored) : [])
+      )
+    } catch {
+      setRecommendationFeedback([])
+    } finally {
+      setFeedbackReady(true)
+    }
+  }, [])
 
   // Accepts optional overrides so pill removals can clear a field and immediately re-run
   const handleSearch = useCallback(
@@ -143,6 +174,7 @@ export function SearchExplorer({
                 ? searchFilters
                 : null,
             familyVibe,
+            preferenceFeedback: recommendationFeedback,
           }),
         })
 
@@ -212,18 +244,47 @@ export function SearchExplorer({
         setLoading(false)
       }
     },
-    [query, destination, filters, familyVibe]
+    [query, destination, filters, familyVibe, recommendationFeedback]
   )
 
   const autoSearched = useRef(false)
   useEffect(() => {
-    if (autoSearched.current) return
+    if (autoSearched.current || !feedbackReady) return
     if (destination) {
       autoSearched.current = true
       handleSearch(undefined, query || "family-friendly attractions", destination)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [feedbackReady])
+
+  function handleFitFeedback(
+    attraction: Attraction,
+    reason: RecommendationFeedbackReason | null
+  ) {
+    setRecommendationFeedback((previous) => {
+      const placeKey = placeFeedbackKey(attraction)
+      const next = reason
+        ? recordRecommendationFeedback(
+            previous,
+            createRecommendationFeedback(attraction, reason)
+          )
+        : previous.filter((feedback) => feedback.placeKey !== placeKey)
+      try {
+        window.localStorage.setItem(
+          recommendationFeedbackStorageKey,
+          JSON.stringify(next)
+        )
+      } catch {
+        // Keep feedback active for this session when browser storage is unavailable.
+      }
+      return next
+    })
+    if (reason) {
+      toast.success("Thanks — future searches will adjust to this feedback")
+    } else {
+      toast.success("Recommendation feedback cleared")
+    }
+  }
 
   function handleTripChange(nextTripId: string | null) {
     setSelectedTripId(nextTripId)
@@ -720,6 +781,10 @@ export function SearchExplorer({
         </p>
       )}
 
+      {familyVibe && attractions.length > 0 && (
+        <FamilyFitBanner familyVibe={familyVibe} />
+      )}
+
       {/* No Results — improved */}
       {hasSearched && !loading && !searchError && attractions.length === 0 && (
         <div className="mb-6 rounded-2xl border border-dashed border-border bg-card p-8 text-center">
@@ -853,6 +918,10 @@ export function SearchExplorer({
                     onPlan={() => setPendingAttraction(attraction)}
                     tripTitle={selectedTripTitle}
                     plannedDate={saved?.attraction_data?.plannedDate}
+                    feedbackReason={
+                      feedbackByPlace.get(placeFeedbackKey(attraction))?.reason ?? null
+                    }
+                    onFitFeedback={(reason) => handleFitFeedback(attraction, reason)}
                   />
                 )
               })}
