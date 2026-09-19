@@ -93,4 +93,33 @@ describe("itinerary editing helpers", () => {
     expect(next[0].items[0]).toEqual(existing[0].items[0])
     expect(next[1]).toBe(existing[1])
   })
+
+  it("keeps completed and skipped stops when refreshing a day", () => {
+    const existing: ItineraryDay[] = [
+      {
+        date: "2026-10-02",
+        items: [
+          { ...itinerary[0].items[0], recommended: true, status: "completed" },
+          { ...itinerary[0].items[1], recommended: true, status: "skipped" },
+        ],
+      },
+    ]
+    const rebuilt: ItineraryDay = {
+      date: "2026-10-02",
+      items: [
+        {
+          id: "cafe",
+          attraction_name: "Cafe",
+          start_time: "14:00",
+          end_time: "15:00",
+          recommended: true,
+        },
+      ],
+    }
+
+    const next = mergeRegeneratedDay(existing, "2026-10-02", rebuilt)
+    expect(next[0].items.map((item) => item.id)).toEqual(["museum", "lunch", "cafe"])
+    expect(next[0].items[0].status).toBe("completed")
+    expect(next[0].items[1].status).toBe("skipped")
+  })
 })

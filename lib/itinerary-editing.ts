@@ -103,7 +103,12 @@ export function mergeRegeneratedDay(
 
   const originalUserPicks = new Map(
     targetDay.items
-      .filter((item) => item.recommended === false)
+      .filter(
+        (item) =>
+          item.recommended === false ||
+          item.status === "completed" ||
+          item.status === "skipped"
+      )
       .map((item) => [item.attraction_name.toLowerCase(), item])
   )
   const protectedItems = rebuiltDay.items.map(
@@ -114,7 +119,9 @@ export function mergeRegeneratedDay(
   )
   const missingUserPicks = targetDay.items.filter(
     (item) =>
-      item.recommended === false &&
+      (item.recommended === false ||
+        item.status === "completed" ||
+        item.status === "skipped") &&
       !returnedNames.has(item.attraction_name.toLowerCase())
   )
   const safeRebuiltDay = {

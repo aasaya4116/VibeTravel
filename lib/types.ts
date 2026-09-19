@@ -50,6 +50,7 @@ export interface ItineraryItem {
   end_time: string
   notes?: string
   recommended?: boolean
+  status?: "planned" | "completed" | "skipped"
   attraction_data?: Attraction
 }
 

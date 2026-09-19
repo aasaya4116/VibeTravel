@@ -36,6 +36,7 @@ export async function POST(
   const body = await req.json().catch(() => ({}))
   const deltaInstruction: string | undefined = body?.instruction
   const targetDayDate: string | undefined = body?.dayDate
+  const targetDayInstruction: string | undefined = body?.dayInstruction
   const supabase = await createClient()
   const {
     data: { user },
@@ -171,6 +172,7 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
 Rules:
 - Return exactly one day using the requested date.
 - KEEP every user-picked item where recommended is false, including its current times and notes.
+- KEEP every completed or skipped item exactly as-is. Never reschedule or remove it.
 - Replace or improve the AI-suggested items where recommended is true.
 - Build a realistic day with 2-4 activities, meal or rest breaks, and reasonable travel buffers.
 - Recommended activities must be REAL places that actually exist in ${trip.destination}.
@@ -214,8 +216,9 @@ ${accommodationContext}
 ${vibeContext}${weatherContext}
 Current day:
 ${JSON.stringify(targetDay, null, 2)}
+${targetDayInstruction ? `\nSpecific request: ${targetDayInstruction}` : ""}
 
-Return only the rebuilt day for ${targetDayDate}. Preserve every item marked recommended: false.`
+Return only the rebuilt day for ${targetDayDate}. Preserve every user-picked, completed, and skipped item.`
           : isDelta
             ? `Trip: ${trip.title}, destination: ${trip.destination}. Dates: ${dateRangeDesc}.
 ${accommodationContext}
@@ -270,6 +273,10 @@ Generate a COMPLETE day-by-day itinerary. Include all saved attractions AND reco
       start_time: item.start_time,
       end_time: item.end_time,
       notes: item.notes,
+      status: targetDay?.items.find(
+        (existing) =>
+          existing.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
+      )?.status,
       recommended: isTargetDay
         ? !targetDay?.items.some(
             (existing) =>

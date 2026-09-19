@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Footprints,
   Loader2,
+  Navigation,
   Pencil,
   Route,
   Sparkles,
@@ -30,6 +31,7 @@ import {
   restoreItineraryItem,
   updateItineraryItem,
 } from "@/lib/itinerary-editing"
+import { setItineraryItemStatus } from "@/lib/trip-mode"
 import {
   getActivityMinutes,
   getTravelSegments,
@@ -39,6 +41,7 @@ import {
 import { useItineraryLocations } from "@/hooks/use-itinerary-locations"
 import { TripMap } from "@/components/trip-map"
 import { ItineraryTravelSegment } from "@/components/itinerary-travel-segment"
+import { TripMode } from "@/components/trip-mode"
 
 interface EditableItineraryProps {
   tripId: string
@@ -84,6 +87,7 @@ export function EditableItinerary({
   const [regeneratingDate, setRegeneratingDate] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null)
   const [travelMode, setTravelMode] = useState<TravelMode>("transit")
+  const [tripModeOpen, setTripModeOpen] = useState(false)
   const { locations, loading: locationsLoading, ready: locationsReady } =
     useItineraryLocations(destination, itinerary)
 
@@ -146,6 +150,17 @@ export function EditableItinerary({
     const current = itineraryRef.current
     const next = reorderItineraryItem(current, dayIndex, itemId, offset)
     if (next !== current) await persistItinerary(next, current)
+  }
+
+  async function handleStatusChange(
+    dayIndex: number,
+    itemId: string,
+    status: ItineraryItem["status"]
+  ) {
+    if (busy) return false
+    const current = itineraryRef.current
+    const next = setItineraryItemStatus(current, dayIndex, itemId, status)
+    return next === current ? false : persistItinerary(next, current)
   }
 
   async function handleMove(itemId: string, fromDayIndex: number, toDayIndex: number) {
@@ -212,21 +227,25 @@ export function EditableItinerary({
     }
   }
 
-  async function handleRegenerateDay(date: string) {
+  async function handleRegenerateDay(date: string, dayInstruction?: string) {
     if (controlsLocked) return
     setRegeneratingDate(date)
     try {
       const response = await fetch(`/api/trips/${tripId}/itinerary`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dayDate: date }),
+        body: JSON.stringify({ dayDate: date, dayInstruction }),
       })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || "Could not refresh this day")
       applyItinerary(payload.itinerary)
       setSaveStatus("saved")
       setEditDraft(null)
-      toast.success("Day refreshed — the rest of your trip stayed unchanged")
+      toast.success(
+        dayInstruction
+          ? "Indoor-friendly backups added — completed stops stayed unchanged"
+          : "Day refreshed — the rest of your trip stayed unchanged"
+      )
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not refresh this day")
     } finally {
@@ -258,6 +277,46 @@ export function EditableItinerary({
 
   return (
     <div className="flex flex-col gap-4">
+      {tripModeOpen && (
+        <TripMode
+          itinerary={itinerary}
+          destination={destination}
+          travelMode={travelMode}
+          busy={busy}
+          weatherUpdatingDate={regeneratingDate}
+          onClose={() => setTripModeOpen(false)}
+          onSave={persistItinerary}
+          onStatusChange={handleStatusChange}
+          onWeatherBackup={(date) =>
+            handleRegenerateDay(
+              date,
+              "The weather changed. Replace unfinished outdoor AI suggestions with indoor-friendly alternatives, while keeping user-picked, completed, and skipped stops exactly as-is."
+            )
+          }
+        />
+      )}
+
+      <section className="relative overflow-hidden rounded-2xl bg-foreground px-5 py-5 text-background shadow-lg shadow-foreground/10 sm:flex sm:items-center sm:justify-between sm:gap-6 sm:px-6">
+        <div className="relative z-10">
+          <div className="flex items-center gap-2 text-background/70">
+            <Navigation className="h-4 w-4" />
+            <p className="text-xs font-semibold uppercase tracking-[0.14em]">Ready to go?</p>
+          </div>
+          <h3 className="mt-2 text-lg font-semibold">Your day, one stop at a time</h3>
+          <p className="mt-1 max-w-lg text-sm text-background/65">
+            Open a simple live view for directions, check-offs, delays, and weather changes.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setTripModeOpen(true)}
+          className="relative z-10 mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:mt-0 sm:w-auto sm:shrink-0"
+        >
+          <Navigation className="h-4 w-4" /> Start Trip Mode
+        </button>
+        <div className="absolute -right-10 -top-14 h-40 w-40 rounded-full bg-primary/20 blur-2xl" />
+      </section>
+
       <TripMap
         itinerary={itinerary}
         locations={locations}
@@ -438,6 +497,16 @@ export function EditableItinerary({
                           {item.recommended && (
                             <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
                               Suggested
+                            </span>
+                          )}
+                          {item.status === "completed" && (
+                            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                              Complete
+                            </span>
+                          )}
+                          {item.status === "skipped" && (
+                            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              Skipped
                             </span>
                           )}
                         </div>
