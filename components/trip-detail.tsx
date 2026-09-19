@@ -27,6 +27,7 @@ import { MilestonePulse } from "@/components/milestone-pulse"
 import { OutcomeCheck } from "@/components/outcome-check"
 import { TripShareDialog } from "@/components/trip-share-dialog"
 import { TripReadiness } from "@/components/trip-readiness"
+import { DepartureCenter } from "@/components/departure-center"
 
 const STATUS_FLOW: Record<string, { next: string; label: string } | null> = {
   planning: { next: "active", label: "Mark as Active" },
@@ -302,6 +303,8 @@ export function TripDetail({
           </div>
         )}
       </div>
+
+      <DepartureCenter trip={trip} initialReadiness={initialReadiness} />
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         {/* Itinerary Section */}

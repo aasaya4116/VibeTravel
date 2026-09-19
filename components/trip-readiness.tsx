@@ -114,6 +114,15 @@ export function TripReadiness({
     setDirty(false)
   }, [initialReadiness, tripId])
 
+  useEffect(() => {
+    function handleOpenReadiness() {
+      setOpen(true)
+    }
+
+    window.addEventListener("vibetravel:open-readiness", handleOpenReadiness)
+    return () => window.removeEventListener("vibetravel:open-readiness", handleOpenReadiness)
+  }, [])
+
   const stats = useMemo(() => getReadinessStats(readiness, itinerary), [itinerary, readiness])
 
   function updateReadiness(update: (current: TripReadinessState) => TripReadinessState) {
@@ -187,8 +196,14 @@ export function TripReadiness({
       const result = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(result.error || "Could not save trip readiness")
 
-      setReadiness(normalizeTripReadiness(result.data))
+      const savedReadiness = normalizeTripReadiness(result.data)
+      setReadiness(savedReadiness)
       setDirty(false)
+      window.dispatchEvent(
+        new CustomEvent<TripReadinessState>("vibetravel:readiness-saved", {
+          detail: savedReadiness,
+        })
+      )
       toast.success("Trip readiness saved")
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save trip readiness")
