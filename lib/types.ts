@@ -33,6 +33,22 @@ export interface Trip {
   updated_at: string
 }
 
+export type SharedTrip = Pick<
+  Trip,
+  | "title"
+  | "destination"
+  | "start_date"
+  | "end_date"
+  | "accommodation_area"
+  | "status"
+  | "itinerary"
+>
+
+export interface SharedTripPayload {
+  trip: SharedTrip
+  shared_at: string
+}
+
 export type TripOption = Pick<
   Trip,
   "id" | "title" | "destination" | "start_date" | "end_date"

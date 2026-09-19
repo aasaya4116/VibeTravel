@@ -25,6 +25,7 @@ import { OnboardingHint } from "@/components/onboarding-hint"
 import { useOnboardingHints } from "@/hooks/use-onboarding-hints"
 import { MilestonePulse } from "@/components/milestone-pulse"
 import { OutcomeCheck } from "@/components/outcome-check"
+import { TripShareDialog } from "@/components/trip-share-dialog"
 
 const STATUS_FLOW: Record<string, { next: string; label: string } | null> = {
   planning: { next: "active", label: "Mark as Active" },
@@ -169,14 +170,21 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
       />
     )}
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-8 lg:py-12">
-      {/* Back link */}
-      <Link
-        href="/trips"
-        className="mb-6 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="h-4 w-4" />
-        All Trips
-      </Link>
+      {/* Trip navigation and sharing */}
+      <div className="mb-6 flex items-center justify-between gap-3">
+        <Link
+          href="/trips"
+          className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          All Trips
+        </Link>
+        <TripShareDialog
+          tripId={trip.id}
+          tripTitle={trip.title}
+          destination={trip.destination}
+        />
+      </div>
 
       {/* Trip progress flow — hidden once itinerary is generated */}
       {!hasItinerary && (
