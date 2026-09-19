@@ -49,6 +49,40 @@ export interface SharedTripPayload {
   shared_at: string
 }
 
+export type BookingStatus = "unreviewed" | "to_book" | "booked" | "not_needed"
+
+export interface TripBooking {
+  status: BookingStatus
+  cost: number | null
+  confirmation_code: string
+  booking_url: string
+}
+
+export type ReadinessCategory =
+  | "accommodation"
+  | "transport"
+  | "tickets"
+  | "documents"
+  | "packing"
+  | "other"
+
+export interface ReadinessChecklistItem {
+  id: string
+  label: string
+  category: ReadinessCategory
+  completed: boolean
+  cost: number | null
+  confirmation_code: string
+  booking_url: string
+}
+
+export interface TripReadinessState {
+  currency: string
+  budget_target: number | null
+  bookings: Record<string, TripBooking>
+  checklist: ReadinessChecklistItem[]
+}
+
 export type TripOption = Pick<
   Trip,
   "id" | "title" | "destination" | "start_date" | "end_date"

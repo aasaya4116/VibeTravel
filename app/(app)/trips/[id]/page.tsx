@@ -6,6 +6,7 @@ import { ArticlesSidebar, ArticlesSidebarSkeleton } from "@/components/articles-
 import { getWikipediaImage } from "@/lib/wikipedia-image"
 import { generateText } from "ai"
 import { anthropic } from "@ai-sdk/anthropic"
+import type { TripReadinessState } from "@/lib/types"
 
 async function generateTripSummary(
   trip: { title: string; destination: string; start_date: string | null; end_date: string | null; itinerary: { items: { attraction_name: string }[] }[] },
@@ -50,10 +51,16 @@ export default async function TripDetailPage({
 
   if (!user) notFound()
 
-  const [tripRes, savedRes, vibeRes] = await Promise.all([
+  const [tripRes, savedRes, vibeRes, readinessRes] = await Promise.all([
     supabase.from("trips").select("*").eq("id", id).eq("user_id", user.id).single(),
     supabase.from("saved_attractions").select("*").eq("user_id", user.id).eq("trip_id", id),
     supabase.from("family_vibes").select("*").eq("user_id", user.id).single(),
+    supabase
+      .from("trip_readiness")
+      .select("currency, budget_target, bookings, checklist")
+      .eq("trip_id", id)
+      .eq("user_id", user.id)
+      .maybeSingle(),
   ])
 
   if (!tripRes.data) notFound()
@@ -75,6 +82,7 @@ export default async function TripDetailPage({
           savedAttractions={savedRes.data ?? []}
           bannerImage={bannerImage}
           tripSummary={tripSummary}
+          initialReadiness={(readinessRes.data as TripReadinessState | null) ?? null}
         />
       </div>
 

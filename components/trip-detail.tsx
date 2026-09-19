@@ -18,7 +18,7 @@ import {
   Pencil,
   X,
 } from "lucide-react"
-import type { Trip, SavedAttraction } from "@/lib/types"
+import type { Trip, SavedAttraction, TripReadinessState } from "@/lib/types"
 import { EditableItinerary } from "@/components/editable-itinerary"
 import { TripDayOrganizer } from "@/components/trip-day-organizer"
 import { OnboardingHint } from "@/components/onboarding-hint"
@@ -26,6 +26,7 @@ import { useOnboardingHints } from "@/hooks/use-onboarding-hints"
 import { MilestonePulse } from "@/components/milestone-pulse"
 import { OutcomeCheck } from "@/components/outcome-check"
 import { TripShareDialog } from "@/components/trip-share-dialog"
+import { TripReadiness } from "@/components/trip-readiness"
 
 const STATUS_FLOW: Record<string, { next: string; label: string } | null> = {
   planning: { next: "active", label: "Mark as Active" },
@@ -44,9 +45,16 @@ interface TripDetailProps {
   savedAttractions: SavedAttraction[]
   bannerImage?: string | null
   tripSummary?: string | null
+  initialReadiness?: TripReadinessState | null
 }
 
-export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }: TripDetailProps) {
+export function TripDetail({
+  trip,
+  savedAttractions,
+  bannerImage,
+  tripSummary,
+  initialReadiness,
+}: TripDetailProps) {
   const router = useRouter()
   const { isDismissed, dismiss } = useOnboardingHints()
   const [generating, setGenerating] = useState(false)
@@ -560,11 +568,19 @@ export function TripDetail({ trip, savedAttractions, bannerImage, tripSummary }:
           )}
         </div>
 
-        <TripDayOrganizer
-          trip={trip}
-          savedAttractions={savedAttractions}
-          hasItinerary={hasItinerary}
-        />
+        <div>
+          <TripReadiness
+            tripId={trip.id}
+            destination={trip.destination}
+            itinerary={trip.itinerary ?? []}
+            initialReadiness={initialReadiness}
+          />
+          <TripDayOrganizer
+            trip={trip}
+            savedAttractions={savedAttractions}
+            hasItinerary={hasItinerary}
+          />
+        </div>
       </div>
     </div>
     </>
