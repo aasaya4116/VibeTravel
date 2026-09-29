@@ -3,6 +3,8 @@ import type { Attraction, FamilyVibe } from "./types"
 import {
   createRecommendationFeedback,
   getFamilyVibeHighlights,
+  getVibeDiscoveryQuery,
+  getVibeSuggestedSearches,
   normalizeRecommendationFeedback,
   recordRecommendationFeedback,
 } from "./recommendation-personalization"
@@ -68,5 +70,36 @@ describe("recommendation personalization", () => {
       "Sensory needs considered",
       "slow pace",
     ])
+  })
+
+  it("turns a Foodie Family vibe into food-first discovery", () => {
+    const vibe: FamilyVibe = {
+      id: "vibe",
+      user_id: "user",
+      family_name: "The Johnsons",
+      kids: [],
+      travel_style: ["Foodie Family"],
+      sensory_needs: [],
+      mobility_notes: null,
+      dietary: ["nut-free"],
+      pace: "moderate",
+      budget_preference: "any",
+      created_at: "",
+      updated_at: "",
+    }
+
+    expect(getVibeDiscoveryQuery(vibe)).toContain("restaurants")
+    expect(getVibeDiscoveryQuery(vibe)).toContain("nut-free options")
+    expect(getVibeSuggestedSearches(vibe, "Tokyo")[0]).toBe(
+      "Family-friendly restaurants in Tokyo"
+    )
+    expect(getVibeSuggestedSearches(vibe, "Tokyo")).toContain(
+      "Food markets and food halls in Tokyo"
+    )
+  })
+
+  it("keeps a general discovery fallback when no style is set", () => {
+    expect(getVibeDiscoveryQuery(null)).toBe("family-friendly attractions")
+    expect(getVibeSuggestedSearches(null)).toHaveLength(5)
   })
 })

@@ -19,6 +19,10 @@ import {
 } from "@/lib/departure-center"
 import { normalizeTripReadiness } from "@/lib/trip-readiness"
 import type { Trip, TripReadinessState } from "@/lib/types"
+import {
+  ITINERARY_SAVED_EVENT,
+  type ItinerarySavedDetail,
+} from "@/lib/trip-events"
 
 interface DepartureCenterProps {
   trip: Trip
@@ -37,10 +41,12 @@ const PHASE_LABELS = {
 
 export function DepartureCenter({ trip, initialReadiness }: DepartureCenterProps) {
   const [readiness, setReadiness] = useState(() => normalizeTripReadiness(initialReadiness))
+  const [currentItinerary, setCurrentItinerary] = useState(trip.itinerary)
 
   useEffect(() => {
     setReadiness(normalizeTripReadiness(initialReadiness))
-  }, [initialReadiness, trip.id])
+    setCurrentItinerary(trip.itinerary)
+  }, [initialReadiness, trip.id, trip.itinerary])
 
   useEffect(() => {
     function handleReadinessSaved(event: Event) {
@@ -52,13 +58,28 @@ export function DepartureCenter({ trip, initialReadiness }: DepartureCenterProps
     return () => window.removeEventListener("vibetravel:readiness-saved", handleReadinessSaved)
   }, [])
 
+  useEffect(() => {
+    function handleItinerarySaved(event: Event) {
+      const detail = (event as CustomEvent<ItinerarySavedDetail>).detail
+      if (detail?.tripId === trip.id) setCurrentItinerary(detail.itinerary)
+    }
+
+    window.addEventListener(ITINERARY_SAVED_EVENT, handleItinerarySaved)
+    return () => window.removeEventListener(ITINERARY_SAVED_EVENT, handleItinerarySaved)
+  }, [trip.id])
+
+  const currentTrip = useMemo(
+    () => ({ ...trip, itinerary: currentItinerary }),
+    [currentItinerary, trip]
+  )
+
   const status = useMemo(
-    () => getDepartureStatus(trip, readiness),
-    [readiness, trip]
+    () => getDepartureStatus(currentTrip, readiness),
+    [currentTrip, readiness]
   )
   const attentionCount = status.unresolvedBookings + status.incompleteTasks
   const isUrgent = status.phase === "final_checks" || status.phase === "departure_day"
-  const hasItinerary = (trip.itinerary?.length ?? 0) > 0
+  const hasItinerary = (currentTrip.itinerary?.length ?? 0) > 0
 
   function openReadiness() {
     window.dispatchEvent(new Event("vibetravel:open-readiness"))
@@ -70,12 +91,12 @@ export function DepartureCenter({ trip, initialReadiness }: DepartureCenterProps
       return
     }
 
-    const html = buildOfflineTripHtml(trip, readiness)
+    const html = buildOfflineTripHtml(currentTrip, readiness)
     const blob = new Blob([html], { type: "text/html;charset=utf-8" })
     const url = URL.createObjectURL(blob)
     const link = document.createElement("a")
     link.href = url
-    link.download = offlineTripFilename(trip.title)
+    link.download = offlineTripFilename(currentTrip.title)
     document.body.appendChild(link)
     link.click()
     link.remove()

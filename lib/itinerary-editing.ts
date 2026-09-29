@@ -1,4 +1,4 @@
-import type { ItineraryDay, ItineraryItem } from "@/lib/types"
+import type { Attraction, ItineraryDay, ItineraryItem } from "@/lib/types"
 
 function copyItinerary(itinerary: ItineraryDay[]): ItineraryDay[] {
   return itinerary.map((day) => ({ ...day, items: [...day.items] }))
@@ -132,4 +132,68 @@ export function mergeRegeneratedDay(
   }
 
   return itinerary.map((day) => (day.date === targetDate ? safeRebuiltDay : day))
+}
+
+function timeToMinutes(value: string) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value)
+  if (!match) return null
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (hours > 23 || minutes > 59) return null
+  return hours * 60 + minutes
+}
+
+function minutesToTime(value: number) {
+  const safe = Math.min(Math.max(value, 0), 23 * 60 + 59)
+  return `${String(Math.floor(safe / 60)).padStart(2, "0")}:${String(safe % 60).padStart(2, "0")}`
+}
+
+function estimatedDurationMinutes(value: string) {
+  const match = /(\d+(?:\.\d+)?)/.exec(value)
+  if (!match) return 90
+  const duration = Number(match[1]) * (value.toLowerCase().includes("min") ? 1 : 60)
+  return Math.min(Math.max(Math.round(duration), 45), 180)
+}
+
+/**
+ * Targeted refreshes must honor places the traveler assigned to that day even
+ * when the model accidentally omits one. Missing saved places are appended in
+ * the next available time slot and remain marked as traveler picks.
+ */
+export function ensureSavedAttractionsInDay(
+  day: ItineraryDay,
+  savedAttractions: Attraction[],
+  createId: (attraction: Attraction) => string
+): ItineraryDay {
+  const existingNames = new Set(
+    day.items.map((item) => item.attraction_name.trim().toLowerCase())
+  )
+  const missing = savedAttractions.filter(
+    (attraction) => !existingNames.has(attraction.name.trim().toLowerCase())
+  )
+  if (missing.length === 0) return day
+
+  let nextStart = day.items.reduce((latest, item) => {
+    const end = timeToMinutes(item.end_time)
+    return end === null ? latest : Math.max(latest, end)
+  }, 8 * 60 + 30)
+
+  const added = missing.map((attraction) => {
+    const start = Math.min(nextStart + 30, 22 * 60)
+    const end = Math.min(start + estimatedDurationMinutes(attraction.estimatedDuration), 23 * 60 + 59)
+    nextStart = end
+    return {
+      id: createId(attraction),
+      attraction_name: attraction.name,
+      start_time: minutesToTime(start),
+      end_time: minutesToTime(end),
+      notes: attraction.familyFitReason || attraction.description || "Saved by you.",
+      recommended: false,
+    } satisfies ItineraryItem
+  })
+
+  return {
+    ...day,
+    items: [...day.items, ...added].sort((a, b) => a.start_time.localeCompare(b.start_time)),
+  }
 }

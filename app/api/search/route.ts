@@ -9,7 +9,10 @@ import {
   type PlaceResult,
 } from "@/lib/travel-apis/google-places"
 import type { Attraction } from "@/lib/types"
-import { normalizeRecommendationFeedback } from "@/lib/recommendation-personalization"
+import {
+  getVibeDiscoveryQuery,
+  normalizeRecommendationFeedback,
+} from "@/lib/recommendation-personalization"
 
 // Search waits for Google candidates before AI ranks them, then streams the
 // verified results as the ranking is generated.
@@ -169,8 +172,13 @@ export async function POST(req: Request) {
   }
 
   const effectiveBudget = filters?.budget || familyVibe?.budget_preference || "any"
+  const isGenericDiscovery =
+    !query ||
+    query.toLowerCase() === "family-friendly attractions" ||
+    query.toLowerCase() === "family-friendly activities"
+  const effectiveQuery = isGenericDiscovery ? getVibeDiscoveryQuery(familyVibe) : query
   const providerQuery = [
-    query || "family-friendly attractions",
+    effectiveQuery,
     filters?.category,
     effectiveBudget === "Free" || effectiveBudget === "free" ? "free" : null,
   ]
@@ -272,7 +280,7 @@ Non-negotiable rules:
 - familyFitSignals must contain at most three short reasons grounded in the supplied profile. If no profile is available, return one general search-match signal and do not imply personalization.
 - Return each selected placeId at most once.`,
             prompt: `Destination: ${destination}
-Search: ${query || "family-friendly attractions"}
+Search: ${effectiveQuery}
 ${filterContext}
 ${vibeContext}
 ${feedbackContext}

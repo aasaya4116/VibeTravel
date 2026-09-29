@@ -1,5 +1,5 @@
-import { getReadinessStats } from "@/lib/trip-readiness"
-import type { ItineraryDay, Trip, TripReadinessState } from "@/lib/types"
+import { getReadinessStats } from "./trip-readiness"
+import type { ItineraryDay, Trip, TripReadinessState } from "./types"
 
 export type DeparturePhase =
   | "no_dates"

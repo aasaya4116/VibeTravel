@@ -46,6 +46,10 @@ import type {
   TripBooking,
   TripReadinessState,
 } from "@/lib/types"
+import {
+  ITINERARY_SAVED_EVENT,
+  type ItinerarySavedDetail,
+} from "@/lib/trip-events"
 
 interface TripReadinessProps {
   tripId: string
@@ -104,6 +108,7 @@ export function TripReadiness({
   const [open, setOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<"bookings" | "checklist">("bookings")
   const [readiness, setReadiness] = useState(() => normalizeTripReadiness(initialReadiness))
+  const [currentItinerary, setCurrentItinerary] = useState(itinerary)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [newTask, setNewTask] = useState("")
@@ -111,8 +116,9 @@ export function TripReadiness({
 
   useEffect(() => {
     setReadiness(normalizeTripReadiness(initialReadiness))
+    setCurrentItinerary(itinerary)
     setDirty(false)
-  }, [initialReadiness, tripId])
+  }, [initialReadiness, itinerary, tripId])
 
   useEffect(() => {
     function handleOpenReadiness() {
@@ -123,7 +129,28 @@ export function TripReadiness({
     return () => window.removeEventListener("vibetravel:open-readiness", handleOpenReadiness)
   }, [])
 
-  const stats = useMemo(() => getReadinessStats(readiness, itinerary), [itinerary, readiness])
+  useEffect(() => {
+    function handleItinerarySaved(event: Event) {
+      const detail = (event as CustomEvent<ItinerarySavedDetail>).detail
+      if (!detail || detail.tripId !== tripId) return
+
+      setCurrentItinerary(detail.itinerary)
+      setReadiness((current) => {
+        const bookings = reconcileBookings(detail.itinerary, current.bookings)
+        return Object.keys(bookings).length === Object.keys(current.bookings).length
+          ? current
+          : { ...current, bookings }
+      })
+    }
+
+    window.addEventListener(ITINERARY_SAVED_EVENT, handleItinerarySaved)
+    return () => window.removeEventListener(ITINERARY_SAVED_EVENT, handleItinerarySaved)
+  }, [tripId])
+
+  const stats = useMemo(
+    () => getReadinessStats(readiness, currentItinerary),
+    [currentItinerary, readiness]
+  )
 
   function updateReadiness(update: (current: TripReadinessState) => TripReadinessState) {
     setReadiness(update)
@@ -183,7 +210,7 @@ export function TripReadiness({
     if (saving) return
     const payload = {
       ...readiness,
-      bookings: reconcileBookings(itinerary, readiness.bookings),
+      bookings: reconcileBookings(currentItinerary, readiness.bookings),
     }
 
     setSaving(true)
@@ -388,8 +415,8 @@ export function TripReadiness({
                   </p>
                 </div>
 
-                {itinerary.length ? (
-                  itinerary.map((day, dayIndex) => (
+                {currentItinerary.length ? (
+                  currentItinerary.map((day, dayIndex) => (
                     <section key={`${day.date}-${dayIndex}`} className="space-y-3">
                       <div className="flex items-center gap-2">
                         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">

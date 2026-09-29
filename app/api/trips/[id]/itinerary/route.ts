@@ -4,12 +4,16 @@ import { generateText, Output } from "ai"
 import { anthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
 import type { Attraction, ItineraryDay } from "@/lib/types"
-import { mergeRegeneratedDay } from "@/lib/itinerary-editing"
+import {
+  ensureSavedAttractionsInDay,
+  mergeRegeneratedDay,
+} from "@/lib/itinerary-editing"
 import { getWeatherForecast } from "@/lib/travel-apis/openweather"
 
-// Opus itinerary generation on multi-day trips can exceed the default
-// serverless timeout; give the function headroom before Vercel kills it.
 export const maxDuration = 60
+
+const ITINERARY_MODEL = "claude-sonnet-4-5-20250929"
+const ITINERARY_DEADLINE_MS = 48_000
 
 const itineraryItemSchema = z.object({
   attraction_name: z.string(),
@@ -32,6 +36,8 @@ export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const requestStartedAt = Date.now()
+  const requestId = crypto.randomUUID()
   const { id: tripId } = await params
   const body = await req.json().catch(() => ({}))
   const deltaInstruction: string | undefined = body?.instruction
@@ -109,7 +115,10 @@ export async function POST(
     return NextResponse.json({ error: "Itinerary day not found" }, { status: 404 })
   }
 
-  const savedNames = new Set(attractions.map((a) => a.name))
+  const savedNames = new Set(attractions.map((a) => a.name.trim().toLowerCase()))
+  const targetDaySavedAttractions = targetDayDate
+    ? attractions.filter((attraction) => attraction.plannedDate === targetDayDate)
+    : []
 
   const startDate = trip.start_date
     ? new Date(trip.start_date + "T00:00:00")
@@ -161,10 +170,26 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
   const isTargetDay = !!targetDayDate && !!targetDay
   const isDelta = !!deltaInstruction && trip.itinerary && trip.itinerary.length > 0
 
+  const remainingGenerationMs =
+    ITINERARY_DEADLINE_MS - (Date.now() - requestStartedAt)
+  if (remainingGenerationMs < 3_000) {
+    console.warn(`[itinerary:${requestId}] pre-generation work exhausted the request window`)
+    return NextResponse.json(
+      {
+        error: "This itinerary is taking longer than expected. Your trip is safe—please try again.",
+        requestId,
+      },
+      { status: 504 }
+    )
+  }
+
   let result: { output?: unknown }
   try {
     result = await generateText({
-    model: anthropic("claude-opus-4-8"),
+    model: anthropic(ITINERARY_MODEL),
+    maxOutputTokens: isTargetDay ? 3_000 : 8_000,
+    maxRetries: 1,
+    abortSignal: AbortSignal.timeout(remainingGenerationMs),
     output: Output.object({ schema: itineraryOutputSchema }),
     system: isTargetDay
       ? `You are VibeTravel's single-day itinerary planner. Rebuild only the requested day of an existing family trip.
@@ -172,6 +197,7 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
 Rules:
 - Return exactly one day using the requested date.
 - KEEP every user-picked item where recommended is false, including its current times and notes.
+- INCLUDE every newly saved place explicitly assigned to this date. Use its exact name and mark it recommended: false.
 - KEEP every completed or skipped item exactly as-is. Never reschedule or remove it.
 - Replace or improve the AI-suggested items where recommended is true.
 - Build a realistic day with 2-4 activities, meal or rest breaks, and reasonable travel buffers.
@@ -216,6 +242,9 @@ ${accommodationContext}
 ${vibeContext}${weatherContext}
 Current day:
 ${JSON.stringify(targetDay, null, 2)}
+${targetDaySavedAttractions.length ? `
+Saved places assigned to this date (MUST include each exact name and mark recommended: false):
+${targetDaySavedAttractions.map((attraction) => `- ${attraction.name} (${attraction.estimatedDuration || "1-2 hours"})`).join("\n")}` : ""}
 ${targetDayInstruction ? `\nSpecific request: ${targetDayInstruction}` : ""}
 
 Return only the rebuilt day for ${targetDayDate}. Preserve every user-picked, completed, and skipped item.`
@@ -240,10 +269,17 @@ Generate a COMPLETE day-by-day itinerary. Include all saved attractions AND reco
     ],
     })
   } catch (err) {
-    console.error("[itinerary] generation failed:", err)
+    const errorName = err instanceof Error ? err.name : "UnknownError"
+    const timedOut = errorName === "AbortError" || errorName === "TimeoutError"
+    console.error(`[itinerary:${requestId}] generation failed (${errorName}):`, err)
     return NextResponse.json(
-      { error: "Itinerary generation failed. Please try again." },
-      { status: 502 }
+      {
+        error: timedOut
+          ? "This itinerary is taking longer than expected. Your trip is safe—please try again."
+          : "We couldn't build this itinerary right now. Your saved places are safe—please try again.",
+        requestId,
+      },
+      { status: timedOut ? 504 : 502 }
     )
   }
 
@@ -277,19 +313,28 @@ Generate a COMPLETE day-by-day itinerary. Include all saved attractions AND reco
         (existing) =>
           existing.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
       )?.status,
-      recommended: isTargetDay
-        ? !targetDay?.items.some(
-            (existing) =>
-              existing.recommended === false &&
-              existing.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
-          )
-        : item.recommended ?? !savedNames.has(item.attraction_name),
+      recommended: savedNames.has(item.attraction_name.trim().toLowerCase())
+        ? false
+        : isTargetDay
+          ? !targetDay?.items.some(
+              (existing) =>
+                existing.recommended === false &&
+                existing.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
+            )
+          : item.recommended ?? true,
     })),
   }))
 
   let itinerary = generatedDays
   if (isTargetDay && targetDayDate && targetDay) {
-    const rebuiltDay = generatedDays.find((day) => day.date === targetDayDate)
+    const generatedDay = generatedDays.find((day) => day.date === targetDayDate)
+    const rebuiltDay = generatedDay
+      ? ensureSavedAttractionsInDay(
+          generatedDay,
+          targetDaySavedAttractions,
+          () => `item-${targetDayDate}-${crypto.randomUUID()}`
+        )
+      : null
     if (!rebuiltDay) {
       return NextResponse.json(
         { error: "Could not regenerate the selected day" },

@@ -42,6 +42,7 @@ import { useItineraryLocations } from "@/hooks/use-itinerary-locations"
 import { TripMap } from "@/components/trip-map"
 import { ItineraryTravelSegment } from "@/components/itinerary-travel-segment"
 import { TripMode } from "@/components/trip-mode"
+import { announceItinerarySaved } from "@/lib/trip-events"
 
 interface EditableItineraryProps {
   tripId: string
@@ -134,7 +135,9 @@ export function EditableItinerary({
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || "Could not save itinerary")
 
-      applyItinerary(payload.data?.itinerary ?? next)
+      const savedItinerary = payload.data?.itinerary ?? next
+      applyItinerary(savedItinerary)
+      announceItinerarySaved(tripId, savedItinerary)
       setSaveStatus("saved")
       return true
     } catch (error) {
@@ -239,6 +242,7 @@ export function EditableItinerary({
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(payload.error || "Could not refresh this day")
       applyItinerary(payload.itinerary)
+      announceItinerarySaved(tripId, payload.itinerary)
       setSaveStatus("saved")
       setEditDraft(null)
       toast.success(

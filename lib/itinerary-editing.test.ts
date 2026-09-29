@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { ItineraryDay } from "./types"
 import {
+  ensureSavedAttractionsInDay,
   mergeRegeneratedDay,
   moveItineraryItem,
   removeItineraryItem,
@@ -121,5 +122,48 @@ describe("itinerary editing helpers", () => {
     expect(next[0].items.map((item) => item.id)).toEqual(["museum", "lunch", "cafe"])
     expect(next[0].items[0].status).toBe("completed")
     expect(next[0].items[1].status).toBe("skipped")
+  })
+
+  it("adds a newly saved day-assigned place when the model omits it", () => {
+    const rebuilt: ItineraryDay = {
+      date: "2026-10-02",
+      items: [
+        {
+          id: "museum",
+          attraction_name: "Museum",
+          start_time: "09:00",
+          end_time: "11:00",
+          recommended: true,
+        },
+      ],
+    }
+
+    const next = ensureSavedAttractionsInDay(
+      rebuilt,
+      [
+        {
+          name: "Nintendo Tokyo",
+          description: "A saved family stop.",
+          category: "Shopping",
+          vibes: ["games"],
+          ageRange: "all ages",
+          strollerFriendly: null,
+          estimatedDuration: "1-2 hours",
+          priceRange: null,
+          location: "Tokyo",
+          plannedDate: "2026-10-02",
+        },
+      ],
+      () => "saved-nintendo"
+    )
+
+    expect(next.items).toHaveLength(2)
+    expect(next.items[1]).toMatchObject({
+      id: "saved-nintendo",
+      attraction_name: "Nintendo Tokyo",
+      recommended: false,
+      start_time: "11:30",
+      end_time: "12:30",
+    })
   })
 })

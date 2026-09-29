@@ -14,6 +14,8 @@ import { VlogStrip } from "@/components/vlog-strip"
 import { FamilyFitBanner } from "@/components/family-fit-banner"
 import {
   createRecommendationFeedback,
+  getVibeDiscoveryQuery,
+  getVibeSuggestedSearches,
   normalizeRecommendationFeedback,
   placeFeedbackKey,
   recordRecommendationFeedback,
@@ -85,6 +87,7 @@ export function SearchExplorer({
     RecommendationFeedback[]
   >([])
   const [feedbackReady, setFeedbackReady] = useState(false)
+  const defaultDiscoveryQuery = getVibeDiscoveryQuery(familyVibe)
 
   const selectedTrip =
     availableTrips.find((trip) => trip.id === selectedTripId) ?? null
@@ -167,7 +170,7 @@ export function SearchExplorer({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            query: searchQuery || "family-friendly attractions",
+            query: searchQuery || defaultDiscoveryQuery,
             destination: searchDest,
             filters:
               JSON.stringify(searchFilters) !== JSON.stringify(defaultFilters)
@@ -244,7 +247,7 @@ export function SearchExplorer({
         setLoading(false)
       }
     },
-    [query, destination, filters, familyVibe, recommendationFeedback]
+    [query, destination, filters, familyVibe, recommendationFeedback, defaultDiscoveryQuery]
   )
 
   const autoSearched = useRef(false)
@@ -252,7 +255,7 @@ export function SearchExplorer({
     if (autoSearched.current || !feedbackReady) return
     if (destination) {
       autoSearched.current = true
-      handleSearch(undefined, query || "family-friendly attractions", destination)
+      handleSearch(undefined, query || defaultDiscoveryQuery, destination)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feedbackReady])
@@ -402,21 +405,7 @@ export function SearchExplorer({
     }
   }
 
-  const suggestedSearches = destination
-    ? [
-        `Kid-friendly museums in ${destination}`,
-        `Parks and playgrounds in ${destination}`,
-        `Rainy day activities in ${destination}`,
-        `Best restaurants for families in ${destination}`,
-        `Free things to do in ${destination}`,
-      ]
-    : [
-        "Kid-friendly museums",
-        "Parks and playgrounds",
-        "Rainy day activities",
-        "Outdoor nature trails for toddlers",
-        "Interactive science museums",
-      ]
+  const suggestedSearches = getVibeSuggestedSearches(familyVibe, destination)
 
   const sampleDestinations: Attraction[] = [
     {

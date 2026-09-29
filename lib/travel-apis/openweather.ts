@@ -41,7 +41,8 @@ function kelvinToF(k: number): number {
 async function geocode(destination: string): Promise<{ lat: number; lon: number } | null> {
   try {
     const res = await fetch(
-      `http://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(destination)}&limit=1&appid=${API_KEY}`
+      `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(destination)}&limit=1&appid=${API_KEY}`,
+      { signal: AbortSignal.timeout(4_000) }
     )
     if (!res.ok) return null
     const data = await res.json()
@@ -65,7 +66,8 @@ export async function getWeatherForecast(
 
     // Use 5-day forecast (free tier) — 3-hour intervals
     const res = await fetch(
-      `https://api.openweathermap.org/data/2.5/forecast?lat=${coords.lat}&lon=${coords.lon}&appid=${API_KEY}&cnt=40`
+      `https://api.openweathermap.org/data/2.5/forecast?lat=${coords.lat}&lon=${coords.lon}&appid=${API_KEY}&cnt=40`,
+      { signal: AbortSignal.timeout(4_000) }
     )
     if (!res.ok) return null
 

@@ -1,5 +1,107 @@
 import type { Attraction, FamilyVibe } from "./types"
 
+type DiscoveryVibe = Pick<FamilyVibe, "travel_style" | "dietary"> | null | undefined
+
+const STYLE_DISCOVERY_QUERIES: Record<string, string> = {
+  "cultural explorer": "family-friendly museums cultural attractions historic neighborhoods",
+  cultural: "family-friendly museums cultural attractions historic neighborhoods",
+  "nature lover": "family-friendly parks gardens nature trails",
+  nature: "family-friendly parks gardens nature trails",
+  "foodie family": "family-friendly restaurants food markets bakeries cooking experiences",
+  foodie: "family-friendly restaurants food markets bakeries cooking experiences",
+  "urban adventurer": "family-friendly city neighborhoods landmarks interactive experiences",
+  urban: "family-friendly city neighborhoods landmarks interactive experiences",
+  "beach & relaxation": "family-friendly beaches waterfront relaxed activities",
+  beach: "family-friendly beaches waterfront relaxed activities",
+  "off the beaten path": "family-friendly hidden gems local neighborhoods",
+  "history buff": "family-friendly historic sites history museums landmarks",
+  history: "family-friendly historic sites history museums landmarks",
+  "art & design": "family-friendly art museums galleries architecture design",
+  art: "family-friendly art museums galleries architecture design",
+  "active & outdoorsy": "family-friendly outdoor adventures hikes bike rides parks",
+  active: "family-friendly outdoor adventures hikes bike rides parks",
+  "slow travel": "family-friendly walkable neighborhoods cafes parks leisurely experiences",
+  relaxed: "family-friendly walkable neighborhoods cafes parks leisurely experiences",
+}
+
+function normalizedStyles(familyVibe: DiscoveryVibe) {
+  return Array.isArray(familyVibe?.travel_style)
+    ? familyVibe.travel_style
+        .filter((style): style is string => typeof style === "string")
+        .map((style) => style.trim().toLowerCase())
+        .filter(Boolean)
+    : []
+}
+
+function destinationSearch(label: string, destination?: string | null) {
+  return destination?.trim() ? `${label} in ${destination.trim()}` : label
+}
+
+export function getVibeDiscoveryQuery(familyVibe: DiscoveryVibe): string {
+  const styles = normalizedStyles(familyVibe)
+  const styleQueries = styles
+    .map((style) => STYLE_DISCOVERY_QUERIES[style])
+    .filter((query): query is string => Boolean(query))
+    .slice(0, 2)
+
+  if (styleQueries.length === 0) return "family-friendly attractions"
+
+  const isFoodie = styles.some((style) => style === "foodie family" || style === "foodie")
+  const dietary = Array.isArray(familyVibe?.dietary)
+    ? familyVibe.dietary
+        .filter((need): need is string => typeof need === "string")
+        .map((need) => need.trim())
+        .filter(Boolean)
+        .slice(0, 2)
+    : []
+
+  return `${styleQueries.join(" ")}${isFoodie && dietary.length ? ` ${dietary.join(" ")} options` : ""}`
+}
+
+export function getVibeSuggestedSearches(
+  familyVibe: DiscoveryVibe,
+  destination?: string | null
+): string[] {
+  const styles = normalizedStyles(familyVibe)
+  let suggestions: string[]
+
+  if (styles.some((style) => style === "foodie family" || style === "foodie")) {
+    suggestions = [
+      "Family-friendly restaurants",
+      "Food markets and food halls",
+      "Bakeries and dessert spots",
+      "Family cooking classes",
+      "Kid-friendly local specialties",
+    ]
+  } else if (styles.some((style) => style.includes("nature") || style.includes("outdoors"))) {
+    suggestions = [
+      "Family-friendly parks and gardens",
+      "Easy nature trails",
+      "Outdoor adventures with kids",
+      "Wildlife and botanical gardens",
+      "Scenic picnic spots",
+    ]
+  } else if (styles.some((style) => style.includes("art") || style.includes("cultural") || style.includes("history"))) {
+    suggestions = [
+      "Kid-friendly museums",
+      "Hands-on cultural experiences",
+      "Historic neighborhoods to explore",
+      "Family art and design activities",
+      "Local landmarks with kids",
+    ]
+  } else {
+    suggestions = [
+      "Kid-friendly museums",
+      "Parks and playgrounds",
+      "Rainy day activities",
+      "Best restaurants for families",
+      "Free things to do",
+    ]
+  }
+
+  return suggestions.map((suggestion) => destinationSearch(suggestion, destination))
+}
+
 export type RecommendationFeedbackReason =
   | "too_busy"
   | "too_expensive"
