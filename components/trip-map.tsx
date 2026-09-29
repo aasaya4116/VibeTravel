@@ -66,7 +66,7 @@ export function TripMap({
   if (itinerary.length === 0) return null
 
   return (
-    <div className="mb-5 overflow-hidden rounded-2xl border border-border bg-card">
+    <div className="relative z-0 isolate mb-5 overflow-hidden rounded-2xl border border-border bg-card">
       {/* Header with day tabs */}
       <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
         <div className="flex items-center gap-2 shrink-0">
