@@ -134,6 +134,30 @@ export function mergeRegeneratedDay(
   return itinerary.map((day) => (day.date === targetDate ? safeRebuiltDay : day))
 }
 
+/**
+ * Adds or refreshes one generated section without replacing days that were
+ * planned in an earlier request. Existing traveler picks and completed/skipped
+ * stops remain protected through mergeRegeneratedDay.
+ */
+export function mergeItinerarySection(
+  itinerary: ItineraryDay[],
+  rebuiltDays: ItineraryDay[],
+  tripDates: string[]
+): ItineraryDay[] {
+  const merged = rebuiltDays.reduce(
+    (current, rebuiltDay) =>
+      current.some((day) => day.date === rebuiltDay.date)
+        ? mergeRegeneratedDay(current, rebuiltDay.date, rebuiltDay)
+        : [...current, rebuiltDay],
+    itinerary
+  )
+  const dateOrder = new Map(tripDates.map((date, index) => [date, index]))
+
+  return [...merged].sort(
+    (a, b) => (dateOrder.get(a.date) ?? 0) - (dateOrder.get(b.date) ?? 0)
+  )
+}
+
 function timeToMinutes(value: string) {
   const match = /^(\d{1,2}):(\d{2})$/.exec(value)
   if (!match) return null

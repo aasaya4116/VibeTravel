@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { ItineraryDay } from "./types"
 import {
   ensureSavedAttractionsInDay,
+  mergeItinerarySection,
   mergeRegeneratedDay,
   moveItineraryItem,
   removeItineraryItem,
@@ -165,5 +166,74 @@ describe("itinerary editing helpers", () => {
       start_time: "11:30",
       end_time: "12:30",
     })
+  })
+
+  it("adds a later generated section without replacing previously planned days", () => {
+    const existing: ItineraryDay[] = [
+      {
+        date: "2026-10-02",
+        items: [
+          {
+            id: "museum",
+            attraction_name: "Museum",
+            start_time: "09:00",
+            end_time: "11:00",
+            recommended: false,
+          },
+        ],
+      },
+      {
+        date: "2026-10-04",
+        items: [
+          {
+            id: "park",
+            attraction_name: "Park",
+            start_time: "10:00",
+            end_time: "12:00",
+            recommended: true,
+          },
+        ],
+      },
+    ]
+    const rebuilt: ItineraryDay[] = [
+      {
+        date: "2026-10-02",
+        items: [
+          {
+            id: "cafe",
+            attraction_name: "Cafe",
+            start_time: "12:00",
+            end_time: "13:00",
+            recommended: true,
+          },
+        ],
+      },
+      {
+        date: "2026-10-03",
+        items: [
+          {
+            id: "zoo",
+            attraction_name: "Zoo",
+            start_time: "09:00",
+            end_time: "12:00",
+            recommended: true,
+          },
+        ],
+      },
+    ]
+
+    const next = mergeItinerarySection(existing, rebuilt, [
+      "2026-10-02",
+      "2026-10-03",
+      "2026-10-04",
+    ])
+
+    expect(next.map((day) => day.date)).toEqual([
+      "2026-10-02",
+      "2026-10-03",
+      "2026-10-04",
+    ])
+    expect(next[0].items.map((item) => item.id)).toEqual(["museum", "cafe"])
+    expect(next[2]).toBe(existing[1])
   })
 })

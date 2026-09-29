@@ -34,4 +34,16 @@ describe("itinerary batching", () => {
       attractions.map((item) => item.name).sort()
     )
   })
+
+  it("does not pull a dated place into the wrong selected window", () => {
+    const batches = [["2026-10-28", "2026-10-29"]]
+    const attractions = [
+      { name: "Sydney Opera House", plannedDate: "2026-11-20" },
+      { name: "Taronga Zoo" },
+    ] as Attraction[]
+
+    expect(assignAttractionsToBatches(attractions, batches).flat()).toEqual([
+      attractions[1],
+    ])
+  })
 })

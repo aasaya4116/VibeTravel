@@ -28,6 +28,9 @@ import { OutcomeCheck } from "@/components/outcome-check"
 import { TripShareDialog } from "@/components/trip-share-dialog"
 import { TripReadiness } from "@/components/trip-readiness"
 import { DepartureCenter } from "@/components/departure-center"
+import { LongTripPlannerDialog } from "@/components/long-trip-planner-dialog"
+import { getTripDateOptions } from "@/lib/trip-planning"
+import { MAX_GENERATION_DAYS } from "@/lib/itinerary-batching"
 
 const STATUS_FLOW: Record<string, { next: string; label: string } | null> = {
   planning: { next: "active", label: "Mark as Active" },
@@ -67,6 +70,7 @@ export function TripDetail({
   const [accommodationArea, setAccommodationArea] = useState(trip.accommodation_area ?? "")
   const [editingAccommodation, setEditingAccommodation] = useState(false)
   const [savingAccommodation, setSavingAccommodation] = useState(false)
+  const [showLongTripPlanner, setShowLongTripPlanner] = useState(false)
 
   async function handleSaveAccommodation() {
     if (savingAccommodation) return
@@ -117,35 +121,62 @@ export function TripDetail({
   const canGenerate = savedAttractions.length >= 3 && !hasItinerary
   const canRegenerate = savedAttractions.length >= 3 && hasItinerary
   const placesNeeded = Math.max(0, 3 - savedAttractions.length)
+  const tripDateOptions = getTripDateOptions(trip)
+  const plannedDates = Array.from(
+    new Set((trip.itinerary ?? []).map((day) => day.date))
+  )
+  const isLongTrip = tripDateOptions.length > MAX_GENERATION_DAYS
+  const hasUnplannedDays = plannedDates.length < tripDateOptions.length
 
-  async function handleGenerateItinerary() {
-    if ((!canGenerate && !canRegenerate) || generating) return
+  async function handleGenerateItinerary(dates?: string[]): Promise<boolean> {
+    if ((!canGenerate && !canRegenerate) || generating) return false
+    const replacingPlannedDays = dates?.some((date) => plannedDates.includes(date))
     if (
-      hasItinerary &&
+      hasItinerary && !dates &&
       !window.confirm(
         "Rebuilding the full itinerary will replace your manual edits. Refresh a single day instead if you want to keep the rest of the plan. Continue?"
       )
     ) {
-      return
+      return false
+    }
+    if (
+      replacingPlannedDays &&
+      !window.confirm(
+        "Some selected days already have plans. Their AI suggestions will be refreshed, while your saved, completed, and skipped stops stay in place. Continue?"
+      )
+    ) {
+      return false
     }
     setGenerating(true)
     try {
       const res = await fetch(`/api/trips/${trip.id}/itinerary`, {
         method: "POST",
+        headers: dates ? { "Content-Type": "application/json" } : undefined,
+        body: dates ? JSON.stringify({ dates }) : undefined,
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || "Failed to generate itinerary")
       }
-      toast.success("Itinerary generated!")
+      toast.success(dates ? `${dates.length} trip days planned!` : "Itinerary generated!")
       setShowItineraryPulse(true)
       setShowOutcomeCheck(true)
       router.refresh()
+      return true
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not generate itinerary")
+      return false
     } finally {
       setGenerating(false)
     }
+  }
+
+  function handleGenerateClick() {
+    if (isLongTrip) {
+      setShowLongTripPlanner(true)
+      return
+    }
+    void handleGenerateItinerary()
   }
 
   async function handleDeltaItinerary(instruction: string) {
@@ -179,6 +210,15 @@ export function TripDetail({
         onDismiss={() => setShowItineraryPulse(false)}
       />
     )}
+    <LongTripPlannerDialog
+      open={showLongTripPlanner}
+      onOpenChange={setShowLongTripPlanner}
+      destination={trip.destination}
+      dateOptions={tripDateOptions}
+      plannedDates={plannedDates}
+      generating={generating}
+      onGenerate={handleGenerateItinerary}
+    />
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-8 lg:py-12">
       {/* Trip navigation and sharing */}
       <div className="mb-6 flex items-center justify-between gap-3">
@@ -202,7 +242,7 @@ export function TripDetail({
           {[
             { label: "Trip created", done: true },
             { label: `Save places (${savedAttractions.length}/3)`, done: savedAttractions.length >= 3 },
-            { label: "Generate itinerary", done: false },
+            { label: isLongTrip ? "Choose days to plan" : "Generate itinerary", done: false },
           ].map(({ label, done }, i, arr) => (
             <div key={label} className="flex items-center gap-2">
               <div className="flex items-center gap-1.5">
@@ -386,7 +426,7 @@ export function TripDetail({
                 </Link>
                 <button
                   type="button"
-                  onClick={handleGenerateItinerary}
+                  onClick={handleGenerateClick}
                   disabled={generating || !!deltaGenerating}
                   className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-50"
                 >
@@ -398,12 +438,17 @@ export function TripDetail({
                   ) : (
                     <>
                       <Wand2 className="h-4 w-4" />
-                      Rebuild entire itinerary
+                      {isLongTrip
+                        ? hasUnplannedDays
+                          ? "Plan more days"
+                          : "Rebuild selected days"
+                        : "Rebuild entire itinerary"}
                     </>
                   )}
                 </button>
               </div>
               {/* Delta refinement chips */}
+              {!isLongTrip ? (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-muted-foreground">Refine:</span>
                 {[
@@ -427,6 +472,11 @@ export function TripDetail({
                   </button>
                 ))}
               </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Longer trip? Refresh individual days to fine-tune them without changing the rest.
+                </p>
+              )}
             </div>
           )}
 
@@ -538,14 +588,14 @@ export function TripDetail({
                     <div className="group relative">
                       <button
                         type="button"
-                        onClick={canGenerate ? handleGenerateItinerary : undefined}
+                        onClick={canGenerate ? handleGenerateClick : undefined}
                         disabled={generating || !canGenerate}
                         className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {generating ? (
                           <><Loader2 className="h-4 w-4 animate-spin" />Generating…</>
                         ) : (
-                          <><Wand2 className="h-4 w-4" />Generate itinerary</>
+                          <><Wand2 className="h-4 w-4" />{isLongTrip ? "Choose days to plan" : "Generate itinerary"}</>
                         )}
                       </button>
                       {!canGenerate && !generating && (

@@ -6,12 +6,14 @@ import { z } from "zod"
 import type { Attraction, ItineraryDay } from "@/lib/types"
 import {
   ensureSavedAttractionsInDay,
+  mergeItinerarySection,
   mergeRegeneratedDay,
 } from "@/lib/itinerary-editing"
 import {
   assignAttractionsToBatches,
   batchTripDates,
   enumerateTripDates,
+  MAX_GENERATION_DAYS,
   MAX_ITINERARY_DAYS,
 } from "@/lib/itinerary-batching"
 import { getWeatherForecast } from "@/lib/travel-apis/openweather"
@@ -49,6 +51,13 @@ export async function POST(
   const deltaInstruction: string | undefined = body?.instruction
   const targetDayDate: string | undefined = body?.dayDate
   const targetDayInstruction: string | undefined = body?.dayInstruction
+  const requestedDates: string[] | null = Array.isArray(body?.dates)
+    ? Array.from(new Set<string>(
+        (body.dates as unknown[]).filter(
+          (date: unknown): date is string => typeof date === "string"
+        )
+      ))
+    : null
   const supabase = await createClient()
   const {
     data: { user },
@@ -182,7 +191,7 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
 
   const isTargetDay = !!targetDayDate && !!targetDay
   const isDelta = !!deltaInstruction && trip.itinerary && trip.itinerary.length > 0
-  const tripDateValues = trip.start_date && trip.end_date
+  const fullTripDateValues = trip.start_date && trip.end_date
     ? enumerateTripDates(trip.start_date, trip.end_date)
     : Array.from({ length: tripDays }, (_, index) => {
         const date = new Date(startDate)
@@ -193,16 +202,52 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
           String(date.getDate()).padStart(2, "0"),
         ].join("-")
       })
+  if (requestedDates && (requestedDates.length === 0 || requestedDates.length > MAX_GENERATION_DAYS)) {
+    return NextResponse.json(
+      { error: `Choose between 1 and ${MAX_GENERATION_DAYS} days to plan at a time.` },
+      { status: 400 }
+    )
+  }
+  if (requestedDates?.some((date) => !fullTripDateValues.includes(date))) {
+    return NextResponse.json(
+      { error: "One or more selected dates are outside this trip." },
+      { status: 400 }
+    )
+  }
+  if (!isTargetDay && !isDelta && fullTripDateValues.length > MAX_GENERATION_DAYS && !requestedDates) {
+    return NextResponse.json(
+      { error: `Choose up to ${MAX_GENERATION_DAYS} trip days before generating a detailed plan.` },
+      { status: 400 }
+    )
+  }
+  if (isDelta && fullTripDateValues.length > MAX_GENERATION_DAYS) {
+    return NextResponse.json(
+      { error: "For longer trips, refresh individual days so the rest of your plan stays intact." },
+      { status: 400 }
+    )
+  }
+
+  const generationDateValues = isTargetDay && targetDayDate
+    ? [targetDayDate]
+    : requestedDates ?? fullTripDateValues
   const generationBatches = isTargetDay && targetDayDate
     ? [[targetDayDate]]
-    : batchTripDates(tripDateValues)
+    : batchTripDates(generationDateValues)
+  const existingAttractionNames = new Set(
+    ((trip.itinerary ?? []) as ItineraryDay[]).flatMap((day) =>
+      day.items.map((item) => item.attraction_name.trim().toLowerCase())
+    )
+  )
+  const pendingAttractions = attractions.filter(
+    (attraction) => !existingAttractionNames.has(attraction.name.trim().toLowerCase())
+  )
   const attractionAssignments = assignAttractionsToBatches(
-    attractions,
+    pendingAttractions,
     generationBatches
   )
 
   console.info(
-    `[itinerary:${requestId}] generating ${tripDateValues.length} days in ${generationBatches.length} batch(es)`
+    `[itinerary:${requestId}] generating ${generationDateValues.length} of ${fullTripDateValues.length} days in ${generationBatches.length} batch(es)`
   )
 
   let parsed: z.infer<typeof itineraryOutputSchema> | undefined
@@ -436,6 +481,12 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
       (current, rebuiltDay) =>
         mergeRegeneratedDay(current, rebuiltDay.date, rebuiltDay),
       existingItinerary
+    )
+  } else if (requestedDates) {
+    itinerary = mergeItinerarySection(
+      existingItinerary,
+      generatedDays,
+      fullTripDateValues
     )
   }
 

@@ -3,6 +3,7 @@ import type { Attraction } from "@/lib/types"
 const DAY_MS = 24 * 60 * 60 * 1000
 
 export const MAX_ITINERARY_DAYS = 90
+export const MAX_GENERATION_DAYS = 14
 export const ITINERARY_BATCH_DAYS = 8
 
 export function enumerateTripDates(startDate: string, endDate: string): string[] {
@@ -50,9 +51,8 @@ export function assignAttractionsToBatches(
     const plannedBatch = attraction.plannedDate
       ? batches.findIndex((dates) => dates.includes(attraction.plannedDate as string))
       : -1
-    const batchIndex = plannedBatch >= 0
-      ? plannedBatch
-      : flexibleIndex++ % batches.length
+    if (attraction.plannedDate && plannedBatch < 0) continue
+    const batchIndex = plannedBatch >= 0 ? plannedBatch : flexibleIndex++ % batches.length
     assignments[batchIndex].push(attraction)
   }
 
