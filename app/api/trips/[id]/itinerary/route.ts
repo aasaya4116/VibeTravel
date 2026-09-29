@@ -8,6 +8,12 @@ import {
   ensureSavedAttractionsInDay,
   mergeRegeneratedDay,
 } from "@/lib/itinerary-editing"
+import {
+  assignAttractionsToBatches,
+  batchTripDates,
+  enumerateTripDates,
+  MAX_ITINERARY_DAYS,
+} from "@/lib/itinerary-batching"
 import { getWeatherForecast } from "@/lib/travel-apis/openweather"
 
 export const maxDuration = 60
@@ -132,6 +138,13 @@ export async function POST(
     Math.round((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000)) + 1
   )
 
+  if (tripDays > MAX_ITINERARY_DAYS) {
+    return NextResponse.json(
+      { error: `Trips can include up to ${MAX_ITINERARY_DAYS} itinerary days.` },
+      { status: 400 }
+    )
+  }
+
   const dateRangeDesc =
     trip.start_date && trip.end_date
       ? `from ${startDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} to ${endDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} (${tripDays} days)`
@@ -169,30 +182,49 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
 
   const isTargetDay = !!targetDayDate && !!targetDay
   const isDelta = !!deltaInstruction && trip.itinerary && trip.itinerary.length > 0
+  const tripDateValues = trip.start_date && trip.end_date
+    ? enumerateTripDates(trip.start_date, trip.end_date)
+    : Array.from({ length: tripDays }, (_, index) => {
+        const date = new Date(startDate)
+        date.setDate(date.getDate() + index)
+        return [
+          date.getFullYear(),
+          String(date.getMonth() + 1).padStart(2, "0"),
+          String(date.getDate()).padStart(2, "0"),
+        ].join("-")
+      })
+  const generationBatches = isTargetDay && targetDayDate
+    ? [[targetDayDate]]
+    : batchTripDates(tripDateValues)
+  const attractionAssignments = assignAttractionsToBatches(
+    attractions,
+    generationBatches
+  )
 
-  const remainingGenerationMs =
-    ITINERARY_DEADLINE_MS - (Date.now() - requestStartedAt)
-  if (remainingGenerationMs < 3_000) {
-    console.warn(`[itinerary:${requestId}] pre-generation work exhausted the request window`)
-    return NextResponse.json(
-      {
-        error: "This itinerary is taking longer than expected. Your trip is safe—please try again.",
-        requestId,
-      },
-      { status: 504 }
-    )
-  }
+  console.info(
+    `[itinerary:${requestId}] generating ${tripDateValues.length} days in ${generationBatches.length} batch(es)`
+  )
 
-  let result: { output?: unknown }
+  let parsed: z.infer<typeof itineraryOutputSchema> | undefined
   try {
-    result = await generateText({
-    model: anthropic(ITINERARY_MODEL),
-    maxOutputTokens: isTargetDay ? 3_000 : 8_000,
-    maxRetries: 1,
-    abortSignal: AbortSignal.timeout(remainingGenerationMs),
-    output: Output.object({ schema: itineraryOutputSchema }),
-    system: isTargetDay
-      ? `You are VibeTravel's single-day itinerary planner. Rebuild only the requested day of an existing family trip.
+    const generatedBatches = await Promise.all(
+      generationBatches.map(async (batchDates, batchIndex) => {
+        const remainingGenerationMs =
+          ITINERARY_DEADLINE_MS - (Date.now() - requestStartedAt)
+        if (remainingGenerationMs < 3_000) {
+          throw new DOMException("Itinerary request deadline reached", "TimeoutError")
+        }
+
+        const batchAttractions = attractionAssignments[batchIndex]
+        const existingBatch = isDelta
+          ? (trip.itinerary as ItineraryDay[]).filter((day) =>
+              batchDates.includes(day.date)
+            )
+          : []
+        const exactDates = batchDates.join(", ")
+
+        const system = isTargetDay
+          ? `You are VibeTravel's single-day itinerary planner. Rebuild only the requested day of an existing family trip.
 
 Rules:
 - Return exactly one day using the requested date.
@@ -205,38 +237,33 @@ Rules:
 - Match the family's vibe, kids' ages, sensory needs, mobility needs, and pace.
 - date must be YYYY-MM-DD.
 ${weatherContext ? "- Use the weather forecast when choosing indoor versus outdoor activities." : ""}`
-      : isDelta
-        ? `You are VibeTravel's itinerary refinement assistant. You receive an existing day-by-day itinerary and a specific improvement request.
+          : isDelta
+            ? `You are VibeTravel's itinerary refinement assistant. Improve only the supplied portion of an existing itinerary.
 
 Rules:
-- KEEP all existing itinerary items exactly as-is (especially user-saved attractions marked as recommended: false).
-- Apply the requested improvement by adding, adjusting, or swapping only AI-suggested items (recommended: true).
-- Do NOT remove any items where recommended is false.
+- Return each of these dates exactly once and no other dates: ${exactDates}.
+- KEEP all existing itinerary items exactly as-is, especially user-saved attractions marked recommended: false.
+- Apply the requested improvement by adding, adjusting, or swapping only AI-suggested items.
+- Do NOT remove user-saved, completed, or skipped items.
 - Recommended activities must be REAL places that actually exist in ${trip.destination}.
 - Match additions to the family's vibe, kids' ages, and sensory/mobility needs.
-- Preserve all original dates and day structure. Return ALL days, including unchanged ones.
 - date must be YYYY-MM-DD for each day.
-${weatherContext ? "- Use the weather forecast when placing outdoor vs indoor activities." : ""}`
-        : `You are VibeTravel's itinerary builder. You create complete, realistic, family-friendly day plans.
+${weatherContext ? "- Use the weather forecast when placing outdoor versus indoor activities." : ""}`
+            : `You are VibeTravel's itinerary builder. Create a realistic, family-friendly plan for one date window of a longer trip.
 
 Rules:
-- Build one day per calendar day in the trip range.
-- ALWAYS include ALL of the user's saved attractions (marked as recommended: false).
+- Return each of these dates exactly once and no other dates: ${exactDates}.
+- Include every saved attraction supplied for this window, using its exact name and recommended: false.
 - If a saved attraction has a preferred date, schedule it on that exact date.
-- FILL IN THE GAPS: For each day, recommend additional real activities, restaurants, cafes, parks, or experiences in ${trip.destination} that complement the saved attractions. These are marked as recommended: true.
-- Aim for 2-4 activities per day depending on duration and family pace. A full day should have a morning activity, a lunch spot or break, an afternoon activity, and optionally an evening activity.
-- Recommended activities must be REAL places that actually exist in ${trip.destination}. Include the full name of the place.
-- Match recommendations to the family's vibe, kids' ages, and sensory/mobility needs.
-- Include meal/snack breaks, rest time for young kids, and travel time between locations.
-- Assign reasonable start_time and end_time (e.g. "09:00", "14:30"). Allow buffer between activities.
-- Order activities logically by time of day, location proximity, and energy levels.
+- Fill gaps with real activities, restaurants, cafes, parks, or experiences in ${trip.destination}, marked recommended: true.
+- Aim for 2-4 activities per day based on the family's pace; lighter or rest days are acceptable on long trips.
+- Match recommendations to the family's vibe, kids' ages, dietary needs, mobility needs, and sensory needs.
+- Include realistic meal, rest, and travel buffers and use reasonable start and end times.
+- Add a concise note explaining why each recommendation fits this family.
 - date must be YYYY-MM-DD for each day.
-- For recommended items, add a helpful note explaining why this place is a great fit.
-${weatherContext ? "- Use the weather forecast to schedule outdoor activities on sunny days and indoor ones on rainy days." : ""}`,
-    messages: [
-      {
-        role: "user",
-        content: isTargetDay
+${weatherContext ? "- Use the weather forecast when placing outdoor versus indoor activities." : ""}`
+
+        const content = isTargetDay
           ? `Trip: ${trip.title}, destination: ${trip.destination}. Rebuild date: ${targetDayDate}.
 ${accommodationContext}
 ${vibeContext}${weatherContext}
@@ -249,25 +276,50 @@ ${targetDayInstruction ? `\nSpecific request: ${targetDayInstruction}` : ""}
 
 Return only the rebuilt day for ${targetDayDate}. Preserve every user-picked, completed, and skipped item.`
           : isDelta
-            ? `Trip: ${trip.title}, destination: ${trip.destination}. Dates: ${dateRangeDesc}.
+            ? `Trip: ${trip.title}, destination: ${trip.destination}. Full trip: ${dateRangeDesc}.
+Dates in this batch: ${exactDates}.
 ${accommodationContext}
 ${vibeContext}${weatherContext}
 Improvement request: ${deltaInstruction}
 
-Existing itinerary to refine:
-${JSON.stringify(trip.itinerary, null, 2)}
+Existing days in this batch:
+${JSON.stringify(existingBatch, null, 2)}
 
-Return the COMPLETE updated itinerary with all days. Keep all existing items, only add or adjust AI-suggested items.`
-            : `Trip: ${trip.title}, destination: ${trip.destination}. Dates: ${dateRangeDesc}.
+Return every supplied date, including unchanged dates.`
+            : `Trip: ${trip.title}, destination: ${trip.destination}. Full trip: ${dateRangeDesc}.
+Dates in this batch: ${exactDates}.
 ${accommodationContext}
 ${vibeContext}${weatherContext}
-The family has saved these ${attractions.length} attractions (use these EXACT names, mark as recommended: false):
-${attractions.map((a) => `- ${a.name} (${a.estimatedDuration || "1-2 hours"})${a.plannedDate ? ` — preferred date: ${a.plannedDate}` : ""}`).join("\n")}
+${batchAttractions.length ? `Saved attractions assigned to this window (use exact names and mark recommended: false):
+${batchAttractions.map((attraction) => `- ${attraction.name} (${attraction.estimatedDuration || "1-2 hours"})${attraction.plannedDate ? ` — preferred date: ${attraction.plannedDate}` : ""}`).join("\n")}` : "There are no saved attractions assigned to this window."}
 
-Generate a COMPLETE day-by-day itinerary. Include all saved attractions AND recommend additional real activities, restaurants, and experiences to fill out each day. Mark each item: recommended: false for saved attractions, recommended: true for your suggestions.`,
-      },
-    ],
-    })
+Return a complete plan for every listed date. Mark saved places recommended: false and suggestions recommended: true.`
+
+        const result = await generateText({
+          model: anthropic(ITINERARY_MODEL),
+          maxOutputTokens: Math.min(8_000, Math.max(3_000, batchDates.length * 900)),
+          maxRetries: 1,
+          abortSignal: AbortSignal.timeout(remainingGenerationMs),
+          output: Output.object({ schema: itineraryOutputSchema }),
+          system,
+          messages: [{ role: "user", content }],
+        })
+        const output = result.output
+        const returnedByDate = new Map(
+          output.days
+            .filter((day) => batchDates.includes(day.date))
+            .map((day) => [day.date, day])
+        )
+        const missingDates = batchDates.filter((date) => !returnedByDate.has(date))
+        if (missingDates.length > 0) {
+          throw new Error(`Incomplete itinerary batch: ${missingDates.join(", ")}`)
+        }
+
+        return batchDates.map((date) => returnedByDate.get(date)!)
+      })
+    )
+
+    parsed = { days: generatedBatches.flat() }
   } catch (err) {
     const errorName = err instanceof Error ? err.name : "UnknownError"
     const timedOut = errorName === "AbortError" || errorName === "TimeoutError"
@@ -283,13 +335,6 @@ Generate a COMPLETE day-by-day itinerary. Include all saved attractions AND reco
     )
   }
 
-  const parsed = result.output as {
-    days: {
-      date: string
-      items: { attraction_name: string; start_time: string; end_time: string; notes?: string; recommended?: boolean }[]
-    }[]
-  } | undefined
-
   if (!parsed?.days?.length) {
     return NextResponse.json(
       { error: "Could not generate itinerary" },
@@ -297,33 +342,72 @@ Generate a COMPLETE day-by-day itinerary. Include all saved attractions AND reco
     )
   }
 
-  const generatedDays: ItineraryDay[] = parsed.days.map((day) => ({
+  const existingItinerary = (trip.itinerary ?? []) as ItineraryDay[]
+  let generatedDays: ItineraryDay[] = parsed.days.map((day) => ({
     date: day.date,
-    items: day.items.map((item, i) => ({
-      id:
-        targetDay?.items.find(
+    items: day.items.map((item, i) => {
+      const existingItem = existingItinerary
+        .find((existingDay) => existingDay.date === day.date)
+        ?.items.find(
           (existing) =>
             existing.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
-        )?.id ?? `item-${day.date}-${i}-${crypto.randomUUID()}`,
-      attraction_name: item.attraction_name,
-      start_time: item.start_time,
-      end_time: item.end_time,
-      notes: item.notes,
-      status: targetDay?.items.find(
-        (existing) =>
-          existing.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
-      )?.status,
-      recommended: savedNames.has(item.attraction_name.trim().toLowerCase())
-        ? false
-        : isTargetDay
-          ? !targetDay?.items.some(
-              (existing) =>
-                existing.recommended === false &&
-                existing.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
-            )
-          : item.recommended ?? true,
-    })),
+        )
+
+      return {
+        id: existingItem?.id ?? `item-${day.date}-${i}-${crypto.randomUUID()}`,
+        attraction_name: item.attraction_name,
+        start_time: item.start_time,
+        end_time: item.end_time,
+        notes: item.notes,
+        status: existingItem?.status,
+        recommended: savedNames.has(item.attraction_name.trim().toLowerCase())
+          ? false
+          : isTargetDay
+            ? !targetDay?.items.some(
+                (existing) =>
+                  existing.recommended === false &&
+                  existing.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
+              )
+            : item.recommended ?? true,
+      }
+    }),
   }))
+
+  // A model response should contain every saved place, but do not let an
+  // omission drop a traveler pick. Add any missing place to a day in the same
+  // generation window before saving the assembled itinerary.
+  if (!isTargetDay && !isDelta) {
+    const returnedNames = new Set(
+      generatedDays.flatMap((day) =>
+        day.items.map((item) => item.attraction_name.trim().toLowerCase())
+      )
+    )
+    const missingByDate = new Map<string, Attraction[]>()
+
+    attractionAssignments.forEach((batchAttractions, batchIndex) => {
+      const batchDates = generationBatches[batchIndex]
+      batchAttractions
+        .filter((attraction) => !returnedNames.has(attraction.name.trim().toLowerCase()))
+        .forEach((attraction, attractionIndex) => {
+          const preferredDate = attraction.plannedDate && batchDates.includes(attraction.plannedDate)
+            ? attraction.plannedDate
+            : batchDates[attractionIndex % batchDates.length]
+          missingByDate.set(preferredDate, [
+            ...(missingByDate.get(preferredDate) ?? []),
+            attraction,
+          ])
+          returnedNames.add(attraction.name.trim().toLowerCase())
+        })
+    })
+
+    generatedDays = generatedDays.map((day) =>
+      ensureSavedAttractionsInDay(
+        day,
+        missingByDate.get(day.date) ?? [],
+        () => `item-${day.date}-${crypto.randomUUID()}`
+      )
+    )
+  }
 
   let itinerary = generatedDays
   if (isTargetDay && targetDayDate && targetDay) {
@@ -346,6 +430,12 @@ Generate a COMPLETE day-by-day itinerary. Include all saved attractions AND reco
       trip.itinerary as ItineraryDay[],
       targetDayDate,
       rebuiltDay
+    )
+  } else if (isDelta) {
+    itinerary = generatedDays.reduce(
+      (current, rebuiltDay) =>
+        mergeRegeneratedDay(current, rebuiltDay.date, rebuiltDay),
+      existingItinerary
     )
   }
 

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { z } from "zod"
+import { MAX_ITINERARY_DAYS } from "@/lib/itinerary-batching"
 
 const itineraryItemSchema = z.object({
   id: z.string().min(1).max(200),
@@ -18,7 +19,7 @@ const itinerarySchema = z.array(
     date: z.string().min(1).max(40),
     items: z.array(itineraryItemSchema).max(30),
   })
-).max(31)
+).max(MAX_ITINERARY_DAYS)
 
 export async function PATCH(
   req: Request,

@@ -116,6 +116,7 @@ export function TripDetail({
   const hasItinerary = trip.itinerary && trip.itinerary.length > 0
   const canGenerate = savedAttractions.length >= 3 && !hasItinerary
   const canRegenerate = savedAttractions.length >= 3 && hasItinerary
+  const placesNeeded = Math.max(0, 3 - savedAttractions.length)
 
   async function handleGenerateItinerary() {
     if ((!canGenerate && !canRegenerate) || generating) return
@@ -519,12 +520,12 @@ export function TripDetail({
                     Almost ready to generate
                   </h3>
                   <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
-                    Save {3 - savedAttractions.length} more attraction{3 - savedAttractions.length !== 1 ? "s" : ""} to unlock your AI itinerary.
+                    Save {placesNeeded} more attraction{placesNeeded !== 1 ? "s" : ""} to unlock your AI itinerary.
                   </p>
                   <div className="mx-auto mt-5 max-w-xs">
                     <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
                       <span>{savedAttractions.length} of 3 saved</span>
-                      <span className="font-medium text-primary">{3 - savedAttractions.length} more to go</span>
+                      <span className="font-medium text-primary">{placesNeeded} more to go</span>
                     </div>
                     <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                       <div
@@ -549,7 +550,7 @@ export function TripDetail({
                       </button>
                       {!canGenerate && !generating && (
                         <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-foreground px-3 py-1.5 text-xs text-background opacity-0 transition-opacity group-hover:opacity-100">
-                          Save {3 - savedAttractions.length} more place{3 - savedAttractions.length !== 1 ? "s" : ""} to unlock
+                          Save {placesNeeded} more place{placesNeeded !== 1 ? "s" : ""} to unlock
                         </div>
                       )}
                     </div>

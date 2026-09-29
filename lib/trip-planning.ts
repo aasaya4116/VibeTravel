@@ -1,4 +1,5 @@
 import type { TripOption } from "@/lib/types"
+import { MAX_ITINERARY_DAYS } from "./itinerary-batching"
 
 export interface TripDateOption {
   value: string
@@ -17,7 +18,7 @@ export function getTripDateOptions(trip: TripOption | null): TripDateOption[] {
   }
 
   const dayCount = Math.min(
-    31,
+    MAX_ITINERARY_DAYS,
     Math.floor((end.getTime() - start.getTime()) / DAY_MS) + 1
   )
 

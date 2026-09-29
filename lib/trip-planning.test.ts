@@ -27,6 +27,20 @@ describe("trip planning date helpers", () => {
     expect(getTripDateOptions({ ...baseTrip, end_date: null })).toEqual([])
   })
 
+  it("includes every day of a trip longer than one month", () => {
+    const options = getTripDateOptions({
+      ...baseTrip,
+      start_date: "2026-10-28",
+      end_date: "2026-11-28",
+    })
+
+    expect(options).toHaveLength(32)
+    expect(options.at(-1)).toEqual({
+      value: "2026-11-28",
+      label: "Day 32 · Sat, Nov 28",
+    })
+  })
+
   it("formats a saved planning date", () => {
     expect(formatPlannedDate("2026-10-03")).toBe("Sat, Oct 3")
   })
