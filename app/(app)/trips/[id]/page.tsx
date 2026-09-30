@@ -83,6 +83,7 @@ export default async function TripDetailPage({
           bannerImage={bannerImage}
           tripSummary={tripSummary}
           initialReadiness={(readinessRes.data as TripReadinessState | null) ?? null}
+          familyVibe={familyVibe}
         />
       </div>
 

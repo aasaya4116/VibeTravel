@@ -12,6 +12,8 @@ import { DestinationAutocomplete } from "@/components/destination-autocomplete"
 import type { Attraction, FamilyVibe, SavedAttraction, TripOption } from "@/lib/types"
 import { VlogStrip } from "@/components/vlog-strip"
 import { FamilyFitBanner } from "@/components/family-fit-banner"
+import { DestinationBrowser } from "@/components/destination-browser"
+import type { DestinationBrowseCard } from "@/lib/destination-browse"
 import {
   createRecommendationFeedback,
   getVibeDiscoveryQuery,
@@ -299,6 +301,16 @@ export function SearchExplorer({
     }
   }
 
+  function handleDestinationExplore(destinationCard: DestinationBrowseCard) {
+    setDestination(destinationCard.destination)
+    setQuery(destinationCard.query)
+    void handleSearch(
+      undefined,
+      destinationCard.query,
+      destinationCard.destination
+    )
+  }
+
   async function savePlaceToTrip(targetTripId: string, plannedDate: string | null) {
     if (!pendingAttraction || savingPlace) return
     setSavingPlace(true)
@@ -573,12 +585,15 @@ export function SearchExplorer({
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 pb-36 lg:px-8">
       {/* Search Header */}
-      <div className="mb-8">
-        <h1 className="font-serif text-3xl text-foreground lg:text-4xl">
-          Explore Attractions
+      <div className="mb-8 text-center">
+        <p className="overline flex items-center justify-center gap-2">
+          <Sparkles className="h-3.5 w-3.5" /> Explore by feeling
+        </p>
+        <h1 className="mx-auto mt-3 max-w-3xl font-serif text-4xl leading-tight text-foreground lg:text-6xl">
+          Find a place your whole family will love.
         </h1>
-        <p className="mt-2 text-muted-foreground">
-          Search by vibe, style, or what your family loves.
+        <p className="mx-auto mt-3 max-w-2xl text-muted-foreground">
+          Beautiful ideas, tuned to your family&apos;s pace, ages, and interests.
         </p>
       </div>
 
@@ -851,31 +866,12 @@ export function SearchExplorer({
         </div>
       )}
 
-      {/* Sample Destinations */}
+      {/* Destination-first inspiration */}
       {attractions.length === 0 && !loading && !hasSearched && (
-        <>
-
-          <div className="mb-8">
-            <h2 className="mb-1 font-serif text-2xl text-foreground">
-              Trip Inspiration
-            </h2>
-            <p className="mb-5 text-sm text-muted-foreground">
-              Examples to spark ideas—not live listings. Choose a destination above for current Google-verified details.
-            </p>
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-              {sampleDestinations.map((attraction, i) => (
-                <AttractionCard
-                  key={`sample-${attraction.name}-${i}`}
-                  attraction={attraction}
-                  isSaved={false}
-                  onPlan={() => {}}
-                  isInspiration
-                  showSave={false}
-                />
-              ))}
-            </div>
-          </div>
-        </>
+        <DestinationBrowser
+          familyVibe={familyVibe}
+          onExplore={handleDestinationExplore}
+        />
       )}
 
       {/* Summary */}
