@@ -1,6 +1,6 @@
 # VibeTravel UAT Feedback Tracker
 
-Last updated: 2026-09-29
+Last updated: 2026-09-30
 
 ## Test execution
 
@@ -47,9 +47,9 @@ Last updated: 2026-09-29
 | UAT-009 | P2 | VT-009 | Open | Add an explicit tooltip or disclosure beside the share control explaining that itinerary stop notes are visible to anyone with the private link, while readiness details, costs, booking links, and confirmation codes remain private. |
 | UAT-010 | P0 | VT-013 | Passed production retest | Personalization is reactive rather than proactive. Selecting Foodie Family should immediately reshape Explore defaults and trip-creation suggestions toward restaurants, markets, food tours, cooking experiences, and neighborhood food exploration. Users should not need to repeat “restaurants” in the search box for the saved vibe to matter. The default provider query and suggestion chips now derive from the saved travel style and dietary preferences. |
 | UAT-011 | P1 | VT-015 | Next build | The articles sidebar is intentionally hidden below the desktop breakpoint, but mobile users have no alternative entry point. Add a compact “Travel reads” card, drawer, or tab rather than rendering the full desktop rail. |
-| UAT-012 | P0 | VT-015 | Next build | Mobile latency is unacceptably high despite the layout working. Profile page-load and interaction latency on a real phone, identify server/API waterfalls, remove unnecessary mobile work, and add loading feedback and caching where appropriate. |
+| UAT-012 | P0 | VT-015 | Implemented — real-device retest | Mobile latency was traced to three avoidable costs: a fresh AI summary request on every trip-page load, the full Scout AI/chat bundle and history request loading before Scout opened, and the optional desktop vlog request running on mobile. Trip summaries now render locally, Scout and its 408 KB AI chunk load on demand, mobile skips the vlog request, route transitions show an immediate skeleton, and noncritical images decode lazily. Retest on a real phone before closing. |
 | UAT-013 | P1 | Notifications | Next build | There is no traveler-facing notification system. Add opt-in in-app and/or push reminders for unresolved bookings, incomplete departure tasks, and upcoming departure milestones, with clear preference controls and no notification spam. |
-| UAT-014 | P1 | VT-016 | Next build | Replace raw “Failed to fetch” errors with connection-aware language such as “You appear to be offline. Your change wasn’t saved—reconnect and try again.” Detect offline state where possible and retain a visible retry action. |
+| UAT-014 | P1 | VT-016 | Implemented — retest | Raw browser network failures are now translated into connection-aware language for search, itinerary, readiness, day planning, trip creation, sharing, and vibe-profile actions. Save failures explicitly state that the change was not saved; search/load failures provide reconnect-and-retry guidance. |
 | UAT-015 | P0 | VT-017 prerequisite | Passed production retest | Initial itinerary generation repeatedly returned HTTP 504 for trip `870d225d-d2f1-441d-9288-bf91f9355405`. Long trips now generate in independently saved sections of up to 14 selected days, with a seven-day default, so users can continue planning without replacing completed sections or exceeding the request ceiling. |
 | UAT-016 | P2 | Content enrichment | Open | `/api/vlogs?destination=Sydney%2C%20Australia` returned HTTP 500 during the same session. This is separate from itinerary generation and should fail gracefully by hiding the optional vlog strip or showing a non-blocking fallback. |
 | UAT-017 | P1 | VT-021 | Passed production retest | Itinerary deletion and readiness storage reconcile correctly, but the readiness UI previously retained the old itinerary until the page was refreshed. Saved itinerary changes now update Trip Readiness, the Departure Center, and offline-pack data immediately in the current session. |

@@ -22,6 +22,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { buildShareUrl } from "@/lib/trip-sharing"
+import { getUserFacingError } from "@/lib/client-errors"
 
 interface ShareState {
   active: boolean
@@ -65,7 +66,7 @@ export function TripShareDialog({ tripId, tripTitle, destination }: TripShareDia
         if (!cancelled) setShare(data)
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Could not check sharing status")
+          setError(getUserFacingError(err, "Could not check sharing status", "load"))
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -88,7 +89,7 @@ export function TripShareDialog({ tripId, tripTitle, destination }: TripShareDia
       setShare(data)
       toast.success("Private trip link created")
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create the share link")
+      setError(getUserFacingError(err, "Could not create the share link"))
     } finally {
       setCreating(false)
     }
@@ -140,7 +141,7 @@ export function TripShareDialog({ tripId, tripTitle, destination }: TripShareDia
       setConfirmRevoke(false)
       toast.success("Sharing stopped")
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not stop sharing")
+      setError(getUserFacingError(err, "Could not stop sharing"))
     } finally {
       setRevoking(false)
     }

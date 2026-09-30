@@ -24,6 +24,7 @@ import { toast } from "sonner"
 import type { ItineraryDay, ItineraryItem, SavedAttraction } from "@/lib/types"
 import { getAttractionImage } from "@/lib/attraction-images"
 import { getBookingLink } from "@/lib/get-booking-link"
+import { getUserFacingError } from "@/lib/client-errors"
 import {
   moveItineraryItem,
   removeItineraryItem,
@@ -143,7 +144,7 @@ export function EditableItinerary({
     } catch (error) {
       applyItinerary(rollback)
       setSaveStatus("idle")
-      toast.error(error instanceof Error ? error.message : "Could not save itinerary")
+      toast.error(getUserFacingError(error, "Could not save itinerary"))
       return false
     }
   }
@@ -251,7 +252,7 @@ export function EditableItinerary({
           : "Day refreshed — the rest of your trip stayed unchanged"
       )
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not refresh this day")
+      toast.error(getUserFacingError(error, "Could not refresh this day", "load"))
     } finally {
       setRegeneratingDate(null)
     }
@@ -476,6 +477,8 @@ export function EditableItinerary({
                           <img
                             src={image}
                             alt={name}
+                            loading="lazy"
+                            decoding="async"
                             className="h-full w-full object-cover"
                             onError={(event) => {
                               event.currentTarget.style.display = "none"

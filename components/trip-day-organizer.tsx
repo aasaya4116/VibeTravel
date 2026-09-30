@@ -5,6 +5,7 @@ import Link from "next/link"
 import { AlertTriangle, CalendarDays, Clock, MapPin, Search } from "lucide-react"
 import { toast } from "sonner"
 import type { SavedAttraction, TripOption } from "@/lib/types"
+import { getUserFacingError } from "@/lib/client-errors"
 import {
   estimateDurationHours,
   getTripDateOptions,
@@ -90,7 +91,7 @@ export function TripDayOrganizer({
       toast.success(plannedDate ? "Trip day updated" : "Place moved to unscheduled")
     } catch (error) {
       setSavedPlaces(previousPlaces)
-      toast.error(error instanceof Error ? error.message : "Could not update day")
+      toast.error(getUserFacingError(error, "Could not update day"))
     } finally {
       setSavingId(null)
     }

@@ -8,6 +8,7 @@ import { Plus, Map, Calendar, X, LogIn, Hotel, Trash2 } from "lucide-react"
 import { DestinationAutocomplete } from "@/components/destination-autocomplete"
 import type { Trip } from "@/lib/types"
 import { MilestonePulse } from "@/components/milestone-pulse"
+import { getUserFacingError } from "@/lib/client-errors"
 
 interface TripsOverviewProps {
   trips: Trip[]
@@ -51,8 +52,8 @@ export function TripsOverview({ trips, isLoggedIn }: TripsOverviewProps) {
       if (!res.ok) throw new Error()
       toast.success("Trip deleted")
       router.refresh()
-    } catch {
-      toast.error("Could not delete trip")
+    } catch (error) {
+      toast.error(getUserFacingError(error, "Could not delete trip"))
     } finally {
       setDeletingId(null)
     }
@@ -89,8 +90,8 @@ export function TripsOverview({ trips, isLoggedIn }: TripsOverviewProps) {
       toast.success("Trip created! Now let's find some places.")
       setPulseTrip({ id: newTrip.id })
       router.push(`/search?trip=${newTrip.id}&dest=${encodeURIComponent(destination)}`)
-    } catch {
-      toast.error("Could not create trip")
+    } catch (error) {
+      toast.error(getUserFacingError(error, "Could not create trip"))
     } finally {
       setCreating(false)
     }

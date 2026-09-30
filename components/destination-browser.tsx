@@ -139,6 +139,8 @@ export function DestinationBrowser({
               <img
                 src={featured.imageUrl}
                 alt={featured.destination}
+              fetchPriority="high"
+              decoding="async"
                 className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 hover:scale-[1.02]"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-black/5" />
@@ -203,6 +205,8 @@ export function DestinationBrowser({
                       <img
                         src={destination.imageUrl}
                         alt=""
+                        loading="lazy"
+                        decoding="async"
                         className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
                       />
                       <span className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-transparent" />
@@ -255,6 +259,8 @@ export function DestinationBrowser({
                   <img
                     src={destination.imageUrl}
                     alt=""
+                    loading="lazy"
+                    decoding="async"
                     className="h-16 w-16 shrink-0 rounded-lg object-cover"
                   />
                   <span className="min-w-0">

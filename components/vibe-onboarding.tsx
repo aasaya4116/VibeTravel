@@ -17,6 +17,7 @@ import {
   ChevronLeft,
 } from "lucide-react"
 import type { FamilyVibe, Kid } from "@/lib/types"
+import { getUserFacingError } from "@/lib/client-errors"
 
 interface VibeOnboardingProps {
   existingVibe: FamilyVibe | null
@@ -181,8 +182,8 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
       setShowPulse(true)
       router.push(isOnboarding ? "/trips" : "/dashboard")
       router.refresh()
-    } catch {
-      toast.error("Failed to save your vibe profile")
+    } catch (error) {
+      toast.error(getUserFacingError(error, "Failed to save your vibe profile"))
     } finally {
       setSaving(false)
     }

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import dynamic from "next/dynamic"
 import { ItineraryGenerating } from "@/components/itinerary-generating"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -26,6 +27,7 @@ import type {
   TripReadinessState,
   FamilyVibe,
 } from "@/lib/types"
+import { getUserFacingError } from "@/lib/client-errors"
 import { EditableItinerary } from "@/components/editable-itinerary"
 import { TripDayOrganizer } from "@/components/trip-day-organizer"
 import { OnboardingHint } from "@/components/onboarding-hint"
@@ -35,9 +37,13 @@ import { OutcomeCheck } from "@/components/outcome-check"
 import { TripShareDialog } from "@/components/trip-share-dialog"
 import { TripReadiness } from "@/components/trip-readiness"
 import { DepartureCenter } from "@/components/departure-center"
-import { LongTripPlannerDialog } from "@/components/long-trip-planner-dialog"
 import { getTripDateOptions } from "@/lib/trip-planning"
 import { MAX_GENERATION_DAYS } from "@/lib/itinerary-batching"
+
+const LongTripPlannerDialog = dynamic(
+  () => import("@/components/long-trip-planner-dialog").then((module) => module.LongTripPlannerDialog),
+  { ssr: false }
+)
 
 const STATUS_FLOW: Record<string, { next: string; label: string } | null> = {
   planning: { next: "active", label: "Mark as Active" },
@@ -94,8 +100,8 @@ export function TripDetail({
       setEditingAccommodation(false)
       toast.success("Accommodation area saved")
       router.refresh()
-    } catch {
-      toast.error("Could not save accommodation area")
+    } catch (error) {
+      toast.error(getUserFacingError(error, "Could not save accommodation area"))
     } finally {
       setSavingAccommodation(false)
     }
@@ -120,7 +126,7 @@ export function TripDetail({
       toast.success(`Trip marked as ${nextStep.next}`)
       router.refresh()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not update status")
+      toast.error(getUserFacingError(err, "Could not update status"))
     } finally {
       setUpdatingStatus(false)
     }
@@ -180,7 +186,7 @@ export function TripDetail({
       router.refresh()
       return true
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not generate itinerary")
+      toast.error(getUserFacingError(err, "Could not generate itinerary", "load"))
       return false
     } finally {
       setGenerating(false)
@@ -211,7 +217,7 @@ export function TripDetail({
       toast.success("Itinerary updated!")
       router.refresh()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not update itinerary")
+      toast.error(getUserFacingError(err, "Could not update itinerary"))
     } finally {
       setDeltaGenerating(null)
     }
@@ -226,15 +232,17 @@ export function TripDetail({
         onDismiss={() => setShowItineraryPulse(false)}
       />
     )}
-    <LongTripPlannerDialog
-      open={showLongTripPlanner}
-      onOpenChange={setShowLongTripPlanner}
-      destination={trip.destination}
-      dateOptions={tripDateOptions}
-      plannedDates={plannedDates}
-      generating={generating}
-      onGenerate={handleGenerateItinerary}
-    />
+    {showLongTripPlanner && (
+      <LongTripPlannerDialog
+        open={showLongTripPlanner}
+        onOpenChange={setShowLongTripPlanner}
+        destination={trip.destination}
+        dateOptions={tripDateOptions}
+        plannedDates={plannedDates}
+        generating={generating}
+        onGenerate={handleGenerateItinerary}
+      />
+    )}
     <div className="mx-auto max-w-5xl px-4 py-8 lg:px-8 lg:py-12">
       {/* Trip navigation and sharing */}
       <div className="mb-6 flex items-center justify-between gap-3">
@@ -286,6 +294,8 @@ export function TripDetail({
             <img
               src={bannerImage}
               alt={trip.destination}
+              fetchPriority="high"
+              decoding="async"
               className="absolute inset-0 h-full w-full object-cover"
             />
           ) : (
