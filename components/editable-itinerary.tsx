@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Footprints,
   Loader2,
+  MapPinned,
   Navigation,
   Pencil,
   Route,
@@ -39,6 +40,7 @@ import {
   optimizeDayForTravel,
   type TravelMode,
 } from "@/lib/itinerary-logistics"
+import { assessDayPace, type TravelPace } from "@/lib/itinerary-intelligence"
 import { useItineraryLocations } from "@/hooks/use-itinerary-locations"
 import { TripMap } from "@/components/trip-map"
 import { ItineraryTravelSegment } from "@/components/itinerary-travel-segment"
@@ -50,6 +52,7 @@ interface EditableItineraryProps {
   destination: string
   initialItinerary: ItineraryDay[]
   savedAttractions: SavedAttraction[]
+  pace?: TravelPace
 }
 
 interface EditDraft {
@@ -82,6 +85,7 @@ export function EditableItinerary({
   destination,
   initialItinerary,
   savedAttractions,
+  pace = "moderate",
 }: EditableItineraryProps) {
   const [itinerary, setItinerary] = useState(initialItinerary)
   const itineraryRef = useRef(initialItinerary)
@@ -400,6 +404,7 @@ export function EditableItinerary({
         const warningCount = travelSegments.filter((segment) =>
           ["tight", "overlap", "far"].includes(segment.status)
         ).length
+        const paceAssessment = assessDayPace(day, pace)
 
         return (
           <section
@@ -419,6 +424,18 @@ export function EditableItinerary({
                   {locationsReady
                     ? `${formatDuration(travelMinutes)} ${travelMode}`
                     : "Estimating travel…"}
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1 font-medium ${
+                    paceAssessment.fits
+                      ? "text-emerald-700 dark:text-emerald-300"
+                      : "text-amber-700 dark:text-amber-300"
+                  }`}
+                >
+                  <Clock className="h-3 w-3" />
+                  {paceAssessment.fits
+                    ? `Fits ${pace} pace`
+                    : `Above ${pace} pace`}
                 </span>
                 {warningCount > 0 && (
                   <span className="inline-flex items-center gap-1 font-medium text-amber-700 dark:text-amber-300">
@@ -461,19 +478,22 @@ export function EditableItinerary({
                 const isEditing =
                   editDraft?.dayIndex === dayIndex && editDraft.itemId === item.id
                 const name = item.attraction_name ?? ""
+                const isNeighborhood = item.item_type === "neighborhood"
                 const image =
                   item.attraction_data?.imageUrl ||
                   (name ? savedImageMap.get(name.toLowerCase()) : undefined) ||
                   (name
                     ? getAttractionImage(item.attraction_data?.category ?? "Cultural", name)
                     : undefined)
-                const booking = getBookingLink(item, destination)
+                const booking = item.item_type === "place"
+                  ? getBookingLink(item, destination)
+                  : null
 
                 return (
                   <div key={item.id} className="py-4">
                     <div className="flex items-start gap-3">
                       <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-muted">
-                        {image && (
+                        {image && !isNeighborhood && (
                           <img
                             src={image}
                             alt={name}
@@ -484,6 +504,11 @@ export function EditableItinerary({
                               event.currentTarget.style.display = "none"
                             }}
                           />
+                        )}
+                        {isNeighborhood && (
+                          <div className="flex h-full w-full items-center justify-center bg-primary/10 text-primary">
+                            <MapPinned className="h-5 w-5" />
+                          </div>
                         )}
                         <div
                           className={`absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded-full ${
@@ -503,7 +528,17 @@ export function EditableItinerary({
                           <p className="text-sm font-medium text-foreground">{name}</p>
                           {item.recommended && (
                             <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
-                              Suggested
+                              Optional suggestion
+                            </span>
+                          )}
+                          {item.recommended === false && (
+                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                              Your pick
+                            </span>
+                          )}
+                          {isNeighborhood && (
+                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                              Walkable area
                             </span>
                           )}
                           {item.status === "completed" && (
@@ -520,6 +555,21 @@ export function EditableItinerary({
                         <p className="text-xs text-muted-foreground">
                           {item.start_time} – {item.end_time}
                         </p>
+                        {item.fit_signals && item.fit_signals.length > 0 && !isEditing && (
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Why this stop fits">
+                            <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">
+                              Matches
+                            </span>
+                            {item.fit_signals.map((signal, signalIndex) => (
+                              <span
+                                key={`${signal}-${signalIndex}`}
+                                className="rounded-full border border-primary/15 bg-primary/5 px-2 py-0.5 text-[10px] font-medium text-foreground/75"
+                              >
+                                {signal}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         {item.notes && !isEditing && (
                           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                             {item.notes.replace(/^#+\s*/gm, "").trim()}

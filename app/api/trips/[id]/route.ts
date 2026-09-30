@@ -10,6 +10,8 @@ const itineraryItemSchema = z.object({
   end_time: z.string().max(40),
   notes: z.string().max(2000).optional(),
   recommended: z.boolean().optional(),
+  item_type: z.enum(["place", "neighborhood", "meal", "downtime"]).optional(),
+  fit_signals: z.array(z.string().min(1).max(60)).max(3).optional(),
   status: z.enum(["planned", "completed", "skipped"]).optional(),
   attraction_data: z.record(z.string(), z.unknown()).optional(),
 })

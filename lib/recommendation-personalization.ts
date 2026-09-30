@@ -197,6 +197,12 @@ export function getFamilyVibeHighlights(familyVibe: FamilyVibe): string[] {
         .join(" · ")
     )
   }
+  if (familyVibe.travelers?.length) {
+    const labels = familyVibe.travelers
+      .slice(0, 2)
+      .map((traveler) => traveler.role.replace("_", " "))
+    highlights.push(labels.join(" · "))
+  }
   if (familyVibe.travel_style?.length) {
     highlights.push(familyVibe.travel_style.slice(0, 2).join(" + "))
   }

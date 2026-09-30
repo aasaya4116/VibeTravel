@@ -148,6 +148,9 @@ export function TripDetail({
     familyVibe?.kids?.length
       ? `${familyVibe.kids.length} kid${familyVibe.kids.length === 1 ? "" : "s"}`
       : null,
+    familyVibe?.travelers?.length
+      ? `${familyVibe.travelers.length} other traveler${familyVibe.travelers.length === 1 ? "" : "s"}`
+      : null,
   ].filter((label): label is string => Boolean(label))
 
   async function handleGenerateItinerary(dates?: string[]): Promise<boolean> {
@@ -538,6 +541,7 @@ export function TripDetail({
               destination={trip.destination}
               initialItinerary={trip.itinerary}
               savedAttractions={savedAttractions}
+              pace={familyVibe?.pace ?? "moderate"}
             />
           ) : (
             <div className="flex flex-col gap-4">

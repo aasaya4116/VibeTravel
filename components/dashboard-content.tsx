@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { Search, Map, Sparkles, ArrowRight, Plus, Baby, Pencil, Calendar, Check } from "lucide-react"
+import { Search, Map, Sparkles, ArrowRight, Plus, Baby, Pencil, Calendar, Check, Users } from "lucide-react"
 import type { Profile, Trip, FamilyVibe } from "@/lib/types"
 import { getCountryCode, getFlagUrl } from "@/lib/destination-flag"
 import { OnboardingHint } from "@/components/onboarding-hint"
@@ -336,6 +336,27 @@ export function DashboardContent({ profile, trips, familyVibe }: DashboardConten
                           className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground"
                         >
                           {kid.name ? `${kid.name}, ${kid.age}y` : `${kid.age}y`}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {familyVibe.travelers && familyVibe.travelers.length > 0 && (
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <Users className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="mb-1 text-xs font-medium text-muted-foreground">Other travelers</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {familyVibe.travelers.map((traveler, index) => (
+                        <span
+                          key={`${traveler.name}-${index}`}
+                          className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground"
+                        >
+                          {traveler.name}
                         </span>
                       ))}
                     </div>

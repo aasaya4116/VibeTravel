@@ -16,7 +16,7 @@ import {
   Zap,
   ChevronLeft,
 } from "lucide-react"
-import type { FamilyVibe, Kid } from "@/lib/types"
+import type { FamilyVibe, Kid, Traveler } from "@/lib/types"
 import { getUserFacingError } from "@/lib/client-errors"
 
 interface VibeOnboardingProps {
@@ -56,6 +56,14 @@ const dietaryOptions = [
   "Kosher",
 ]
 
+const travelerRoles: { value: Traveler["role"]; label: string }[] = [
+  { value: "partner", label: "Spouse / partner" },
+  { value: "adult", label: "Adult" },
+  { value: "grandparent", label: "Grandparent" },
+  { value: "extended_family", label: "Extended family" },
+  { value: "friend", label: "Family friend" },
+]
+
 export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboardingProps) {
   const router = useRouter()
   const [step, setStep] = useState(0)
@@ -66,7 +74,10 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
     existingVibe?.family_name || ""
   )
   const [kids, setKids] = useState<Kid[]>(
-    existingVibe?.kids || [{ name: "", age: 0 }]
+    existingVibe?.kids || []
+  )
+  const [travelers, setTravelers] = useState<Traveler[]>(
+    existingVibe?.travelers || []
   )
   const [travelStyle, setTravelStyle] = useState<string[]>(
     existingVibe?.travel_style || []
@@ -93,6 +104,7 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
       return (
         familyName !== "" ||
         kids.some((k) => k.name.trim() !== "") ||
+        travelers.some((traveler) => traveler.name.trim() !== "") ||
         travelStyle.length > 0 ||
         sensoryNeeds.length > 0 ||
         mobilityNotes !== "" ||
@@ -102,7 +114,8 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
     }
     return (
       familyName !== (initial.family_name || "") ||
-      JSON.stringify(kids) !== JSON.stringify(initial.kids || [{ name: "", age: 0 }]) ||
+      JSON.stringify(kids) !== JSON.stringify(initial.kids || []) ||
+      JSON.stringify(travelers) !== JSON.stringify(initial.travelers || []) ||
       JSON.stringify(travelStyle) !== JSON.stringify(initial.travel_style || []) ||
       JSON.stringify(sensoryNeeds) !== JSON.stringify(initial.sensory_needs || []) ||
       mobilityNotes !== (initial.mobility_notes || "") ||
@@ -110,7 +123,7 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
       pace !== (initial.pace || "moderate") ||
       budgetPreference !== (initial.budget_preference || "any")
     )
-  }, [familyName, kids, travelStyle, sensoryNeeds, mobilityNotes, dietary, pace, budgetPreference, existingVibe])
+  }, [familyName, kids, travelers, travelStyle, sensoryNeeds, mobilityNotes, dietary, pace, budgetPreference, existingVibe])
 
   function handleBack() {
     if (isDirty) {
@@ -123,7 +136,7 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
   }
 
   const steps = [
-    { title: "Your Family", icon: Users },
+    { title: "Travel Group", icon: Users },
     { title: "Travel Style", icon: Heart },
     { title: "Needs & Pace", icon: Zap },
   ]
@@ -140,6 +153,24 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
     const updated = [...kids]
     updated[index] = { ...updated[index], [field]: value }
     setKids(updated)
+  }
+
+  function addTraveler() {
+    setTravelers([...travelers, { name: "", role: "partner", age: null }])
+  }
+
+  function removeTraveler(index: number) {
+    setTravelers(travelers.filter((_, i) => i !== index))
+  }
+
+  function updateTraveler<K extends keyof Traveler>(
+    index: number,
+    field: K,
+    value: Traveler[K]
+  ) {
+    const updated = [...travelers]
+    updated[index] = { ...updated[index], [field]: value }
+    setTravelers(updated)
   }
 
   function toggleItem(
@@ -163,6 +194,7 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
         body: JSON.stringify({
           family_name: familyName,
           kids: kids.filter((k) => k.name.trim()),
+          travelers: travelers.filter((traveler) => traveler.name.trim()),
           travel_style: travelStyle,
           sensory_needs: sensoryNeeds,
           mobility_notes: mobilityNotes,
@@ -269,20 +301,25 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
               />
             </div>
 
-            <div>
+            <div className="rounded-2xl border border-border bg-muted/20 p-4">
               <div className="mb-3 flex items-center justify-between">
                 <label className="text-sm font-medium text-foreground">
-                  Kids
+                  Children
                 </label>
                 <button
                   onClick={addKid}
                   className="flex items-center gap-1 text-sm text-primary hover:underline"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  Add kid
+                  Add child
                 </button>
               </div>
               <div className="flex flex-col gap-3">
+                {kids.length === 0 && (
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    No children added. That’s okay—VibeTravel can plan for adults-only and multigenerational trips too.
+                  </p>
+                )}
                 {kids.map((kid, i) => (
                   <div key={i} className="flex items-center gap-3">
                     <input
@@ -303,15 +340,83 @@ export function VibeOnboarding({ existingVibe, isOnboarding = false }: VibeOnboa
                       max={18}
                       className="w-20 rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                     />
-                    {kids.length > 1 && (
-                      <button
-                        onClick={() => removeKid(i)}
-                        className="rounded-lg p-2 text-muted-foreground hover:bg-muted"
-                        aria-label="Remove kid"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    )}
+                    <button
+                      onClick={() => removeKid(i)}
+                      className="rounded-lg p-2 text-muted-foreground hover:bg-muted"
+                      aria-label="Remove child"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border bg-muted/20 p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <label className="text-sm font-medium text-foreground">
+                    Other travelers
+                  </label>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Add the adults and extended family whose needs should shape the plan.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={addTraveler}
+                  className="flex shrink-0 items-center gap-1 text-sm text-primary hover:underline"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add traveler
+                </button>
+              </div>
+              <div className="flex flex-col gap-3">
+                {travelers.length === 0 && (
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Spouses, partners, grandparents, relatives, and family friends can all be included.
+                  </p>
+                )}
+                {travelers.map((traveler, index) => (
+                  <div
+                    key={index}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:grid-cols-[minmax(0,1fr)_170px_82px_auto]"
+                  >
+                    <input
+                      type="text"
+                      value={traveler.name}
+                      onChange={(event) => updateTraveler(index, "name", event.target.value)}
+                      placeholder="Name"
+                      className="rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <select
+                      value={traveler.role}
+                      onChange={(event) => updateTraveler(index, "role", event.target.value as Traveler["role"])}
+                      aria-label={`${traveler.name || "Traveler"} relationship`}
+                      className="col-span-2 rounded-xl border border-input bg-background px-3 py-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring sm:col-span-1"
+                    >
+                      {travelerRoles.map((role) => (
+                        <option key={role.value} value={role.value}>{role.label}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      value={traveler.age ?? ""}
+                      onChange={(event) => updateTraveler(index, "age", event.target.value ? Number(event.target.value) : null)}
+                      placeholder="Age"
+                      min={18}
+                      max={120}
+                      aria-label={`${traveler.name || "Traveler"} age (optional)`}
+                      className="w-full rounded-xl border border-input bg-background px-3 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeTraveler(index)}
+                      className="rounded-lg p-2 text-muted-foreground hover:bg-muted"
+                      aria-label="Remove traveler"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
                   </div>
                 ))}
               </div>

@@ -202,11 +202,11 @@ export function AttractionCard({
               ? "Why this fits your family"
               : "Why it matched"}
           </p>
-          <p className="mt-1 text-xs leading-relaxed text-foreground/80">
-            {attraction.familyFitReason}
-          </p>
           {attraction.familyFitSignals && attraction.familyFitSignals.length > 0 && (
-            <div className="mt-2.5 flex flex-wrap gap-1.5">
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-primary">
+                Matches
+              </span>
               {attraction.familyFitSignals.map((signal, index) => (
                 <span
                   key={`${signal.type}-${signal.label}-${index}`}
@@ -217,6 +217,9 @@ export function AttractionCard({
               ))}
             </div>
           )}
+          <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-foreground/80">
+            {attraction.familyFitReason}
+          </p>
 
           {onFitFeedback && (
             <div className="mt-3 border-t border-primary/10 pt-2.5">

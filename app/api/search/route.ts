@@ -147,6 +147,7 @@ export async function POST(req: Request) {
   const hasFamilyContext = Boolean(
     familyVibe &&
       ((Array.isArray(familyVibe.kids) && familyVibe.kids.length > 0) ||
+        (Array.isArray(familyVibe.travelers) && familyVibe.travelers.length > 0) ||
         (Array.isArray(familyVibe.travel_style) && familyVibe.travel_style.length > 0) ||
         (Array.isArray(familyVibe.sensory_needs) && familyVibe.sensory_needs.length > 0) ||
         familyVibe.pace ||
@@ -216,7 +217,7 @@ export async function POST(req: Request) {
 
   const filterContext = `Requested filters: age=${filters?.ageRange || "any"}, verified step-free entrance=${filters?.strollerFriendly ? "required" : "any"}, budget=${effectiveBudget}, category=${filters?.category || "any"}`
   const vibeContext = hasFamilyContext
-    ? `Family context: kids=${JSON.stringify(familyVibe.kids)}, style=${familyVibe.travel_style?.join(", ") || "any"}, sensory=${familyVibe.sensory_needs?.join(", ") || "none"}, pace=${familyVibe.pace || "moderate"}, dietary=${familyVibe.dietary?.join(", ") || "none"}`
+    ? `Family context: kids=${JSON.stringify(familyVibe.kids)}, other travelers=${JSON.stringify(familyVibe.travelers || [])}, style=${familyVibe.travel_style?.join(", ") || "any"}, sensory=${familyVibe.sensory_needs?.join(", ") || "none"}, pace=${familyVibe.pace || "moderate"}, dietary=${familyVibe.dietary?.join(", ") || "none"}`
     : "No family profile is available; give general family planning guidance."
   const feedbackContext = preferenceFeedback.length
     ? `Earlier recommendation feedback from this device (use it to downrank similar mismatches):\n${preferenceFeedback
@@ -276,8 +277,8 @@ Non-negotiable rules:
 - Use earlier feedback to downrank similar places that were too busy, too expensive, or not age-appropriate.
 - Treat name, address, rating, review count, price, accessibility, and business status as immutable provider facts.
 - Age fit, duration, sensory notes, tips, and vibes are planning guidance, not verified venue facts. Use cautious language and never claim specific facilities, policies, schedules, prices, or accessibility unless present in the candidate data.
-- Make familyFitReason explicitly connect the place to the supplied family profile. Mention a child by name only when that child exists in the supplied profile.
-- familyFitSignals must contain at most three short reasons grounded in the supplied profile. If no profile is available, return one general search-match signal and do not imply personalization.
+- Make familyFitReason one concise sentence that explicitly connects the place to the supplied travel group. Mention a traveler by name only when that person exists in the supplied profile.
+- familyFitSignals must contain at most three short, scannable reasons grounded in the supplied profile. Prefer concrete labels such as "Foodie family", "Age 9", "Grandparent-friendly", or "Moderate pace". If no profile is available, return one general search-match signal and do not imply personalization.
 - Return each selected placeId at most once.`,
             prompt: `Destination: ${destination}
 Search: ${effectiveQuery}

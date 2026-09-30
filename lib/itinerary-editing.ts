@@ -213,6 +213,10 @@ export function ensureSavedAttractionsInDay(
       end_time: minutesToTime(end),
       notes: attraction.familyFitReason || attraction.description || "Saved by you.",
       recommended: false,
+      item_type: "place" as const,
+      fit_signals: (attraction.familyFitSignals ?? [])
+        .map((signal) => signal.label)
+        .slice(0, 3),
     } satisfies ItineraryItem
   })
 

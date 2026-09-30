@@ -17,6 +17,12 @@ import {
   MAX_ITINERARY_DAYS,
 } from "@/lib/itinerary-batching"
 import { getWeatherForecast } from "@/lib/travel-apis/openweather"
+import {
+  cleanFitSignals,
+  enforcePaceLimit,
+  PACE_GUIDES,
+  type TravelPace,
+} from "@/lib/itinerary-intelligence"
 
 export const maxDuration = 60
 
@@ -29,6 +35,8 @@ const itineraryItemSchema = z.object({
   end_time: z.string(),
   notes: z.string().optional(),
   recommended: z.boolean().describe("true if this is an AI-recommended activity, false if it was saved by the user"),
+  item_type: z.enum(["place", "neighborhood", "meal", "downtime"]).default("place"),
+  fit_signals: z.array(z.string().max(60)).max(3).default([]),
 })
 
 const itineraryDaySchema = z.object({
@@ -102,6 +110,10 @@ export async function POST(
   const trip = tripResult.data
   const familyVibe = vibeResult.data
   const savedAttractions = savedResult.data ?? []
+  const pace: TravelPace = ["slow", "moderate", "fast"].includes(familyVibe?.pace)
+    ? familyVibe.pace
+    : "moderate"
+  const paceGuide = PACE_GUIDES[pace]
 
   const attractions: Attraction[] = savedAttractions.map((sa) => ({
     name: sa.attraction_name,
@@ -163,6 +175,7 @@ export async function POST(
     ? `
 Family vibe profile:
 - Kids: ${JSON.stringify(familyVibe.kids)}
+- Other travelers: ${JSON.stringify(familyVibe.travelers || [])}
 - Travel style: ${familyVibe.travel_style?.join(", ") || "not specified"}
 - Sensory needs: ${familyVibe.sensory_needs?.join(", ") || "none"}
 - Mobility: ${familyVibe.mobility_notes || "no restrictions"}
@@ -171,6 +184,14 @@ Family vibe profile:
 - Budget: ${familyVibe.budget_preference || "any"}
 `
     : ""
+
+  const itineraryIntelligenceRules = `
+- The saved family pace is ${pace}. Target ${paceGuide.prompt}.
+- Never exceed ${paceGuide.maxStops} total scheduled stops in a day unless traveler-picked items alone exceed that number. Traveler picks are required; AI additions are optional.
+- Prefer one flexible neighborhood block over several nearby micro-stops when an area itself is worth exploring. Name it "Explore [neighborhood]", set item_type to "neighborhood", and keep its stops walkable.
+- Set item_type to "meal" for dedicated meals, "downtime" for rest, and "place" for a named venue.
+- For each AI suggestion, return 1-3 fit_signals with short, scannable labels grounded in this profile, such as "Technology interest", "Ages 8–12", "Moderate pace", or "Nut-aware option".
+- Keep notes to one concise sentence explaining the practical family fit. Do not repeat the fit signals as a paragraph.`
 
   const accommodationContext = trip.accommodation_area
     ? `Accommodation: The family is staying near "${trip.accommodation_area}". Use this as the geographic anchor — cluster each day's activities around this area or around each other to minimize travel time. Prefer activities nearest to the accommodation for the first and last days.`
@@ -277,9 +298,10 @@ Rules:
 - INCLUDE every newly saved place explicitly assigned to this date. Use its exact name and mark it recommended: false.
 - KEEP every completed or skipped item exactly as-is. Never reschedule or remove it.
 - Replace or improve the AI-suggested items where recommended is true.
-- Build a realistic day with 2-4 activities, meal or rest breaks, and reasonable travel buffers.
+- Build a realistic day with reasonable meal, rest, and travel buffers.
 - Recommended activities must be REAL places that actually exist in ${trip.destination}.
-- Match the family's vibe, kids' ages, sensory needs, mobility needs, and pace.
+- Match the whole travel group's ages, interests, sensory needs, mobility needs, and pace.
+${itineraryIntelligenceRules}
 - date must be YYYY-MM-DD.
 ${weatherContext ? "- Use the weather forecast when choosing indoor versus outdoor activities." : ""}`
           : isDelta
@@ -291,7 +313,8 @@ Rules:
 - Apply the requested improvement by adding, adjusting, or swapping only AI-suggested items.
 - Do NOT remove user-saved, completed, or skipped items.
 - Recommended activities must be REAL places that actually exist in ${trip.destination}.
-- Match additions to the family's vibe, kids' ages, and sensory/mobility needs.
+- Match additions to the whole travel group's ages, interests, and sensory/mobility needs.
+${itineraryIntelligenceRules}
 - date must be YYYY-MM-DD for each day.
 ${weatherContext ? "- Use the weather forecast when placing outdoor versus indoor activities." : ""}`
             : `You are VibeTravel's itinerary builder. Create a realistic, family-friendly plan for one date window of a longer trip.
@@ -301,10 +324,10 @@ Rules:
 - Include every saved attraction supplied for this window, using its exact name and recommended: false.
 - If a saved attraction has a preferred date, schedule it on that exact date.
 - Fill gaps with real activities, restaurants, cafes, parks, or experiences in ${trip.destination}, marked recommended: true.
-- Aim for 2-4 activities per day based on the family's pace; lighter or rest days are acceptable on long trips.
-- Match recommendations to the family's vibe, kids' ages, dietary needs, mobility needs, and sensory needs.
+- Lighter or rest days are welcome on long trips.
+- Match recommendations to the whole travel group's ages, interests, dietary needs, mobility needs, and sensory needs.
 - Include realistic meal, rest, and travel buffers and use reasonable start and end times.
-- Add a concise note explaining why each recommendation fits this family.
+${itineraryIntelligenceRules}
 - date must be YYYY-MM-DD for each day.
 ${weatherContext ? "- Use the weather forecast when placing outdoor versus indoor activities." : ""}`
 
@@ -388,6 +411,9 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
   }
 
   const existingItinerary = (trip.itinerary ?? []) as ItineraryDay[]
+  const savedAttractionByName = new Map(
+    attractions.map((attraction) => [attraction.name.trim().toLowerCase(), attraction])
+  )
   let generatedDays: ItineraryDay[] = parsed.days.map((day) => ({
     date: day.date,
     items: day.items.map((item, i) => {
@@ -397,6 +423,10 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
           (existing) =>
             existing.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
         )
+      const savedAttraction = savedAttractionByName.get(
+        item.attraction_name.trim().toLowerCase()
+      )
+      const savedSignals = savedAttraction?.familyFitSignals?.map((signal) => signal.label)
 
       return {
         id: existingItem?.id ?? `item-${day.date}-${i}-${crypto.randomUUID()}`,
@@ -404,16 +434,18 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
         start_time: item.start_time,
         end_time: item.end_time,
         notes: item.notes,
+        item_type: savedAttraction ? "place" : item.item_type,
+        fit_signals: cleanFitSignals(savedSignals?.length ? savedSignals : item.fit_signals),
         status: existingItem?.status,
-        recommended: savedNames.has(item.attraction_name.trim().toLowerCase())
-          ? false
-          : isTargetDay
-            ? !targetDay?.items.some(
-                (existing) =>
-                  existing.recommended === false &&
-                  existing.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
-              )
-            : item.recommended ?? true,
+        recommended: !(
+          savedNames.has(item.attraction_name.trim().toLowerCase()) ||
+          existingItem?.recommended === false ||
+          (isTargetDay && targetDay?.items.some(
+            (existing) =>
+              existing.recommended === false &&
+              existing.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
+          ))
+        ),
       }
     }),
   }))
@@ -454,14 +486,21 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
     )
   }
 
+  if (!isTargetDay) {
+    generatedDays = generatedDays.map((day) => enforcePaceLimit(day, pace))
+  }
+
   let itinerary = generatedDays
   if (isTargetDay && targetDayDate && targetDay) {
     const generatedDay = generatedDays.find((day) => day.date === targetDayDate)
     const rebuiltDay = generatedDay
-      ? ensureSavedAttractionsInDay(
-          generatedDay,
-          targetDaySavedAttractions,
-          () => `item-${targetDayDate}-${crypto.randomUUID()}`
+      ? enforcePaceLimit(
+          ensureSavedAttractionsInDay(
+            generatedDay,
+            targetDaySavedAttractions,
+            () => `item-${targetDayDate}-${crypto.randomUUID()}`
+          ),
+          pace
         )
       : null
     if (!rebuiltDay) {

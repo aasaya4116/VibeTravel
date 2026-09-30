@@ -4,11 +4,25 @@ export interface Kid {
   sensoryNeeds?: string[]
 }
 
+export type TravelerRole =
+  | "partner"
+  | "adult"
+  | "grandparent"
+  | "extended_family"
+  | "friend"
+
+export interface Traveler {
+  name: string
+  role: TravelerRole
+  age?: number | null
+}
+
 export interface FamilyVibe {
   id: string
   user_id: string
   family_name: string | null
   kids: Kid[]
+  travelers?: Traveler[]
   travel_style: string[]
   sensory_needs: string[]
   mobility_notes: string | null
@@ -100,6 +114,8 @@ export interface ItineraryItem {
   end_time: string
   notes?: string
   recommended?: boolean
+  item_type?: "place" | "neighborhood" | "meal" | "downtime"
+  fit_signals?: string[]
   status?: "planned" | "completed" | "skipped"
   attraction_data?: Attraction
 }

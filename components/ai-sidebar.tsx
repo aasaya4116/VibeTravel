@@ -152,12 +152,19 @@ export function AISidebar({ familyVibe, currentTrip, tripId, feedbackMode, onClo
         `Find a great restaurant near ${currentTrip.accommodation_area || currentTrip.destination} with a kids menu`,
         `What's the best order to visit our saved places to avoid too much travel?`,
       ]
-    : [
+      : [
         "Plan a perfect day with a toddler — where should we start?",
         "What are the best quiet spots for sensory breaks?",
         "Suggest a rainy day backup plan",
         "Find restaurants with great food AND a play area",
       ]
+
+  const groupNames = [
+    ...(familyVibe?.kids ?? []).map((kid) =>
+      kid.name ? `${kid.name}${kid.age ? ` (${kid.age})` : ""}` : `age ${kid.age}`
+    ),
+    ...(familyVibe?.travelers ?? []).map((traveler) => traveler.name),
+  ].filter(Boolean)
 
   return (
     <>
@@ -208,8 +215,8 @@ export function AISidebar({ familyVibe, currentTrip, tripId, feedbackMode, onClo
                       Hi, I{"'"}m Scout — your AI travel assistant.
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      {familyVibe?.kids?.length
-                        ? `I see you're planning${currentTrip?.destination ? ` a trip to ${currentTrip.destination}` : ""} with ${familyVibe.kids.map((k: { name?: string; age?: number }) => k.name ? `${k.name}${k.age ? ` (${k.age})` : ""}` : `age ${k.age}`).join(" and ")}. What can I help with?`
+                      {groupNames.length
+                        ? `I see you're planning${currentTrip?.destination ? ` a trip to ${currentTrip.destination}` : ""} with ${groupNames.join(", ")}. What can I help with?`
                         : currentTrip?.destination
                         ? `I see you're planning a trip to ${currentTrip.destination}. What can I help with?`
                         : "I know your family's vibe and I can look up real restaurants, attractions, and tips."}

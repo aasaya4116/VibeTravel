@@ -5,6 +5,7 @@ interface TripSummaryInput {
 
 interface TripSummaryVibe {
   kids?: { name?: string; age: number }[] | null
+  travelers?: { name?: string; role?: string; age?: number | null }[] | null
   travel_style?: string[] | null
   pace?: string | null
 }
@@ -35,6 +36,7 @@ export function buildTripSummary(
     .filter(Boolean)
   const pace = familyVibe?.pace?.trim().toLowerCase()
   const children = familyVibe?.kids?.length ?? 0
+  const otherTravelers = familyVibe?.travelers?.length ?? 0
 
   const styleLead = styles.length
     ? `Built around your family's ${formatList(styles.slice(0, 2))} style, `
@@ -42,7 +44,7 @@ export function buildTripSummary(
   const paceNote = pace
     ? `The ${pace} pace leaves room to enjoy each area without turning the day into a checklist.`
     : "The plan leaves room to enjoy each area without turning the day into a checklist."
-  const familyNote = children > 0 ? " for the whole family" : ""
+  const familyNote = children + otherTravelers > 0 ? " for the whole travel group" : ""
 
   return `${styleLead}your ${trip.destination} plan brings together ${formatList(highlights)}${familyNote}. ${paceNote}`
 }

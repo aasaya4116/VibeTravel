@@ -16,7 +16,15 @@ import {
   Accessibility,
   LogOut,
 } from "lucide-react"
-import type { Profile, FamilyVibe } from "@/lib/types"
+import type { Profile, FamilyVibe, TravelerRole } from "@/lib/types"
+
+const travelerRoleLabels: Record<TravelerRole, string> = {
+  partner: "Spouse / partner",
+  adult: "Adult",
+  grandparent: "Grandparent",
+  extended_family: "Extended family",
+  friend: "Family friend",
+}
 
 interface ProfileViewProps {
   profile: Profile | null
@@ -117,6 +125,25 @@ export function ProfileView({
                       className="rounded-full bg-secondary px-3 py-1 text-sm text-secondary-foreground"
                     >
                       {kid.name}, age {kid.age}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {familyVibe.travelers && familyVibe.travelers.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs font-medium text-muted-foreground">
+                  Other travelers
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {familyVibe.travelers.map((traveler, index) => (
+                    <span
+                      key={`${traveler.name}-${index}`}
+                      className="rounded-full bg-secondary px-3 py-1 text-sm text-secondary-foreground"
+                    >
+                      {traveler.name} · {travelerRoleLabels[traveler.role]}
+                      {traveler.age ? ` · age ${traveler.age}` : ""}
                     </span>
                   ))}
                 </div>
