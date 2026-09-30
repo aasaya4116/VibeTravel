@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef } from "react"
+import dynamic from "next/dynamic"
 import { useRouter, useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { Search, SlidersHorizontal, X, Sparkles, AlertCircle, ShieldCheck } from "lucide-react"
@@ -10,10 +11,10 @@ import { TripPlanningTray } from "@/components/trip-planning-tray"
 import { SearchFilters } from "@/components/search-filters"
 import { DestinationAutocomplete } from "@/components/destination-autocomplete"
 import type { Attraction, FamilyVibe, SavedAttraction, TripOption } from "@/lib/types"
-import { VlogStrip } from "@/components/vlog-strip"
 import { FamilyFitBanner } from "@/components/family-fit-banner"
 import { DestinationBrowser } from "@/components/destination-browser"
 import type { DestinationBrowseCard } from "@/lib/destination-browse"
+import { getUserFacingError } from "@/lib/client-errors"
 import {
   createRecommendationFeedback,
   getVibeDiscoveryQuery,
@@ -26,6 +27,11 @@ import {
 } from "@/lib/recommendation-personalization"
 
 const recommendationFeedbackStorageKey = "vibetravel-recommendation-feedback"
+
+const VlogStrip = dynamic(
+  () => import("@/components/vlog-strip").then((module) => module.VlogStrip),
+  { ssr: false }
+)
 
 interface SearchExplorerProps {
   familyVibe: FamilyVibe | null
@@ -89,6 +95,7 @@ export function SearchExplorer({
     RecommendationFeedback[]
   >([])
   const [feedbackReady, setFeedbackReady] = useState(false)
+  const searchAbortRef = useRef<AbortController | null>(null)
   const defaultDiscoveryQuery = getVibeDiscoveryQuery(familyVibe)
 
   const selectedTrip =
@@ -140,6 +147,8 @@ export function SearchExplorer({
     }
   }, [])
 
+  useEffect(() => () => searchAbortRef.current?.abort(), [])
+
   // Accepts optional overrides so pill removals can clear a field and immediately re-run
   const handleSearch = useCallback(
     async (
@@ -161,6 +170,9 @@ export function SearchExplorer({
         return
       }
 
+      searchAbortRef.current?.abort()
+      const controller = new AbortController()
+      searchAbortRef.current = controller
       setLoading(true)
       setAttractions([])
       setSummary("")
@@ -171,6 +183,7 @@ export function SearchExplorer({
         const response = await fetch("/api/search", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             query: searchQuery || defaultDiscoveryQuery,
             destination: searchDest,
@@ -239,14 +252,18 @@ export function SearchExplorer({
           )
         }
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return
         console.error("Search error:", err)
-        setSearchError(
-          err instanceof Error
-            ? err.message
-            : "Something went wrong with your search. Please try again."
-        )
+        setSearchError(getUserFacingError(
+          err,
+          "Something went wrong with your search. Please try again.",
+          "search"
+        ))
       } finally {
-        setLoading(false)
+        if (searchAbortRef.current === controller) {
+          searchAbortRef.current = null
+          setLoading(false)
+        }
       }
     },
     [query, destination, filters, familyVibe, recommendationFeedback, defaultDiscoveryQuery]
@@ -377,7 +394,7 @@ export function SearchExplorer({
         toast.success(`Added to "${targetTrip?.title || "your trip"}"`)
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not add this place")
+      toast.error(getUserFacingError(error, "Could not add this place"))
     } finally {
       setSavingPlace(false)
     }
@@ -411,7 +428,7 @@ export function SearchExplorer({
       setPendingAttraction(null)
       toast.success("Removed from trip")
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not remove this place")
+      toast.error(getUserFacingError(error, "Could not remove this place"))
     } finally {
       setSavingPlace(false)
     }

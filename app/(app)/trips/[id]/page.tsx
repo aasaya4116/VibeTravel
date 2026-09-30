@@ -4,39 +4,8 @@ import { notFound } from "next/navigation"
 import { TripDetail } from "@/components/trip-detail"
 import { ArticlesSidebar, ArticlesSidebarSkeleton } from "@/components/articles-sidebar"
 import { getWikipediaImage } from "@/lib/wikipedia-image"
-import { generateText } from "ai"
-import { anthropic } from "@ai-sdk/anthropic"
+import { buildTripSummary } from "@/lib/trip-summary"
 import type { TripReadinessState } from "@/lib/types"
-
-async function generateTripSummary(
-  trip: { title: string; destination: string; start_date: string | null; end_date: string | null; itinerary: { items: { attraction_name: string }[] }[] },
-  familyVibe: { kids?: { name?: string; age: number }[]; travel_style?: string[]; pace?: string } | null
-): Promise<string | null> {
-  if (!trip.itinerary?.length) return null
-
-  const allAttractions = trip.itinerary
-    .flatMap((d) => d.items.map((i) => i.attraction_name))
-    .slice(0, 12)
-
-  const vibeContext = familyVibe
-    ? `Family: kids aged ${familyVibe.kids?.map((k) => k.age).join(", ") || "unknown"}, travel style: ${familyVibe.travel_style?.join(", ") || "any"}, pace: ${familyVibe.pace || "moderate"}.`
-    : ""
-
-  try {
-    const result = await generateText({
-      model: anthropic("claude-haiku-4-5-20251001"),
-      prompt: `You are a warm, knowledgeable travel writer. Write a 3-4 sentence trip preview for a family trip to ${trip.destination}.
-
-${vibeContext}
-Planned highlights: ${allAttractions.join(", ")}.
-
-Predict what this family will experience — the moments, feelings, and memories they'll create. Be specific to the places listed. Speak directly to the family in second person ("You'll..."). Keep it vivid and concise, no more than 4 sentences.`,
-    })
-    return result.text.trim()
-  } catch {
-    return null
-  }
-}
 
 export default async function TripDetailPage({
   params,
@@ -68,11 +37,10 @@ export default async function TripDetailPage({
   const trip = tripRes.data
   const familyVibe = vibeRes.data
 
-  // Fetch banner image and trip summary in parallel
-  const [bannerImage, tripSummary] = await Promise.all([
-    getWikipediaImage(trip.destination),
-    generateTripSummary(trip, familyVibe),
-  ])
+  // Keep the page fast: the summary is derived locally while only the cached
+  // destination image may require an external lookup.
+  const tripSummary = buildTripSummary(trip, familyVibe)
+  const bannerImage = await getWikipediaImage(trip.destination)
 
   return (
     <div className="grid min-h-screen lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_340px]">

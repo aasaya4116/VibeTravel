@@ -14,19 +14,43 @@ interface Vlog {
 export function VlogStrip({ destination }: { destination: string }) {
   const [vlogs, setVlogs] = useState<Vlog[]>([])
   const [loading, setLoading] = useState(false)
+  const [desktopEnabled, setDesktopEnabled] = useState(false)
 
   useEffect(() => {
-    if (!destination) return
+    const media = window.matchMedia("(min-width: 1024px)")
+    const update = () => setDesktopEnabled(media.matches)
+    update()
+    media.addEventListener("change", update)
+    return () => media.removeEventListener("change", update)
+  }, [])
+
+  useEffect(() => {
+    if (!destination || !desktopEnabled) return
+    const controller = new AbortController()
+    let active = true
     setLoading(true)
     setVlogs([])
-    fetch(`/api/vlogs?destination=${encodeURIComponent(destination)}`)
-      .then((r) => r.json())
-      .then((data) => setVlogs(data.videos ?? []))
-      .catch(() => setVlogs([]))
-      .finally(() => setLoading(false))
-  }, [destination])
+    fetch(`/api/vlogs?destination=${encodeURIComponent(destination)}`, {
+      signal: controller.signal,
+    })
+      .then((r) => (r.ok ? r.json() : { videos: [] }))
+      .then((data) => {
+        if (active) setVlogs(data.videos ?? [])
+      })
+      .catch((error) => {
+        if (error instanceof Error && error.name === "AbortError") return
+        if (active) setVlogs([])
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [destination, desktopEnabled])
 
-  if (!destination || (!loading && vlogs.length === 0)) return null
+  if (!desktopEnabled || !destination || (!loading && vlogs.length === 0)) return null
 
   return (
     <div className="w-64 shrink-0">
@@ -60,6 +84,8 @@ export function VlogStrip({ destination }: { destination: string }) {
                   <img
                     src={v.thumbnail}
                     alt={v.title}
+                    loading="lazy"
+                    decoding="async"
                     className="h-full w-full object-cover transition-transform group-hover:scale-105"
                   />
                   <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 transition-opacity group-hover:opacity-100">

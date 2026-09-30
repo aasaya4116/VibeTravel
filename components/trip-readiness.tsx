@@ -21,6 +21,7 @@ import {
   WalletCards,
 } from "lucide-react"
 import { toast } from "sonner"
+import { getUserFacingError } from "@/lib/client-errors"
 import {
   Sheet,
   SheetContent,
@@ -233,7 +234,7 @@ export function TripReadiness({
       )
       toast.success("Trip readiness saved")
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not save trip readiness")
+      toast.error(getUserFacingError(error, "Could not save trip readiness"))
     } finally {
       setSaving(false)
     }
