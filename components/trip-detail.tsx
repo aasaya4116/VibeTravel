@@ -17,8 +17,15 @@ import {
   Hotel,
   Pencil,
   X,
+  Gauge,
+  Users,
 } from "lucide-react"
-import type { Trip, SavedAttraction, TripReadinessState } from "@/lib/types"
+import type {
+  Trip,
+  SavedAttraction,
+  TripReadinessState,
+  FamilyVibe,
+} from "@/lib/types"
 import { EditableItinerary } from "@/components/editable-itinerary"
 import { TripDayOrganizer } from "@/components/trip-day-organizer"
 import { OnboardingHint } from "@/components/onboarding-hint"
@@ -50,6 +57,7 @@ interface TripDetailProps {
   bannerImage?: string | null
   tripSummary?: string | null
   initialReadiness?: TripReadinessState | null
+  familyVibe?: FamilyVibe | null
 }
 
 export function TripDetail({
@@ -58,6 +66,7 @@ export function TripDetail({
   bannerImage,
   tripSummary,
   initialReadiness,
+  familyVibe,
 }: TripDetailProps) {
   const router = useRouter()
   const { isDismissed, dismiss } = useOnboardingHints()
@@ -127,6 +136,13 @@ export function TripDetail({
   )
   const isLongTrip = tripDateOptions.length > MAX_GENERATION_DAYS
   const hasUnplannedDays = plannedDates.length < tripDateOptions.length
+  const familyFitLabels = [
+    ...(familyVibe?.travel_style ?? []).slice(0, 2),
+    familyVibe?.pace ? `${familyVibe.pace} pace` : null,
+    familyVibe?.kids?.length
+      ? `${familyVibe.kids.length} kid${familyVibe.kids.length === 1 ? "" : "s"}`
+      : null,
+  ].filter((label): label is string => Boolean(label))
 
   async function handleGenerateItinerary(dates?: string[]): Promise<boolean> {
     if ((!canGenerate && !canRegenerate) || generating) return false
@@ -263,95 +279,119 @@ export function TripDetail({
         </div>
       )}
 
-      {/* Banner */}
-      <div className="mb-8 overflow-hidden rounded-2xl">
-        <div className="relative h-52 w-full sm:h-64 lg:h-72">
+      {/* Planner-led trip hero */}
+      <section className="mb-8 grid overflow-hidden rounded-[1.5rem] border border-border bg-card shadow-xl shadow-black/5 lg:grid-cols-[1.12fr_0.88fr]">
+        <div className="relative min-h-[280px] overflow-hidden lg:min-h-[410px]">
           {bannerImage ? (
             <img
               src={bannerImage}
               alt={trip.destination}
-              className="h-full w-full object-cover"
+              className="absolute inset-0 h-full w-full object-cover"
             />
           ) : (
-            <div className="h-full w-full bg-gradient-to-br from-primary/20 via-accent/10 to-primary/5" />
+            <div className="absolute inset-0 bg-gradient-to-br from-primary/35 via-accent/15 to-background" />
           )}
-          {/* Gradient overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-
-          {/* Content on banner */}
-          <div className="absolute bottom-0 left-0 right-0 p-6">
-            <div className="mb-2 flex items-center gap-2">
-              <span
-                className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_STYLES[currentStatus]}`}
-              >
-                {currentStatus}
-              </span>
-              {nextStep && (
-                <button
-                  type="button"
-                  onClick={handleStatusAdvance}
-                  disabled={updatingStatus}
-                  className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-medium text-white/90 backdrop-blur-sm transition-colors hover:bg-white/25 disabled:opacity-50"
-                >
-                  {updatingStatus ? (
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    <ChevronRight className="h-3 w-3" />
-                  )}
-                  {nextStep.label}
-                </button>
-              )}
-            </div>
-            <h1 className="font-serif text-3xl text-white lg:text-4xl">
-              {trip.title}
-            </h1>
-            <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-white/80">
-              <span className="flex items-center gap-1">
-                <MapIcon className="h-4 w-4" />
-                {trip.destination}
-              </span>
-              {trip.start_date && (
-                <span className="flex items-center gap-1">
-                  <Calendar className="h-4 w-4" />
-                  {new Date(trip.start_date + "T00:00:00").toLocaleDateString("en-US", {
-                    month: "long",
+          <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/10 to-transparent" />
+          <div className="absolute bottom-5 left-5 right-5 flex flex-wrap items-center gap-2 text-xs text-white/85">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/35 px-3 py-1.5 backdrop-blur-md">
+              <MapIcon className="h-3.5 w-3.5 text-primary" /> {trip.destination}
+            </span>
+            {trip.start_date && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-black/35 px-3 py-1.5 backdrop-blur-md">
+                <Calendar className="h-3.5 w-3.5" />
+                {new Date(trip.start_date + "T00:00:00").toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                })}
+                {trip.end_date &&
+                  ` – ${new Date(trip.end_date + "T00:00:00").toLocaleDateString("en-US", {
+                    month: "short",
                     day: "numeric",
-                  })}
-                  {trip.end_date &&
-                    ` – ${new Date(trip.end_date + "T00:00:00").toLocaleDateString("en-US", {
-                      month: "long",
-                      day: "numeric",
-                    })}`}
-                </span>
-              )}
-              {trip.accommodation_area && (
-                <span className="flex items-center gap-1">
-                  <Hotel className="h-4 w-4" />
-                  {trip.accommodation_area}
-                </span>
-              )}
-            </div>
+                  })}`}
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Trip summary */}
-        {tripSummary && (
-          <div className="border border-t-0 border-border rounded-b-2xl bg-card px-6 py-4">
-            <div className="flex items-start gap-3">
-              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-              <p className="text-sm leading-relaxed text-muted-foreground">{tripSummary.replace(/^#+\s*/gm, "").trim()}</p>
-            </div>
+        <div className="flex flex-col justify-center p-6 sm:p-8 lg:p-9">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`inline-flex rounded-full px-3 py-1 text-[11px] font-semibold capitalize ${STATUS_STYLES[currentStatus]}`}
+            >
+              {currentStatus}
+            </span>
+            {nextStep && (
+              <button
+                type="button"
+                onClick={handleStatusAdvance}
+                disabled={updatingStatus}
+                className="inline-flex min-h-9 items-center gap-1 rounded-full border border-border px-3 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/35 hover:text-foreground disabled:opacity-50"
+              >
+                {updatingStatus ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <ChevronRight className="h-3 w-3" />
+                )}
+                {nextStep.label}
+              </button>
+            )}
           </div>
-        )}
-      </div>
+          <p className="overline mt-6">Your family trip</p>
+          <h1 className="mt-2 font-serif text-3xl leading-tight text-foreground lg:text-4xl">
+            {trip.title}
+          </h1>
+
+          {tripSummary && (
+            <div className="mt-5 flex items-start gap-3 border-l-2 border-primary pl-4">
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <p className="line-clamp-5 text-sm leading-relaxed text-muted-foreground">
+                {tripSummary.replace(/^#+\s*/gm, "").trim()}
+              </p>
+            </div>
+          )}
+
+          {familyFitLabels.length > 0 && (
+            <div className="mt-6">
+              <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">
+                <Users className="h-3.5 w-3.5" /> Why this plan fits
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {familyFitLabels.map((label, index) => (
+                  <span
+                    key={`${label}-${index}`}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-3 py-1.5 text-[11px] text-foreground"
+                  >
+                    {label.includes("pace") && <Gauge className="h-3 w-3 text-primary" />}
+                    {label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {trip.accommodation_area && (
+            <p className="mt-5 flex items-center gap-2 text-xs text-muted-foreground">
+              <Hotel className="h-3.5 w-3.5 text-primary" /> Staying near {trip.accommodation_area}
+            </p>
+          )}
+        </div>
+      </section>
 
       <DepartureCenter trip={trip} initialReadiness={initialReadiness} />
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-7">
         {/* Itinerary Section */}
-        <div className="lg:col-span-2">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-serif text-xl text-foreground">Itinerary</h2>
+        <div className="min-w-0">
+          <div className="mb-4 flex items-end justify-between gap-3">
+            <div>
+              <p className="overline">Trip plan</p>
+              <h2 className="mt-1 font-serif text-2xl text-foreground">Your itinerary</h2>
+            </div>
+            {hasItinerary && (
+              <span className="rounded-full border border-border px-3 py-1 text-[11px] text-muted-foreground">
+                {trip.itinerary.length} planned day{trip.itinerary.length === 1 ? "" : "s"}
+              </span>
+            )}
           </div>
 
           {/* Accommodation area — always visible */}
@@ -622,7 +662,7 @@ export function TripDetail({
           )}
         </div>
 
-        <div>
+        <aside className="space-y-6 self-start lg:sticky lg:top-24">
           <TripReadiness
             tripId={trip.id}
             destination={trip.destination}
@@ -634,7 +674,7 @@ export function TripDetail({
             savedAttractions={savedAttractions}
             hasItinerary={hasItinerary}
           />
-        </div>
+        </aside>
       </div>
     </div>
     </>

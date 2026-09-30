@@ -84,11 +84,48 @@
 }
 
 @layer components {
+  .overline {
+    @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-primary;
+  }
+
   /* Soft, warm-tinted elevation for content cards — matches the homepage's
      layered material language without heavy drop shadows. */
   .card-soft {
     box-shadow:
       0 1px 2px rgb(43 37 33 / 0.04),
       0 10px 28px -14px rgb(43 37 33 / 0.16);
+  }
+
+  .destination-map-marker {
+    @apply flex h-9 w-9 items-center justify-center rounded-full bg-card shadow-lg;
+    border: 1px solid hsl(var(--border));
+    transition: transform 180ms ease, box-shadow 180ms ease;
+  }
+
+  .destination-map-marker span {
+    @apply block h-5 w-5 rounded-full bg-primary;
+    box-shadow: 0 0 0 5px hsl(var(--primary) / 0.16);
+  }
+
+  .destination-map-marker.is-selected {
+    @apply h-11 w-11;
+    box-shadow: 0 12px 30px rgb(0 0 0 / 0.3);
+  }
+
+  .destination-map-marker.is-selected span {
+    @apply h-6 w-6;
+    box-shadow: 0 0 0 7px hsl(var(--primary) / 0.2);
+  }
+
+  .leaflet-popup-content-wrapper,
+  .leaflet-popup-tip {
+    background: hsl(var(--card));
+    color: hsl(var(--card-foreground));
+  }
+
+  .leaflet-popup-content-wrapper {
+    border: 1px solid hsl(var(--border));
+    border-radius: 1rem;
+    box-shadow: 0 16px 40px rgb(0 0 0 / 0.22);
   }
 }
