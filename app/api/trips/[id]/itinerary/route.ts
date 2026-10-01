@@ -8,6 +8,7 @@ import {
   ensureSavedAttractionsInDay,
   mergeItinerarySection,
   mergeRegeneratedDay,
+  pinSavedAttractionsToDates,
 } from "@/lib/itinerary-editing"
 import {
   assignAttractionsToBatches,
@@ -451,6 +452,12 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
       }
     }),
   }))
+
+  generatedDays = pinSavedAttractionsToDates(
+    generatedDays,
+    attractions,
+    () => `item-${crypto.randomUUID()}`
+  )
 
   // A model response should contain every saved place, but do not let an
   // omission drop a traveler pick. Add any missing place to a day in the same
