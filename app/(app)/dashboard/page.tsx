@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server"
 import { DashboardContent } from "@/components/dashboard-content"
 import { ArticlesSidebar, ArticlesSidebarSkeleton } from "@/components/articles-sidebar"
 // Articles powered by Tavily — add TAVILY_API_KEY to .env.local
-import type { Trip, FamilyVibe } from "@/lib/types"
+import type { Trip, FamilyVibe, TripReadinessState } from "@/lib/types"
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -15,16 +15,32 @@ export default async function DashboardPage() {
   let profile = null
   let trips: Trip[] = []
   let familyVibe: FamilyVibe | null = null
+  let readinessByTrip: Record<string, TripReadinessState> = {}
 
   if (user) {
-    const [profileRes, tripsRes, vibeRes] = await Promise.all([
+    const [profileRes, tripsRes, vibeRes, readinessRes] = await Promise.all([
       supabase.from("profiles").select("*").eq("id", user.id).single(),
       supabase.from("trips").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
       supabase.from("family_vibes").select("*").eq("user_id", user.id).single(),
+      supabase
+        .from("trip_readiness")
+        .select("trip_id, currency, budget_target, bookings, checklist")
+        .eq("user_id", user.id),
     ])
     profile = profileRes.data
     trips = tripsRes.data ?? []
     familyVibe = vibeRes.data
+    readinessByTrip = Object.fromEntries(
+      (readinessRes.data ?? []).map((row) => [
+        row.trip_id,
+        {
+          currency: row.currency,
+          budget_target: row.budget_target,
+          bookings: row.bookings,
+          checklist: row.checklist,
+        } as TripReadinessState,
+      ])
+    )
   }
 
   // Unauthenticated users → login
@@ -43,6 +59,7 @@ export default async function DashboardPage() {
           profile={profile}
           trips={trips}
           familyVibe={familyVibe}
+          readinessByTrip={readinessByTrip}
         />
       </div>
 

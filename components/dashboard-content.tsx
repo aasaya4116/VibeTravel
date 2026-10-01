@@ -1,556 +1,557 @@
 "use client"
 
+import dynamic from "next/dynamic"
 import Link from "next/link"
-import { Search, Map, Sparkles, ArrowRight, Plus, Baby, Pencil, Calendar, Check, Users } from "lucide-react"
-import type { Profile, Trip, FamilyVibe } from "@/lib/types"
+import { useEffect, useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
+import {
+  ArrowRight,
+  ArrowUpRight,
+  CalendarDays,
+  CheckCircle2,
+  ChevronRight,
+  Clock3,
+  Compass,
+  Map,
+  MapPin,
+  Plus,
+  Search,
+  Sparkles,
+  Users,
+} from "lucide-react"
+import { DashboardLocationSelector } from "@/components/dashboard-location-selector"
+import {
+  destinationBrowseCards,
+  destinationLenses,
+  getDefaultDestinationLens,
+  type DestinationBrowseCard,
+  type DestinationLens,
+} from "@/lib/destination-browse"
+import {
+  findDashboardDestinationCard,
+  getRecommendedDashboardDestinations,
+} from "@/lib/dashboard-destinations"
 import { getCountryCode, getFlagUrl } from "@/lib/destination-flag"
-import { OnboardingHint } from "@/components/onboarding-hint"
-import { useOnboardingHints } from "@/hooks/use-onboarding-hints"
+import { getReadinessStats, normalizeTripReadiness } from "@/lib/trip-readiness"
+import type { FamilyVibe, Profile, Trip, TripReadinessState } from "@/lib/types"
 
-const INSPIRATION: {
-  destination: string
-  country: string
-  styles: string[]
-  tagline: string
-}[] = [
-  { destination: "Tokyo", country: "Japan", styles: ["cultural", "foodie", "adventurous"], tagline: "Theme parks, epic food halls, and endless kid-friendly wonder" },
-  { destination: "Lisbon", country: "Portugal", styles: ["relaxed", "cultural", "foodie"], tagline: "Easy pace, incredible pastries, and stroller-friendly trams" },
-  { destination: "Costa Rica", country: "Costa Rica", styles: ["adventurous", "nature"], tagline: "Wildlife, zip-lines, and beach days — all in one trip" },
-  { destination: "Barcelona", country: "Spain", styles: ["beach", "cultural", "foodie"], tagline: "Gaudí, sandy beaches, and the best seafood paella" },
-  { destination: "Amsterdam", country: "Netherlands", styles: ["cultural", "relaxed"], tagline: "Canal boat rides, bike paths, and world-class museums" },
-  { destination: "Iceland", country: "Iceland", styles: ["nature", "adventurous"], tagline: "Waterfalls, geysers, and Northern Lights the whole family will remember" },
-  { destination: "Kyoto", country: "Japan", styles: ["cultural", "relaxed"], tagline: "Bamboo groves, deer parks, and the most serene temples" },
-  { destination: "New Zealand", country: "New Zealand", styles: ["nature", "adventurous"], tagline: "Epic landscapes, safe roads, and Lord of the Rings magic" },
-  { destination: "Masai Mara", country: "Kenya", styles: ["adventurous", "nature"], tagline: "The Great Migration, big five safaris, and sunsets that stop time" },
-  { destination: "Zanzibar", country: "Tanzania", styles: ["beach", "cultural", "relaxed"], tagline: "Turquoise waters, spice markets, and the best fresh seafood" },
-  { destination: "Marrakech", country: "Morocco", styles: ["cultural", "foodie", "adventurous"], tagline: "Souks, riads, and tagines — a feast for every sense" },
-  { destination: "Cape Town", country: "South Africa", styles: ["nature", "beach", "adventurous"], tagline: "Table Mountain, penguins, and wine country all within an hour" },
-  { destination: "Rwanda", country: "Rwanda", styles: ["nature", "adventurous"], tagline: "Gorilla trekking, lush volcanoes, and one of Africa's safest family destinations" },
-  { destination: "Serengeti", country: "Tanzania", styles: ["adventurous", "nature"], tagline: "Endless plains, lion prides, and a sky full of stars" },
-  { destination: "Cairo", country: "Egypt", styles: ["cultural", "adventurous"], tagline: "Pyramids, the Nile, and 5,000 years of history for curious kids" },
-  { destination: "Mauritius", country: "Mauritius", styles: ["beach", "relaxed", "nature"], tagline: "Lagoons, coral reefs, and luxury resorts built for families" },
-]
-
-function getCountdown(startDateStr: string): { label: string; urgent: boolean } {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const start = new Date(startDateStr + "T00:00:00")
-  const diff = Math.ceil((start.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-  if (diff < 0) return { label: "In progress", urgent: false }
-  if (diff === 0) return { label: "Today!", urgent: true }
-  if (diff === 1) return { label: "Tomorrow!", urgent: true }
-  if (diff <= 7) return { label: `${diff} days away`, urgent: true }
-  return { label: `${diff} days away`, urgent: false }
-}
+const DestinationMapLeaflet = dynamic(
+  () =>
+    import("@/components/destination-map-leaflet").then(
+      (module) => module.DestinationMapLeaflet
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="grid h-full min-h-[480px] place-items-center bg-[#ddd8cd]">
+        <div className="flex items-center gap-2 text-sm text-[#5c584f]">
+          <Map className="h-4 w-4 animate-pulse" />
+          Loading the map…
+        </div>
+      </div>
+    ),
+  }
+)
 
 interface DashboardContentProps {
   profile: Profile | null
   trips: Trip[]
   familyVibe: FamilyVibe | null
+  readinessByTrip: Record<string, TripReadinessState>
 }
 
-export function DashboardContent({ profile, trips, familyVibe }: DashboardContentProps) {
-  const { isDismissed, dismiss } = useOnboardingHints()
-  const displayName = profile?.display_name ?? "Explorer"
-
-  // Find the next upcoming or in-progress trip
+function getUpcomingTrip(trips: Trip[]) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const upcomingTrip =
-    trips
-      .filter((t) => t.start_date && t.status !== "completed")
-      .sort(
-        (a, b) =>
-          new Date(a.start_date! + "T00:00:00").getTime() -
-          new Date(b.start_date! + "T00:00:00").getTime()
-      )
-      .find((t) => {
-        const end = t.end_date
-          ? new Date(t.end_date + "T23:59:59")
-          : new Date(t.start_date! + "T23:59:59")
-        return end >= today
-      }) ?? null
-
-  const countdown = upcomingTrip?.start_date ? getCountdown(upcomingTrip.start_date) : null
-
-  // Vibe-matched destination inspiration
-  const userStyles = familyVibe?.travel_style ?? []
-  const inspirationCards = [...INSPIRATION]
-    .map((d) => ({ ...d, score: d.styles.filter((s) => userStyles.includes(s)).length }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
-
-  // Onboarding progress + the single most useful next action (drives the hero card)
-  const hasItinerary = trips.some((t) => (t.itinerary?.length ?? 0) > 0)
-  const onboardingSteps = [
-    { label: "Set your family vibe", done: !!familyVibe },
-    { label: "Create a trip", done: trips.length > 0 },
-    { label: "Generate your itinerary", done: hasItinerary },
-  ]
-  const nextStep = !familyVibe
-    ? { title: "Set your family vibe", desc: "Tell us about your kids and travel style.", cta: "Set your vibe", href: "/profile/vibe" }
-    : trips.length === 0
-      ? { title: "Start a new trip", desc: "Choose a destination and dates.", cta: "Create a trip", href: "/trips" }
-      : { title: "Build your itinerary", desc: "Save 3+ spots, then generate a plan.", cta: "Go to your trip", href: `/trips/${trips[0].id}` }
-
-  const vibeSummary = upcomingTrip
-    ? "Your next adventure is coming up."
-    : familyVibe
-      ? "Your family vibe is set. Let's find where it takes you."
-      : "Where is your family headed next?"
 
   return (
-    <div>
-      {/* Cinematic welcome band */}
-      <div className="relative overflow-hidden bg-[#0a0a0f] px-4 py-12 lg:px-8 lg:py-16">
-        {/* Glow orbs */}
-        <div className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-primary/15 blur-[120px]" />
-        <div className="pointer-events-none absolute -left-16 bottom-0 h-48 w-48 rounded-full bg-accent/10 blur-[90px]" />
-        <div className="relative mx-auto flex max-w-5xl flex-col items-start justify-between gap-9 lg:flex-row lg:items-end">
+    trips
+      .filter((trip) => trip.start_date && trip.status !== "completed")
+      .sort(
+        (left, right) =>
+          new Date(`${left.start_date}T00:00:00`).getTime() -
+          new Date(`${right.start_date}T00:00:00`).getTime()
+      )
+      .find((trip) => {
+        const lastDay = new Date(`${trip.end_date ?? trip.start_date}T23:59:59`)
+        return lastDay >= today
+      }) ?? null
+  )
+}
+
+function getCountdown(startDate: string) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const start = new Date(`${startDate}T00:00:00`)
+  const days = Math.ceil((start.getTime() - today.getTime()) / 86_400_000)
+
+  if (days < 0) return "Happening now"
+  if (days === 0) return "Starts today"
+  if (days === 1) return "Tomorrow"
+  return `${days} days away`
+}
+
+function formatTripDates(trip: Trip) {
+  if (!trip.start_date) return "Dates not set"
+  const start = new Date(`${trip.start_date}T00:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  })
+  if (!trip.end_date) return start
+  const end = new Date(`${trip.end_date}T00:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })
+  return `${start} – ${end}`
+}
+
+function TripFlag({ destination }: { destination: string }) {
+  const code = getCountryCode(destination)
+  return code ? (
+    <img
+      src={getFlagUrl(code)}
+      alt=""
+      width={22}
+      height={16}
+      className="rounded-sm object-cover"
+      style={{ width: 22, height: 16 }}
+    />
+  ) : (
+    <MapPin className="h-4 w-4" />
+  )
+}
+
+export function DashboardContent({
+  profile,
+  trips,
+  familyVibe,
+  readinessByTrip,
+}: DashboardContentProps) {
+  const router = useRouter()
+  const displayName = profile?.display_name?.split(" ")[0] || "Explorer"
+  const upcomingTrip = useMemo(() => getUpcomingTrip(trips), [trips])
+  const recentDestinations = useMemo(
+    () => Array.from(new Set(trips.map((trip) => trip.destination).filter(Boolean))).slice(0, 6),
+    [trips]
+  )
+  const recommendedDestinations = useMemo(
+    () => getRecommendedDashboardDestinations(familyVibe?.travel_style ?? []),
+    [familyVibe?.travel_style]
+  )
+
+  const [lens, setLens] = useState<DestinationLens>(() => getDefaultDestinationLens(familyVibe))
+  const [selectedDestination, setSelectedDestination] = useState<DestinationBrowseCard>(
+    () =>
+      (upcomingTrip && findDashboardDestinationCard(upcomingTrip.destination)) ||
+      recommendedDestinations[0] ||
+      destinationBrowseCards[0]
+  )
+  const [locationSelectorOpen, setLocationSelectorOpen] = useState(false)
+
+  const lensDestinations = useMemo(() => {
+    const matching = recommendedDestinations.filter((destination) =>
+      destination.lenses.includes(lens)
+    )
+    return matching.length > 0 ? matching : recommendedDestinations
+  }, [lens, recommendedDestinations])
+
+  useEffect(() => {
+    if (!lensDestinations.some((destination) => destination.name === selectedDestination.name)) {
+      setSelectedDestination(lensDestinations[0])
+    }
+  }, [lensDestinations, selectedDestination.name])
+
+  const readiness = upcomingTrip
+    ? normalizeTripReadiness(readinessByTrip[upcomingTrip.id])
+    : null
+  const readinessStats = upcomingTrip && readiness
+    ? getReadinessStats(readiness, upcomingTrip.itinerary ?? [])
+    : null
+  const remainingTasks = readinessStats
+    ? Math.max(readinessStats.totalTasks - readinessStats.completedTasks, 0)
+    : 0
+  const recentTrips = trips.slice(0, 3)
+  const vibeLabels = familyVibe?.travel_style?.slice(0, 3) ?? []
+
+  function exploreDestination(destination: DestinationBrowseCard) {
+    router.push(
+      `/search?dest=${encodeURIComponent(destination.destination)}&q=${encodeURIComponent(destination.query)}`
+    )
+  }
+
+  function handleLocationSelection(destination: string) {
+    const curated = findDashboardDestinationCard(destination)
+    if (curated) {
+      setSelectedDestination(curated)
+      return
+    }
+    router.push(`/search?dest=${encodeURIComponent(destination)}`)
+  }
+
+  return (
+    <main className="min-h-screen bg-[#f4f1eb] text-[#201d19] dark:bg-background dark:text-foreground">
+      <DashboardLocationSelector
+        open={locationSelectorOpen}
+        onOpenChange={setLocationSelectorOpen}
+        recentDestinations={recentDestinations}
+        selectedDestination={selectedDestination.destination}
+        onExplore={handleLocationSelection}
+      />
+
+      <div className="mx-auto max-w-[1480px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.22em] text-white/35">
-              Welcome back
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
+              Your travel world
             </p>
-            <h1 className="font-serif text-4xl leading-[1.08] tracking-tight text-white lg:text-5xl">
-              Hey, {displayName}.
-              <br />
-              {upcomingTrip ? (
-                <>
-                  Your next adventure <em className="italic text-primary">awaits.</em>
-                </>
-              ) : (
-                <>
-                  Where&apos;s your family <em className="italic text-primary">headed next?</em>
-                </>
-              )}
+            <h1 className="mt-1 font-serif text-3xl leading-tight tracking-tight sm:text-4xl">
+              Good to see you, {displayName}.
             </h1>
-            <p className="mt-4 max-w-md text-base text-white/50">{vibeSummary}</p>
-          </div>
-
-          {/* Floating glass card — echoes the homepage's layered UI cards */}
-          {!hasItinerary && (
-            <div className="w-full shrink-0 rounded-2xl border border-white/[0.12] bg-black/50 p-5 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.6)] backdrop-blur-xl lg:w-80">
-              <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-white/35">
-                Pick up where you left off
-              </p>
-              <h3 className="mt-2 font-serif text-2xl text-white">{nextStep.title}</h3>
-              <p className="mt-1 text-xs text-white/45">{nextStep.desc}</p>
-              <div className="mt-4 flex flex-col gap-2.5">
-                {onboardingSteps.map((s) => (
-                  <div key={s.label} className="flex items-center gap-2.5 text-xs">
-                    <span
-                      className={`grid h-4 w-4 shrink-0 place-items-center rounded-full border ${
-                        s.done ? "border-primary bg-primary" : "border-white/20"
-                      }`}
-                    >
-                      {s.done && <Check className="h-2.5 w-2.5 text-white" />}
-                    </span>
-                    <span className={s.done ? "text-white/30 line-through" : "text-white/55"}>
-                      {s.label}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <Link
-                href={nextStep.href}
-                className="mt-5 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-white transition-all hover:gap-3"
-              >
-                {nextStep.cta}
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="mx-auto max-w-5xl px-4 py-8 lg:px-8 lg:py-12">
-
-      {/* Upcoming trip hero */}
-      {upcomingTrip && countdown && (
-        <div className="mb-8 overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/5 to-accent/5 p-6">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4">
-              {(() => {
-                const code = getCountryCode(upcomingTrip.destination)
-                return code ? (
-                  <img
-                    src={getFlagUrl(code)}
-                    alt={code.toUpperCase()}
-                    width={52}
-                    height={39}
-                    className="shrink-0 rounded-lg object-cover shadow-sm"
-                    style={{ width: 52, height: 39 }}
-                  />
-                ) : (
-                  <div className="flex h-10 w-14 shrink-0 items-center justify-center rounded-lg bg-muted text-2xl">
-                    📍
-                  </div>
-                )
-              })()}
-              <div>
-                <div className="mb-1 flex flex-wrap items-center gap-2">
-                  <h2 className="font-serif text-xl text-foreground">{upcomingTrip.title}</h2>
-                  <span
-                    className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                      countdown.urgent
-                        ? "bg-accent/15 text-accent"
-                        : "bg-primary/10 text-primary"
-                    }`}
-                  >
-                    {countdown.label}
-                  </span>
-                </div>
-                <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                  <Calendar className="h-3.5 w-3.5 shrink-0" />
-                  {new Date(upcomingTrip.start_date! + "T00:00:00").toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                  })}
-                  {upcomingTrip.end_date &&
-                    ` – ${new Date(upcomingTrip.end_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
-                </p>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <Link
-                href={`/search?trip=${upcomingTrip.id}&dest=${encodeURIComponent(upcomingTrip.destination)}`}
-                className="rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-primary/30 hover:bg-primary/5"
-              >
-                Explore
-              </Link>
-              <Link
-                href={`/trips/${upcomingTrip.id}`}
-                className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-              >
-                View Trip
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Quick Actions — only shown once the user has completed onboarding */}
-      {trips.some(t => t.itinerary?.length > 0) && (
-      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Link
-          href="/search"
-          className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-5 transition-all hover:border-primary/30 hover:shadow-md"
-        >
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <Search className="h-6 w-6" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="font-medium text-foreground">Explore Attractions</p>
-            <p className="text-sm text-muted-foreground">
-              Find your family{"'"}s next favorite spot
+            <p className="mt-2 text-sm text-muted-foreground">
+              Explore a place that fits your family, or pick up your next trip.
             </p>
           </div>
-          <ArrowRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" />
-        </Link>
-
-        {trips.length === 0 && familyVibe && !isDismissed("plan-trip") ? (
-          <OnboardingHint
-            message="Start here — create your first trip. Scout can plan the whole thing from scratch."
-            side="bottom"
-            align="start"
-            onDismiss={() => dismiss("plan-trip")}
-          >
-            <Link
-              href="/trips"
-              onClick={() => dismiss("plan-trip")}
-              className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-5 transition-all hover:border-primary/30 hover:shadow-md"
-            >
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent">
-                <Map className="h-6 w-6" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-foreground">Plan a Trip</p>
-                <p className="text-sm text-muted-foreground">Build your itinerary day by day</p>
-              </div>
-              <ArrowRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" />
-            </Link>
-          </OnboardingHint>
-        ) : (
           <Link
             href="/trips"
-            className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-5 transition-all hover:border-primary/30 hover:shadow-md"
+            className="inline-flex min-h-11 items-center justify-center gap-2 self-start rounded-full bg-[#201d19] px-5 text-sm font-semibold text-white transition hover:bg-primary dark:bg-foreground dark:text-background"
           >
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-accent/10 text-accent">
-              <Map className="h-6 w-6" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-medium text-foreground">Plan a Trip</p>
-              <p className="text-sm text-muted-foreground">Build your itinerary day by day</p>
-            </div>
-            <ArrowRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1" />
+            <Plus className="h-4 w-4" />
+            New trip
           </Link>
-        )}
+        </header>
 
-        {!familyVibe && (
-          <Link
-            href="/profile/vibe"
-            className="group flex items-center gap-4 rounded-2xl border-2 border-dashed border-primary/30 bg-primary/5 p-5 transition-all hover:border-primary/50 hover:bg-primary/10"
-          >
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Sparkles className="h-6 w-6" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-medium text-primary">Set Your Vibe</p>
-              <p className="text-sm text-primary/70">
-                Tell us about your family for better results
-              </p>
-            </div>
-            <ArrowRight className="h-5 w-5 shrink-0 text-primary transition-transform group-hover:translate-x-1" />
-          </Link>
-        )}
-      </div>
-      )}
-
-      {/* Family Vibe Card */}
-      {familyVibe && (
-        <div className="mb-8">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-serif text-xl text-foreground">Your Family Vibe</h2>
-            <Link
-              href="/profile/vibe"
-              className="flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-primary"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Edit
-            </Link>
-          </div>
-          <div className="rounded-2xl border border-border bg-card p-5 card-soft">
-            <div className="flex flex-wrap gap-6">
-              {familyVibe.kids?.length > 0 && (
-                <div className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                    <Baby className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <p className="mb-1 text-xs font-medium text-muted-foreground">Kids</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {familyVibe.kids.map((kid, i) => (
-                        <span
-                          key={i}
-                          className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground"
-                        >
-                          {kid.name ? `${kid.name}, ${kid.age}y` : `${kid.age}y`}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {familyVibe.travelers && familyVibe.travelers.length > 0 && (
-                <div className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                    <Users className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <p className="mb-1 text-xs font-medium text-muted-foreground">Other travelers</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {familyVibe.travelers.map((traveler, index) => (
-                        <span
-                          key={`${traveler.name}-${index}`}
-                          className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground"
-                        >
-                          {traveler.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {familyVibe.travel_style?.length > 0 && (
-                <div>
-                  <p className="mb-1 text-xs font-medium text-muted-foreground">Travel Style</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {familyVibe.travel_style.map((style) => (
-                      <span
-                        key={style}
-                        className="rounded-full border border-primary/20 bg-primary/5 px-2.5 py-0.5 text-xs font-medium text-primary"
+        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.72fr)]">
+          <section className="isolate min-w-0 overflow-hidden rounded-[28px] border border-black/[0.08] bg-[#ded9cf] shadow-[0_24px_65px_-42px_rgba(39,31,23,0.55)] dark:border-border dark:bg-card">
+            <div className="relative">
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-[500] bg-gradient-to-b from-black/55 via-black/15 to-transparent p-4 pb-20 sm:p-5 sm:pb-24">
+                <div className="pointer-events-auto flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <button
+                    type="button"
+                    onClick={() => setLocationSelectorOpen(true)}
+                    className="flex min-h-[52px] min-w-0 flex-1 items-center gap-3 rounded-full border border-white/35 bg-white/[0.92] px-5 text-left text-[#24211d] shadow-lg backdrop-blur transition hover:bg-white"
+                  >
+                    <Search className="h-5 w-5 shrink-0 text-primary" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[9px] font-semibold uppercase tracking-[0.16em] text-[#7c746a]">
+                        Explore a destination
+                      </span>
+                      <span className="block truncate text-sm font-semibold">
+                        {selectedDestination.destination}
+                      </span>
+                    </span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-[#7c746a]" />
+                  </button>
+                  <div className="flex gap-2 overflow-x-auto pb-1 sm:pb-0">
+                    {destinationLenses.map((item) => (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setLens(item)}
+                        className={`min-h-10 shrink-0 rounded-full border px-3 text-xs font-semibold backdrop-blur transition ${
+                          lens === item
+                            ? "border-primary bg-primary text-white"
+                            : "border-white/30 bg-black/35 text-white hover:bg-black/55"
+                        }`}
                       >
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="dashboard-destination-map h-[520px] sm:h-[580px]">
+                <DestinationMapLeaflet
+                  destinations={destinationBrowseCards}
+                  selected={selectedDestination}
+                  onSelect={setSelectedDestination}
+                  onExplore={exploreDestination}
+                />
+              </div>
+
+              <div className="absolute inset-x-4 bottom-4 z-[450] sm:inset-x-auto sm:bottom-5 sm:left-5 sm:max-w-[360px]">
+                <div className="rounded-2xl border border-white/55 bg-white/[0.94] p-4 text-[#24211d] shadow-xl backdrop-blur-md">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.17em] text-primary">
+                        Why it fits your family
+                      </p>
+                      <h2 className="mt-1 font-serif text-2xl leading-none">
+                        {selectedDestination.name}
+                      </h2>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-[#e9f0eb] px-2.5 py-1 text-[10px] font-semibold text-[#49715f]">
+                      {selectedDestination.energy}
+                    </span>
+                  </div>
+                  <p className="mt-3 line-clamp-2 text-xs leading-relaxed text-[#6e675f]">
+                    {selectedDestination.familyFitReason}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => exploreDestination(selectedDestination)}
+                    className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-primary"
+                  >
+                    Explore {selectedDestination.name}
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-black/[0.07] bg-[#f7f4ef] p-4 dark:border-border dark:bg-card sm:p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.17em] text-primary">
+                    Chosen for your vibe
+                  </p>
+                  <h2 className="mt-0.5 font-serif text-xl">Places worth a closer look</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLocationSelectorOpen(true)}
+                  className="hidden text-xs font-semibold text-muted-foreground hover:text-primary sm:block"
+                >
+                  Browse all
+                </button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {lensDestinations.slice(0, 3).map((destination) => (
+                  <button
+                    key={destination.name}
+                    type="button"
+                    onClick={() => setSelectedDestination(destination)}
+                    className={`group overflow-hidden rounded-2xl border bg-card text-left transition ${
+                      destination.name === selectedDestination.name
+                        ? "border-primary shadow-md"
+                        : "border-border hover:border-primary/35"
+                    }`}
+                  >
+                    <div className="relative h-24 overflow-hidden">
+                      <img
+                        src={destination.imageUrl}
+                        alt=""
+                        className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/55 to-transparent" />
+                      <p className="absolute bottom-2 left-3 font-serif text-lg text-white">
+                        {destination.name}
+                      </p>
+                    </div>
+                    <div className="p-3">
+                      <p className="truncate text-[11px] font-semibold text-foreground">
+                        {destination.headline}
+                      </p>
+                      <p className="mt-1 text-[10px] text-muted-foreground">
+                        {destination.idealStay}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <aside className="space-y-5 xl:sticky xl:top-6">
+            {upcomingTrip ? (
+              <section className="overflow-hidden rounded-[28px] border border-black/[0.08] bg-card shadow-[0_24px_65px_-44px_rgba(39,31,23,0.55)]">
+                <div className="relative h-44 overflow-hidden bg-[#28241f]">
+                  {findDashboardDestinationCard(upcomingTrip.destination) ? (
+                    <img
+                      src={findDashboardDestinationCard(upcomingTrip.destination)!.imageUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-full bg-[radial-gradient(circle_at_20%_20%,rgba(237,91,36,0.35),transparent_38%),linear-gradient(145deg,#39342e,#191715)]" />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/25 to-black/10" />
+                  <div className="absolute inset-x-0 bottom-0 p-5 text-white">
+                    <p className="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.18em] text-white/60">
+                      <Clock3 className="h-3 w-3 text-[#ff7849]" />
+                      {upcomingTrip.start_date
+                        ? getCountdown(upcomingTrip.start_date)
+                        : "Upcoming trip"}
+                    </p>
+                    <h2 className="mt-1 font-serif text-2xl leading-tight">
+                      {upcomingTrip.title}
+                    </h2>
+                    <p className="mt-1 flex items-center gap-1.5 text-xs text-white/60">
+                      <TripFlag destination={upcomingTrip.destination} />
+                      {upcomingTrip.destination}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-5">
+                  <div className="flex items-end justify-between gap-4">
+                    <div>
+                      <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        Trip readiness
+                      </p>
+                      <p className="mt-1 font-serif text-3xl">{readinessStats?.progress ?? 0}%</p>
+                    </div>
+                    <Link
+                      href={`/trips/${upcomingTrip.id}#readiness`}
+                      className="text-xs font-semibold text-primary hover:underline"
+                    >
+                      Review readiness
+                    </Link>
+                  </div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-primary to-[#54a283] transition-all"
+                      style={{ width: `${readinessStats?.progress ?? 0}%` }}
+                    />
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <div className="rounded-xl bg-muted/60 p-3">
+                      <p className="text-xl font-semibold">{remainingTasks}</p>
+                      <p className="text-[10px] text-muted-foreground">tasks remaining</p>
+                    </div>
+                    <div className="rounded-xl bg-muted/60 p-3">
+                      <p className="text-xl font-semibold">{readinessStats?.toBook ?? 0}</p>
+                      <p className="text-[10px] text-muted-foreground">items to book</p>
+                    </div>
+                  </div>
+                  <Link
+                    href={`/trips/${upcomingTrip.id}`}
+                    className="mt-4 flex min-h-12 items-center justify-center gap-2 rounded-full bg-primary px-5 text-sm font-semibold text-white transition hover:bg-primary/90"
+                  >
+                    Continue planning
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </div>
+              </section>
+            ) : (
+              <section className="rounded-[28px] bg-[#25211d] p-6 text-white shadow-[0_24px_65px_-44px_rgba(39,31,23,0.7)]">
+                <Compass className="h-7 w-7 text-[#ff7849]" />
+                <p className="mt-6 text-[9px] font-semibold uppercase tracking-[0.18em] text-white/40">
+                  Start with a feeling
+                </p>
+                <h2 className="mt-2 font-serif text-3xl leading-tight">
+                  Your next family story starts with a place.
+                </h2>
+                <p className="mt-3 text-sm leading-relaxed text-white/55">
+                  Browse destinations above, then turn a spark into a trip when you are ready.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setLocationSelectorOpen(true)}
+                  className="mt-6 flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-primary px-5 text-sm font-semibold"
+                >
+                  Choose a destination
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </section>
+            )}
+
+            <section className="rounded-[24px] border border-black/[0.08] bg-card p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-primary">
+                    Your travel DNA
+                  </p>
+                  <h2 className="mt-1 font-serif text-xl">
+                    {familyVibe?.family_name || "Family vibe"}
+                  </h2>
+                </div>
+                <Link href="/profile/vibe" className="text-xs font-semibold text-muted-foreground hover:text-primary">
+                  Edit
+                </Link>
+              </div>
+              {familyVibe ? (
+                <>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {vibeLabels.map((style) => (
+                      <span key={style} className="rounded-full bg-primary/10 px-3 py-1.5 text-[10px] font-semibold text-primary">
                         {style}
                       </span>
                     ))}
-                  </div>
-                </div>
-              )}
-
-              {familyVibe.pace && (
-                <div>
-                  <p className="mb-1 text-xs font-medium text-muted-foreground">Pace</p>
-                  <span className="rounded-full border border-accent/20 bg-accent/5 px-2.5 py-0.5 text-xs font-medium text-accent capitalize">
-                    {familyVibe.pace}
-                  </span>
-                </div>
-              )}
-
-              {familyVibe.dietary?.length > 0 && (
-                <div>
-                  <p className="mb-1 text-xs font-medium text-muted-foreground">Dietary</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {familyVibe.dietary.map((d) => (
-                      <span
-                        key={d}
-                        className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground"
-                      >
-                        {d}
+                    {familyVibe.pace && (
+                      <span className="rounded-full bg-[#e8eee9] px-3 py-1.5 text-[10px] font-semibold text-[#4a6c5d] dark:bg-muted dark:text-foreground">
+                        {familyVibe.pace} pace
                       </span>
-                    ))}
+                    )}
                   </div>
-                </div>
+                  <div className="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
+                    <Users className="h-4 w-4 text-primary" />
+                    {(familyVibe.kids?.length ?? 0) + (familyVibe.travelers?.length ?? 0)} saved travelers
+                  </div>
+                </>
+              ) : (
+                <Link href="/profile/vibe" className="mt-4 flex items-center gap-2 text-sm font-semibold text-primary">
+                  <Sparkles className="h-4 w-4" />
+                  Set your family vibe
+                </Link>
               )}
-            </div>
-          </div>
-        </div>
-      )}
+            </section>
 
-      {/* Destination Inspiration */}
-      <div className="mb-8">
-        <div className="mb-4">
-          <h2 className="font-serif text-xl text-foreground">
-            Where families like yours love to go
-          </h2>
-          {userStyles.length > 0 && (
-            <p className="mt-1 text-sm text-muted-foreground">
-              Matched to your {userStyles.slice(0, 2).join(" & ")} travel style
-            </p>
-          )}
-        </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          {inspirationCards.map((card) => {
-            const code = getCountryCode(card.destination) ?? getCountryCode(card.country)
-            return (
-              <Link
-                key={card.destination}
-                href={`/search?dest=${encodeURIComponent(`${card.destination}, ${card.country}`)}`}
-                className="group flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 card-soft transition-all hover:border-primary/30 hover:shadow-md"
-              >
-                <div className="flex items-center gap-3">
-                  {code ? (
-                    <img
-                      src={getFlagUrl(code)}
-                      alt={code.toUpperCase()}
-                      width={32}
-                      height={24}
-                      className="shrink-0 rounded-sm object-cover"
-                      style={{ width: 32, height: 24 }}
-                    />
-                  ) : (
-                    <span className="text-xl">📍</span>
-                  )}
-                  <div>
-                    <p className="font-medium text-foreground group-hover:text-primary">
-                      {card.destination}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{card.country}</p>
-                  </div>
-                </div>
-                <p className="flex-1 text-sm leading-relaxed text-muted-foreground">
-                  {card.tagline}
-                </p>
-                <div className="flex items-center gap-1 text-xs font-medium text-primary">
-                  Explore attractions
-                  <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
-                </div>
+            <section className="grid grid-cols-2 gap-3">
+              <Link href="/search" className="group rounded-[20px] border border-black/[0.08] bg-card p-4 transition hover:border-primary/35">
+                <Search className="h-5 w-5 text-primary" />
+                <p className="mt-5 text-sm font-semibold">Find places</p>
+                <p className="mt-1 text-[10px] text-muted-foreground">Search attractions</p>
               </Link>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Trips Section */}
-      <div>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-serif text-xl text-foreground">Your Trips</h2>
-          <Link
-            href="/trips"
-            className="flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-          >
-            <Plus className="h-4 w-4" />
-            New Trip
-          </Link>
+              <Link href="/trips" className="group rounded-[20px] border border-black/[0.08] bg-card p-4 transition hover:border-primary/35">
+                <CalendarDays className="h-5 w-5 text-primary" />
+                <p className="mt-5 text-sm font-semibold">All trips</p>
+                <p className="mt-1 text-[10px] text-muted-foreground">View your plans</p>
+              </Link>
+            </section>
+          </aside>
         </div>
 
-        {trips.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center">
-            <Map className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
-            <p className="font-medium text-foreground">No trips yet</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Start by exploring attractions and we{"'"}ll help you build the perfect itinerary.
-            </p>
-            <Link
-              href="/search"
-              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-            >
-              <Search className="h-4 w-4" />
-              Start Exploring
+        <section className="mt-10 pb-8">
+          <div className="mb-4 flex items-end justify-between gap-4">
+            <div>
+              <p className="text-[9px] font-semibold uppercase tracking-[0.17em] text-primary">
+                Keep the story moving
+              </p>
+              <h2 className="mt-1 font-serif text-2xl">Your trips</h2>
+            </div>
+            <Link href="/trips" className="flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-primary">
+              View all
+              <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
-        ) : (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            {trips.map((trip) => (
-              <Link
-                key={trip.id}
-                href={`/trips/${trip.id}`}
-                className="group rounded-2xl border border-border bg-card p-5 card-soft transition-all hover:border-primary/30 hover:shadow-md"
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <span
-                    className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                      trip.status === "active"
-                        ? "bg-accent/10 text-accent"
-                        : trip.status === "completed"
-                          ? "bg-muted text-muted-foreground"
-                          : "bg-primary/10 text-primary"
-                    }`}
-                  >
-                    {trip.status}
+
+          {recentTrips.length > 0 ? (
+            <div className="grid gap-3 md:grid-cols-3">
+              {recentTrips.map((trip) => (
+                <Link
+                  key={trip.id}
+                  href={`/trips/${trip.id}`}
+                  className="group flex min-w-0 items-center gap-4 rounded-[20px] border border-black/[0.08] bg-card p-4 transition hover:border-primary/35 hover:shadow-sm"
+                >
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
+                    {trip.status === "completed" ? <CheckCircle2 className="h-5 w-5" /> : <TripFlag destination={trip.destination} />}
                   </span>
-                </div>
-                <h3 className="font-medium text-foreground group-hover:text-primary">
-                  {trip.title}
-                </h3>
-                <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
-                  {(() => {
-                    const code = getCountryCode(trip.destination)
-                    return code ? (
-                      <img
-                        src={getFlagUrl(code)}
-                        alt={code.toUpperCase()}
-                        width={20}
-                        height={15}
-                        className="inline-block rounded-sm object-cover"
-                      />
-                    ) : (
-                      <span>📍</span>
-                    )
-                  })()}
-                  <span>{trip.destination}</span>
-                </p>
-                {trip.start_date && (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {new Date(trip.start_date + "T00:00:00").toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                    })}
-                    {trip.end_date &&
-                      ` – ${new Date(trip.end_date + "T00:00:00").toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                      })}`}
-                  </p>
-                )}
-              </Link>
-            ))}
-          </div>
-        )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold group-hover:text-primary">
+                      {trip.title}
+                    </span>
+                    <span className="mt-1 block truncate text-[10px] text-muted-foreground">
+                      {formatTripDates(trip)}
+                    </span>
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setLocationSelectorOpen(true)}
+              className="flex w-full items-center justify-center gap-2 rounded-[20px] border border-dashed border-border bg-card p-8 text-sm font-semibold text-primary"
+            >
+              <Compass className="h-5 w-5" />
+              Choose a destination to start your first trip
+            </button>
+          )}
+        </section>
       </div>
-    </div>
-    </div>
+    </main>
   )
 }

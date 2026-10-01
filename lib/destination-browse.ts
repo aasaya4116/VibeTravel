@@ -6,6 +6,13 @@ export type DestinationLens =
   | "Easy with kids"
   | "Nature reset"
 
+export const destinationLenses: DestinationLens[] = [
+  "Your vibe",
+  "Food + culture",
+  "Easy with kids",
+  "Nature reset",
+]
+
 export interface DestinationBrowseCard {
   name: string
   country: string

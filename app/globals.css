@@ -128,4 +128,16 @@
     border-radius: 1rem;
     box-shadow: 0 16px 40px rgb(0 0 0 / 0.22);
   }
+
+  .dashboard-destination-map {
+    isolation: isolate;
+  }
+
+  .dashboard-destination-map .leaflet-tile-pane {
+    filter: saturate(0.52) sepia(0.12) contrast(0.9) brightness(1.03);
+  }
+
+  .dark .dashboard-destination-map .leaflet-tile-pane {
+    filter: saturate(0.4) brightness(0.68) contrast(1.08);
+  }
 }
