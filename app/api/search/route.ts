@@ -40,7 +40,6 @@ const recommendationSchema = z.object({
         label: z.string().describe("A compact, plain-language fit reason of 2-6 words"),
       })
     )
-    .max(3)
     .describe("The strongest profile factors that influenced this recommendation"),
 })
 
@@ -120,7 +119,9 @@ async function toAttraction(
     userRatingCount: place.userRatingCount,
     tips: recommendation.tips,
     familyFitReason: recommendation.familyFitReason,
-    familyFitSignals: recommendation.familyFitSignals,
+    // Anthropic structured outputs do not support JSON Schema maxItems.
+    // Keep the schema provider-compatible and enforce the product limit here.
+    familyFitSignals: recommendation.familyFitSignals.slice(0, 3),
     personalizedForFamily,
     verifiedPlace: true,
     openNow: place.openNow,

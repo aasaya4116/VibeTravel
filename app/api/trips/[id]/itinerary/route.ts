@@ -36,7 +36,9 @@ const itineraryItemSchema = z.object({
   notes: z.string().optional(),
   recommended: z.boolean().describe("true if this is an AI-recommended activity, false if it was saved by the user"),
   item_type: z.enum(["place", "neighborhood", "meal", "downtime"]).default("place"),
-  fit_signals: z.array(z.string().max(60)).max(3).default([]),
+  // Anthropic structured outputs reject JSON Schema maxItems. The response is
+  // capped by cleanFitSignals before it is stored.
+  fit_signals: z.array(z.string().max(60)).default([]),
 })
 
 const itineraryDaySchema = z.object({

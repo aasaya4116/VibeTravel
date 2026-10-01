@@ -8,10 +8,23 @@ export interface DashboardDestinationOption {
   label: string
   city: string
   region: string
-  imageUrl: string | null
+  imageUrl: string
+  fallbackImageUrl: string
   familyFitReason: string | null
   recent: boolean
   recommended: boolean
+}
+
+export function getDashboardDestinationPhotoUrl(destination: string) {
+  return `/api/destination-photo?destination=${encodeURIComponent(destination.trim())}`
+}
+
+export function getDashboardExploreUrl(destination: string) {
+  const normalizedDestination = destination.trim()
+  const params = new URLSearchParams({ dest: normalizedDestination })
+  const curated = findDashboardDestinationCard(normalizedDestination)
+  if (curated) params.set("q", curated.query)
+  return `/search?${params.toString()}`
 }
 
 export function normalizeDestination(value: string) {
@@ -50,12 +63,14 @@ function toOption(
 ): DashboardDestinationOption {
   const card = findDashboardDestinationCard(label)
   const { city, region } = splitDestination(label)
+  const fallbackImageUrl = getDashboardDestinationPhotoUrl(label)
 
   return {
     label,
     city,
     region,
-    imageUrl: card?.imageUrl ?? null,
+    imageUrl: card?.imageUrl ?? fallbackImageUrl,
+    fallbackImageUrl,
     familyFitReason: card?.familyFitReason ?? null,
     recent: recentDestinations.has(normalizeDestination(label)),
     recommended: card !== null,

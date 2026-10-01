@@ -29,6 +29,8 @@ import {
 } from "@/lib/destination-browse"
 import {
   findDashboardDestinationCard,
+  getDashboardDestinationPhotoUrl,
+  getDashboardExploreUrl,
   getRecommendedDashboardDestinations,
 } from "@/lib/dashboard-destinations"
 import { getCountryCode, getFlagUrl } from "@/lib/destination-flag"
@@ -122,6 +124,18 @@ function TripFlag({ destination }: { destination: string }) {
   )
 }
 
+function applyDestinationImageFallback(
+  image: HTMLImageElement,
+  destination: string
+) {
+  if (image.dataset.fallbackApplied === "true") {
+    image.hidden = true
+    return
+  }
+  image.dataset.fallbackApplied = "true"
+  image.src = getDashboardDestinationPhotoUrl(destination)
+}
+
 export function DashboardContent({
   profile,
   trips,
@@ -181,12 +195,7 @@ export function DashboardContent({
   }
 
   function handleLocationSelection(destination: string) {
-    const curated = findDashboardDestinationCard(destination)
-    if (curated) {
-      setSelectedDestination(curated)
-      return
-    }
-    router.push(`/search?dest=${encodeURIComponent(destination)}`)
+    router.push(getDashboardExploreUrl(destination))
   }
 
   return (
@@ -291,7 +300,7 @@ export function DashboardContent({
                   <button
                     type="button"
                     onClick={() => exploreDestination(selectedDestination)}
-                    className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-primary"
+                    className="mt-4 flex min-h-11 w-full items-center justify-between rounded-xl bg-primary px-4 text-xs font-bold text-white shadow-sm transition hover:bg-primary/90"
                   >
                     Explore {selectedDestination.name}
                     <ArrowUpRight className="h-3.5 w-3.5" />
@@ -333,6 +342,12 @@ export function DashboardContent({
                         src={destination.imageUrl}
                         alt=""
                         className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                        onError={(event) =>
+                          applyDestinationImageFallback(
+                            event.currentTarget,
+                            destination.destination
+                          )
+                        }
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/55 to-transparent" />
                       <p className="absolute bottom-2 left-3 font-serif text-lg text-white">
@@ -362,6 +377,12 @@ export function DashboardContent({
                       src={findDashboardDestinationCard(upcomingTrip.destination)!.imageUrl}
                       alt=""
                       className="h-full w-full object-cover"
+                      onError={(event) =>
+                        applyDestinationImageFallback(
+                          event.currentTarget,
+                          upcomingTrip.destination
+                        )
+                      }
                     />
                   ) : (
                     <div className="h-full bg-[radial-gradient(circle_at_20%_20%,rgba(237,91,36,0.35),transparent_38%),linear-gradient(145deg,#39342e,#191715)]" />

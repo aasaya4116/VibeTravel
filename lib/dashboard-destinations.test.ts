@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
   findDashboardDestinationCard,
+  getDashboardDestinationPhotoUrl,
+  getDashboardExploreUrl,
   getDashboardDestinationOptions,
   normalizeDestination,
   splitDestination,
@@ -46,5 +48,23 @@ describe("dashboard destination selection", () => {
     expect(
       getDashboardDestinationOptions([], "portugal").map((option) => option.label)
     ).toContain("Lisbon, Portugal")
+  })
+
+  it("gives every destination a server-proxied image fallback", () => {
+    expect(getDashboardDestinationPhotoUrl("Tulum, Mexico")).toBe(
+      "/api/destination-photo?destination=Tulum%2C%20Mexico"
+    )
+
+    const tulum = getDashboardDestinationOptions([], "Tulum")[0]
+    expect(tulum.imageUrl).toBe(tulum.fallbackImageUrl)
+  })
+
+  it("routes curated and non-curated destinations through Explore", () => {
+    expect(getDashboardExploreUrl("Tokyo, Japan")).toMatch(
+      /^\/search\?dest=Tokyo%2C\+Japan&q=/
+    )
+    expect(getDashboardExploreUrl("Tulum, Mexico")).toBe(
+      "/search?dest=Tulum%2C+Mexico"
+    )
   })
 })

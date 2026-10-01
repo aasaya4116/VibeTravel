@@ -29,9 +29,19 @@ function DestinationPreview({ option }: { option: DashboardDestinationOption }) 
     <div className="relative hidden h-full min-h-[260px] overflow-hidden bg-[#26231f] lg:block lg:min-h-0">
       {option.imageUrl ? (
         <img
+          key={option.label}
           src={option.imageUrl}
           alt=""
           className="absolute inset-0 h-full w-full object-cover transition-all duration-700"
+          onError={(event) => {
+            const image = event.currentTarget
+            if (image.dataset.fallbackApplied === "true") {
+              image.hidden = true
+              return
+            }
+            image.dataset.fallbackApplied = "true"
+            image.src = option.fallbackImageUrl
+          }}
         />
       ) : (
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_20%,rgba(237,91,36,0.34),transparent_38%),radial-gradient(circle_at_80%_70%,rgba(84,119,108,0.38),transparent_40%),linear-gradient(145deg,#292622,#131210)]" />
@@ -68,7 +78,7 @@ function DestinationPreview({ option }: { option: DashboardDestinationOption }) 
         <button
           type="button"
           onClick={() => document.getElementById("dashboard-destination-submit")?.click()}
-          className="mt-7 inline-flex min-h-12 items-center gap-3 rounded-full bg-[#ef5a27] px-6 text-sm font-semibold text-white transition hover:bg-[#ff6b38]"
+          className="mt-7 inline-flex min-h-14 w-full items-center justify-between rounded-2xl bg-[#ef5a27] px-6 text-sm font-semibold text-white shadow-[0_16px_35px_-16px_rgba(239,90,39,0.95)] transition hover:bg-[#ff6b38]"
         >
           Explore {option.city}
           <ArrowRight className="h-4 w-4" />
