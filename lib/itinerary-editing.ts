@@ -225,3 +225,44 @@ export function ensureSavedAttractionsInDay(
     items: [...day.items, ...added].sort((a, b) => a.start_time.localeCompare(b.start_time)),
   }
 }
+
+/**
+ * A traveler-selected date is authoritative. Models may place a supplied
+ * attraction on another day even when prompted correctly, so remove any
+ * misplaced copy and deterministically restore it to the requested day.
+ */
+export function pinSavedAttractionsToDates(
+  days: ItineraryDay[],
+  savedAttractions: Attraction[],
+  createId: (attraction: Attraction) => string
+): ItineraryDay[] {
+  const availableDates = new Set(days.map((day) => day.date))
+  const pinnedByName = new Map(
+    savedAttractions
+      .filter(
+        (attraction) =>
+          attraction.plannedDate && availableDates.has(attraction.plannedDate)
+      )
+      .map((attraction) => [attraction.name.trim().toLowerCase(), attraction])
+  )
+
+  if (pinnedByName.size === 0) return days
+
+  const correctedDays = days.map((day) => ({
+    ...day,
+    items: day.items.flatMap((item) => {
+      const pinned = pinnedByName.get(item.attraction_name.trim().toLowerCase())
+      if (!pinned) return [item]
+      if (pinned.plannedDate !== day.date) return []
+      return [{ ...item, recommended: false }]
+    }),
+  }))
+
+  return correctedDays.map((day) =>
+    ensureSavedAttractionsInDay(
+      day,
+      savedAttractions.filter((attraction) => attraction.plannedDate === day.date),
+      createId
+    )
+  )
+}

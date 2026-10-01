@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest"
-import type { ItineraryDay } from "./types"
+import type { Attraction, ItineraryDay } from "./types"
 import {
   ensureSavedAttractionsInDay,
   mergeItinerarySection,
   mergeRegeneratedDay,
   moveItineraryItem,
+  pinSavedAttractionsToDates,
   removeItineraryItem,
   reorderItineraryItem,
   restoreItineraryItem,
@@ -235,5 +236,93 @@ describe("itinerary editing helpers", () => {
     ])
     expect(next[0].items.map((item) => item.id)).toEqual(["museum", "cafe"])
     expect(next[2]).toBe(existing[1])
+  })
+
+  it("moves a saved place back to its traveler-selected day", () => {
+    const generated: ItineraryDay[] = [
+      {
+        date: "2026-10-02",
+        items: [
+          {
+            id: "pick-1",
+            attraction_name: "Museum",
+            start_time: "09:00",
+            end_time: "10:30",
+            recommended: false,
+          },
+          {
+            id: "pick-2",
+            attraction_name: "Market",
+            start_time: "11:00",
+            end_time: "12:30",
+            recommended: false,
+          },
+        ],
+      },
+      {
+        date: "2026-10-03",
+        items: [
+          {
+            id: "misplaced-pick",
+            attraction_name: "Observation Deck",
+            start_time: "09:00",
+            end_time: "10:30",
+            recommended: false,
+          },
+        ],
+      },
+    ]
+    const saved = [
+      {
+        name: "Observation Deck",
+        plannedDate: "2026-10-02",
+        estimatedDuration: "1.5 hours",
+        description: "Saved by the traveler.",
+      } as Attraction,
+    ]
+
+    const corrected = pinSavedAttractionsToDates(
+      generated,
+      saved,
+      () => "restored-pick"
+    )
+
+    expect(corrected[0].items.map((item) => item.attraction_name)).toEqual([
+      "Museum",
+      "Market",
+      "Observation Deck",
+    ])
+    expect(corrected[0].items.at(-1)).toMatchObject({
+      id: "restored-pick",
+      recommended: false,
+    })
+    expect(corrected[1].items).toHaveLength(0)
+  })
+
+  it("does not move a dated place when its selected day is outside this section", () => {
+    const generated: ItineraryDay[] = [
+      {
+        date: "2026-10-03",
+        items: [
+          {
+            id: "existing",
+            attraction_name: "Observation Deck",
+            start_time: "09:00",
+            end_time: "10:30",
+            recommended: false,
+          },
+        ],
+      },
+    ]
+    const saved = [
+      {
+        name: "Observation Deck",
+        plannedDate: "2026-10-02",
+      } as Attraction,
+    ]
+
+    expect(
+      pinSavedAttractionsToDates(generated, saved, () => "unused")
+    ).toBe(generated)
   })
 })
