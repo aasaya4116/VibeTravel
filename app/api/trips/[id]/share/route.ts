@@ -1,14 +1,26 @@
 import { NextResponse } from "next/server"
+import { createClient as createSupabaseClient } from "@supabase/supabase-js"
 import { createClient } from "@/lib/supabase/server"
 import { createShareToken } from "@/lib/trip-sharing-server"
 
 type RouteContext = { params: Promise<{ id: string }> }
 
-async function getOwner(id: string) {
-  const supabase = await createClient()
+async function getOwner(request: Request, id: string) {
+  const authorization = request.headers.get("authorization")
+  const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1]
+  const supabase = token
+    ? createSupabaseClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+        {
+          global: { headers: { Authorization: `Bearer ${token}` } },
+          auth: { persistSession: false, autoRefreshToken: false },
+        }
+      )
+    : await createClient()
   const {
     data: { user },
-  } = await supabase.auth.getUser()
+  } = token ? await supabase.auth.getUser(token) : await supabase.auth.getUser()
 
   if (!user) return { error: "Unauthorized" as const, supabase, user: null }
 
@@ -24,9 +36,9 @@ async function getOwner(id: string) {
   return { error: null, supabase, user }
 }
 
-export async function GET(_request: Request, { params }: RouteContext) {
+export async function GET(request: Request, { params }: RouteContext) {
   const { id } = await params
-  const owner = await getOwner(id)
+  const owner = await getOwner(request, id)
 
   if (owner.error) {
     return NextResponse.json(
@@ -54,9 +66,9 @@ export async function GET(_request: Request, { params }: RouteContext) {
   )
 }
 
-export async function POST(_request: Request, { params }: RouteContext) {
+export async function POST(request: Request, { params }: RouteContext) {
   const { id } = await params
-  const owner = await getOwner(id)
+  const owner = await getOwner(request, id)
 
   if (owner.error || !owner.user) {
     return NextResponse.json(
@@ -101,9 +113,9 @@ export async function POST(_request: Request, { params }: RouteContext) {
   )
 }
 
-export async function DELETE(_request: Request, { params }: RouteContext) {
+export async function DELETE(request: Request, { params }: RouteContext) {
   const { id } = await params
-  const owner = await getOwner(id)
+  const owner = await getOwner(request, id)
 
   if (owner.error || !owner.user) {
     return NextResponse.json(
