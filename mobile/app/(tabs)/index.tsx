@@ -1,11 +1,12 @@
 import { useMemo } from "react"
-import { Pressable, StyleSheet, Text, View } from "react-native"
+import { Image, ImageBackground, Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { Card, EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen } from "@/components/ui"
 import { formatTripDates, getDaysUntil } from "@/lib/format"
 import { getReadinessPercent } from "@/lib/data"
-import { colors, radii } from "@/lib/theme"
+import { destinationCards, getTripImage } from "@/lib/destinations"
+import { colors, radii, shadows, typography } from "@/lib/theme"
 import type { Trip } from "@/lib/types"
 import { useDashboard } from "@/hooks/use-dashboard"
 
@@ -46,25 +47,31 @@ export default function TodayScreen() {
           accessibilityRole="button"
           accessibilityLabel={`Open ${nextTrip.title}`}
           onPress={() => router.push({ pathname: "/trips/[id]", params: { id: nextTrip.id } })}
-          style={({ pressed }) => [styles.hero, pressed && styles.pressed]}
+          style={({ pressed }) => [styles.heroShell, pressed && styles.pressed]}
         >
-          <View style={styles.heroTop}>
-            <View style={styles.statusBadge}>
-              <View style={styles.statusDot} />
-              <Text style={styles.statusText}>{nextTrip.status === "active" ? "In progress" : daysUntil != null && daysUntil >= 0 ? `${daysUntil} days to go` : "Planning"}</Text>
+          <ImageBackground source={{ uri: getTripImage(nextTrip.destination) }} style={styles.hero} imageStyle={styles.heroImage}>
+            <View style={styles.heroShade} />
+            <View style={styles.heroTop}>
+              <View style={styles.statusBadge}>
+                <View style={styles.statusDot} />
+                <Text style={styles.statusText}>{nextTrip.status === "active" ? "In progress" : daysUntil != null && daysUntil >= 0 ? `${daysUntil} days to go` : "Planning"}</Text>
+              </View>
+              <Ionicons name="arrow-forward-circle" size={30} color="#FFFFFF" />
             </View>
-            <Ionicons name="arrow-forward-circle" size={30} color="#FFFFFF" />
-          </View>
-          <Text style={styles.heroTitle}>{nextTrip.title}</Text>
-          <Text style={styles.heroDestination}>{nextTrip.destination}</Text>
-          <Text style={styles.heroDates}>{formatTripDates(nextTrip.start_date, nextTrip.end_date)}</Text>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${readiness}%` }]} />
-          </View>
-          <View style={styles.progressRow}>
-            <Text style={styles.heroMeta}>{readiness}% ready</Text>
-            <Text style={styles.heroMeta}>{nextTrip.itinerary?.length ?? 0} planned days</Text>
-          </View>
+            <View style={styles.heroCopy}>
+              <Text style={styles.heroOverline}>YOUR NEXT STORY</Text>
+              <Text style={styles.heroTitle}>{nextTrip.title}</Text>
+              <Text style={styles.heroDestination}>{nextTrip.destination}</Text>
+              <Text style={styles.heroDates}>{formatTripDates(nextTrip.start_date, nextTrip.end_date)}</Text>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${readiness}%` }]} />
+              </View>
+              <View style={styles.progressRow}>
+                <Text style={styles.heroMeta}>{readiness}% ready</Text>
+                <Text style={styles.heroMeta}>{nextTrip.itinerary?.length ?? 0} planned days</Text>
+              </View>
+            </View>
+          </ImageBackground>
         </Pressable>
       ) : (
         <EmptyState
@@ -73,6 +80,27 @@ export default function TodayScreen() {
           action={<Pressable onPress={() => router.push("/trips/new")} style={styles.primaryAction}><Text style={styles.primaryActionText}>Plan a trip</Text></Pressable>}
         />
       )}
+
+      <View style={styles.sectionHeading}>
+        <View><Eyebrow>Chosen for your vibe</Eyebrow><Text style={styles.sectionTitle}>Where next?</Text></View>
+        <Pressable onPress={() => router.push("/explore" as never)}><Text style={styles.browseAll}>Browse all</Text></Pressable>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.destinationRail}>
+        {destinationCards.slice(0, 5).map((destination) => (
+          <Pressable
+            key={destination.slug}
+            onPress={() => router.push({ pathname: "/explore", params: { destination: destination.destination } } as never)}
+            style={({ pressed }) => [styles.destinationCard, pressed && styles.pressed]}
+          >
+            <Image source={{ uri: destination.imageUrl }} style={styles.destinationImage} />
+            <View style={styles.destinationShade} />
+            <View style={styles.destinationCopy}>
+              <Text style={styles.destinationName}>{destination.name}</Text>
+              <Text style={styles.destinationReason} numberOfLines={2}>{destination.headline}</Text>
+            </View>
+          </Pressable>
+        ))}
+      </ScrollView>
 
       <Text style={styles.sectionTitle}>Made for the moment</Text>
       <View style={styles.quickGrid}>
@@ -112,15 +140,20 @@ export default function TodayScreen() {
 const styles = StyleSheet.create({
   page: { paddingTop: 10 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
-  title: { color: colors.text, fontSize: 28, lineHeight: 34, fontWeight: "800", marginTop: 5 },
+  title: { color: colors.text, fontSize: 31, lineHeight: 36, fontFamily: typography.serif, fontWeight: "700", marginTop: 5 },
   avatar: { width: 43, height: 43, borderRadius: 22, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
   avatarText: { color: colors.primary, fontSize: 17, fontWeight: "800" },
-  hero: { backgroundColor: colors.dark, borderRadius: 28, padding: 22, minHeight: 275, justifyContent: "flex-end" },
+  heroShell: { borderRadius: 28, overflow: "hidden", ...shadows.floating },
+  hero: { minHeight: 390, justifyContent: "space-between" },
+  heroImage: { borderRadius: 28 },
+  heroShade: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(13,11,9,0.42)" },
   heroTop: { position: "absolute", left: 22, right: 22, top: 20, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   statusBadge: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 99, paddingHorizontal: 12, paddingVertical: 7 },
   statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#FF9B68" },
   statusText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
-  heroTitle: { color: "#FFFFFF", fontSize: 30, lineHeight: 35, fontWeight: "800" },
+  heroCopy: { padding: 22, backgroundColor: "rgba(0,0,0,0.22)" },
+  heroOverline: { color: "#FF9B68", fontSize: 9, fontWeight: "800", letterSpacing: 1.5 },
+  heroTitle: { color: "#FFFFFF", fontSize: 35, lineHeight: 40, fontFamily: typography.serif, fontWeight: "700", marginTop: 5 },
   heroDestination: { color: "#F2D8C9", fontSize: 15, fontWeight: "700", marginTop: 5 },
   heroDates: { color: "rgba(255,255,255,0.7)", fontSize: 13, marginTop: 5 },
   progressTrack: { height: 5, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.15)", marginTop: 22, overflow: "hidden" },
@@ -128,7 +161,16 @@ const styles = StyleSheet.create({
   progressRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
   heroMeta: { color: "rgba(255,255,255,0.75)", fontSize: 11, fontWeight: "700" },
   pressed: { opacity: 0.84, transform: [{ scale: 0.99 }] },
-  sectionTitle: { color: colors.text, fontSize: 19, fontWeight: "800", marginTop: 5 },
+  sectionHeading: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 },
+  sectionTitle: { color: colors.text, fontSize: 24, fontFamily: typography.serif, fontWeight: "700", marginTop: 3 },
+  browseAll: { color: colors.primary, fontSize: 12, fontWeight: "800", paddingBottom: 2 },
+  destinationRail: { gap: 12, paddingRight: 18 },
+  destinationCard: { width: 205, height: 250, borderRadius: 23, overflow: "hidden", backgroundColor: colors.dark },
+  destinationImage: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" },
+  destinationShade: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.3)" },
+  destinationCopy: { position: "absolute", left: 16, right: 16, bottom: 16 },
+  destinationName: { color: "#FFFFFF", fontSize: 27, fontFamily: typography.serif, fontWeight: "700" },
+  destinationReason: { color: "rgba(255,255,255,0.72)", fontSize: 11, lineHeight: 16, marginTop: 4 },
   quickGrid: { flexDirection: "row", gap: 12 },
   quickCard: { flex: 1, minHeight: 165, padding: 16 },
   quickTitle: { color: colors.text, fontSize: 16, fontWeight: "800", marginTop: 13 },

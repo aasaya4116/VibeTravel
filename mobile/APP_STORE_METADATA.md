@@ -61,7 +61,7 @@ When reporting an issue, include the device model, iOS version, trip name, the a
 
 VibeTravel is an adult-facing family trip planner and is not intended for the Kids Category. Adults may enter limited family information, such as children's first names, ages, dietary needs, sensory needs, and mobility notes, to personalize recommendations.
 
-The app shares its Supabase account and trip data with the VibeTravel web planner. Some advanced planning actions open the production web experience, while the native app focuses on access during the trip: offline trip snapshots, Trip Mode, Maps handoff, native sharing, and account controls.
+The app shares its Supabase account and trip data with the VibeTravel web planner. Native users can browse destinations, search verified places, save them to trips, generate personalized itineraries, use offline trip snapshots and Trip Mode, open Maps directions, share plans, and manage their account. A small number of profile-management actions may open the production web experience.
 
 Use the review account below. It contains a populated Family Vibe and at least one multi-day trip with a generated itinerary.
 

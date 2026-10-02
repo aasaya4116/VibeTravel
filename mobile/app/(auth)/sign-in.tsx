@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Link } from "expo-router"
 import {
   KeyboardAvoidingView,
+  ImageBackground,
   Platform,
   Pressable,
   StyleSheet,
@@ -10,8 +11,9 @@ import {
   View,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
+import { StatusBar } from "expo-status-bar"
 import { Button } from "@/components/ui"
-import { colors, radii } from "@/lib/theme"
+import { colors, radii, shadows, typography } from "@/lib/theme"
 import { hasSupabaseConfiguration, supabase } from "@/lib/supabase"
 
 export default function SignInScreen() {
@@ -34,14 +36,21 @@ export default function SignInScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={styles.brandMark}><Text style={styles.plane}>✈</Text></View>
-        <Text style={styles.brand}>VibeTravel</Text>
-        <Text style={styles.title}>Your family trip, in your pocket.</Text>
-        <Text style={styles.subtitle}>Open your itinerary, get directions, and keep the day moving—even when your connection does not.</Text>
+    <ImageBackground source={{ uri: "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1400&h=1800&fit=crop" }} style={styles.backdrop}>
+      <StatusBar style="light" />
+      <View style={styles.backdropShade} />
+      <SafeAreaView style={styles.safe}>
+        <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <View style={styles.heroCopy}>
+            <View style={styles.brandRow}><View style={styles.brandMark}><Text style={styles.plane}>✈</Text></View><Text style={styles.brand}>VibeTravel</Text></View>
+            <Text style={styles.eyebrow}>TRAVEL THAT FEELS LIKE YOU</Text>
+            <Text style={styles.title}>Your family’s world, beautifully planned.</Text>
+            <Text style={styles.subtitle}>Discover places that fit your people, then carry every detail with you.</Text>
+          </View>
 
-        <View style={styles.form}>
+          <View style={styles.formCard}>
+            <Text style={styles.welcome}>Welcome back</Text>
+            <View style={styles.form}>
           <Text style={styles.label}>Email</Text>
           <TextInput
             accessibilityLabel="Email"
@@ -68,34 +77,43 @@ export default function SignInScreen() {
           />
           {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
           <Button onPress={signIn} loading={loading} disabled={!email || !password}>Sign in</Button>
-        </View>
+            </View>
 
-        <Text style={styles.switchText}>
-          New to VibeTravel?{" "}
-          <Link href="/(auth)/sign-up" asChild>
-            <Pressable><Text style={styles.link}>Create an account</Text></Pressable>
-          </Link>
-        </Text>
-        <View style={styles.legalRow}>
-          <Link href="/privacy" style={styles.legalLink}>Privacy</Link>
-          <Text style={styles.dot}>•</Text>
-          <Link href="/terms" style={styles.legalLink}>Terms</Link>
-          <Text style={styles.dot}>•</Text>
-          <Link href="/support" style={styles.legalLink}>Support</Link>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+            <Text style={styles.switchText}>
+              New to VibeTravel?{" "}
+              <Link href="/(auth)/sign-up" asChild>
+                <Pressable><Text style={styles.link}>Create an account</Text></Pressable>
+              </Link>
+            </Text>
+            <View style={styles.legalRow}>
+              <Link href="/privacy" style={styles.legalLink}>Privacy</Link>
+              <Text style={styles.dot}>•</Text>
+              <Link href="/terms" style={styles.legalLink}>Terms</Link>
+              <Text style={styles.dot}>•</Text>
+              <Link href="/support" style={styles.legalLink}>Support</Link>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </ImageBackground>
   )
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background },
-  page: { flex: 1, justifyContent: "center", padding: 24 },
-  brandMark: { width: 48, height: 48, borderRadius: 15, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center", marginBottom: 14 },
-  plane: { color: "#FFFFFF", fontSize: 23 },
-  brand: { color: colors.primary, fontSize: 16, fontWeight: "800", marginBottom: 24 },
-  title: { color: colors.text, fontSize: 32, lineHeight: 37, fontWeight: "800", maxWidth: 330 },
-  subtitle: { color: colors.textMuted, fontSize: 15, lineHeight: 22, marginTop: 10, marginBottom: 28 },
+  backdrop: { flex: 1, backgroundColor: colors.dark },
+  backdropShade: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(14,11,9,0.46)" },
+  safe: { flex: 1 },
+  page: { flex: 1, justifyContent: "flex-end", paddingTop: 20 },
+  heroCopy: { paddingHorizontal: 24, paddingBottom: 26 },
+  brandRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 34 },
+  brandMark: { width: 42, height: 42, borderRadius: 14, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  plane: { color: "#FFFFFF", fontSize: 20 },
+  brand: { color: "#FFFFFF", fontSize: 18, fontFamily: typography.serif, fontWeight: "700" },
+  eyebrow: { color: "#FF9B73", fontSize: 9, fontWeight: "800", letterSpacing: 1.6 },
+  title: { color: "#FFFFFF", fontSize: 38, lineHeight: 43, fontFamily: typography.serif, fontWeight: "700", maxWidth: 350, marginTop: 6 },
+  subtitle: { color: "rgba(255,255,255,0.72)", fontSize: 14, lineHeight: 21, marginTop: 10, maxWidth: 340 },
+  formCard: { backgroundColor: colors.background, borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingHorizontal: 24, paddingTop: 22, paddingBottom: 18, ...shadows.floating },
+  welcome: { color: colors.text, fontSize: 24, fontFamily: typography.serif, fontWeight: "700", marginBottom: 12 },
   form: { gap: 10 },
   label: { color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 4 },
   input: { minHeight: 50, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radii.medium, paddingHorizontal: 16, color: colors.text, fontSize: 16 },

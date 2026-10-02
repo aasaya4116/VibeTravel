@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   Alert,
+  Image,
+  ImageBackground,
   Linking,
   Pressable,
   Share,
@@ -8,13 +10,14 @@ import {
   Text,
   View,
 } from "react-native"
-import { Stack, useLocalSearchParams } from "expo-router"
+import { router, Stack, useLocalSearchParams } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { Button, Card, EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen } from "@/components/ui"
 import { formatDayLabel, formatTripDates } from "@/lib/format"
-import { loadTrip, saveItinerary } from "@/lib/data"
-import { colors } from "@/lib/theme"
-import type { ItineraryItem, Trip } from "@/lib/types"
+import { generateTripItinerary, loadTrip, saveItinerary } from "@/lib/data"
+import { getTripImage } from "@/lib/destinations"
+import { colors, shadows, typography } from "@/lib/theme"
+import type { ItineraryItem, SavedAttraction, Trip } from "@/lib/types"
 import { useAuth } from "@/providers/auth-provider"
 import { useDashboard } from "@/hooks/use-dashboard"
 
@@ -34,11 +37,13 @@ export default function TripScreen() {
   const { user, session } = useAuth()
   const dashboard = useDashboard()
   const [trip, setTrip] = useState<Trip | null>(null)
+  const [savedAttractions, setSavedAttractions] = useState<SavedAttraction[]>([])
   const [offline, setOffline] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [sharing, setSharing] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const [selectedDay, setSelectedDay] = useState(0)
   const [tripMode, setTripMode] = useState(false)
 
@@ -49,6 +54,7 @@ export default function TripScreen() {
     try {
       const result = await loadTrip(user.id, id)
       setTrip(result.trip)
+      setSavedAttractions(result.savedAttractions)
       setOffline(result.offline)
       setSelectedDay((current) => Math.min(current, Math.max(0, result.trip.itinerary.length - 1)))
     } catch (error) {
@@ -108,6 +114,31 @@ export default function TripScreen() {
     }
   }
 
+  async function generateItinerary() {
+    if (!trip || !session || offline) return
+    setGenerating(true)
+    try {
+      const itinerary = await generateTripItinerary(session.access_token, trip.id)
+      setTrip({ ...trip, itinerary })
+      setSelectedDay(0)
+    } catch (error) {
+      Alert.alert("Itinerary not generated", error instanceof Error ? error.message : "Please try again.")
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  function findPlaces() {
+    if (!trip) return
+    router.push({ pathname: "/explore", params: { tripId: trip.id, destination: trip.destination } } as never)
+  }
+
+  function getItemImage(item: ItineraryItem) {
+    return item.attraction_data?.imageUrl ?? savedAttractions.find(
+      (saved) => saved.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
+    )?.attraction_data.imageUrl
+  }
+
   if (loading && !trip) return <LoadingScreen label="Packing your itinerary…" />
   if (!trip) return <EmptyState title="Trip unavailable" body="This trip may have been removed or belongs to another account." />
 
@@ -146,17 +177,21 @@ export default function TripScreen() {
     <Screen refreshing={refreshing} onRefresh={() => load(true)} contentStyle={styles.page}>
       <Stack.Screen options={{ title: trip.destination }} />
       {offline ? <OfflineBanner /> : null}
-      <View style={styles.tripHeader}>
-        <View style={styles.headerCopy}>
-          <Eyebrow>{trip.status}</Eyebrow>
+      <ImageBackground source={{ uri: getTripImage(trip.destination) }} style={styles.tripHero} imageStyle={styles.tripHeroImage}>
+        <View style={styles.tripHeroShade} />
+        <View style={styles.heroTopRow}>
+          <View style={styles.statusPill}><Text style={styles.statusPillText}>{trip.status}</Text></View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Share trip" onPress={shareTrip} disabled={sharing || offline} style={styles.shareButton}>
+            <Ionicons name="share-outline" size={20} color="#FFFFFF" />
+          </Pressable>
+        </View>
+        <View style={styles.heroCopy}>
+          <Text style={styles.heroOverline}>YOUR FAMILY ADVENTURE</Text>
           <Text style={styles.title}>{trip.title}</Text>
           <Text style={styles.destination}>{trip.destination}</Text>
           <Text style={styles.dates}>{formatTripDates(trip.start_date, trip.end_date)}</Text>
         </View>
-        <Pressable accessibilityRole="button" accessibilityLabel="Share trip" onPress={shareTrip} disabled={sharing || offline} style={styles.shareButton}>
-          <Ionicons name="share-outline" size={21} color={colors.primary} />
-        </Pressable>
-      </View>
+      </ImageBackground>
 
       <Button onPress={() => setTripMode(true)} disabled={!day?.items.length} style={styles.startMode}>Start Trip Mode</Button>
 
@@ -192,13 +227,16 @@ export default function TripScreen() {
           <View style={styles.items}>
             {day?.items.map((item, index) => {
               const status = itemStatus(item)
+              const itemImage = getItemImage(item)
               return (
                 <Card key={item.id} style={styles.itemCard}>
-                  <View style={styles.timeline}>
-                    <View style={styles.timelineDot} />
-                    {index < day.items.length - 1 ? <View style={styles.timelineLine} /> : null}
-                  </View>
-                  <View style={styles.itemContent}>
+                  {itemImage ? <Image source={{ uri: itemImage }} style={styles.itemImage} /> : null}
+                  <View style={styles.itemBody}>
+                    <View style={styles.timeline}>
+                      <View style={styles.timelineDot} />
+                      {index < day.items.length - 1 ? <View style={styles.timelineLine} /> : null}
+                    </View>
+                    <View style={styles.itemContent}>
                     <Text style={styles.itemTime}>{item.start_time} – {item.end_time}</Text>
                     <Text style={styles.itemTitle}>{item.attraction_name}</Text>
                     <View style={[styles.itemBadge, { backgroundColor: status.background }]}><Text style={[styles.itemBadgeText, { color: status.color }]}>{status.label}</Text></View>
@@ -207,6 +245,7 @@ export default function TripScreen() {
                     ) : null}
                     {item.notes ? <Text style={styles.itemNotes}>{item.notes}</Text> : null}
                     <Pressable onPress={() => openDirections(item)} style={styles.directions}><Ionicons name="navigate-outline" size={16} color={colors.primary} /><Text style={styles.directionsText}>Directions</Text></Pressable>
+                    </View>
                   </View>
                 </Card>
               )
@@ -214,11 +253,29 @@ export default function TripScreen() {
           </View>
         </>
       ) : (
-        <EmptyState
-          title="This trip needs an itinerary"
-          body="Open the full planner to discover places and build a personalized schedule. It will appear here automatically."
-          action={<Button onPress={() => Linking.openURL(`${siteUrl}/trips/${trip.id}`)}>Open full planner</Button>}
-        />
+        <View style={styles.planningCard}>
+          <Eyebrow>Build your itinerary</Eyebrow>
+          <Text style={styles.planningTitle}>Turn saved places into a day-by-day story.</Text>
+          <Text style={styles.planningBody}>Choose at least three places. VibeTravel will organize them around your family’s pace, interests, and practical needs.</Text>
+          <View style={styles.savedProgressRow}>
+            <Text style={styles.savedProgress}>{savedAttractions.length} saved</Text>
+            <Text style={styles.savedNeeded}>{Math.max(3 - savedAttractions.length, 0)} more to unlock</Text>
+          </View>
+          <View style={styles.savedTrack}><View style={[styles.savedFill, { width: `${Math.min((savedAttractions.length / 3) * 100, 100)}%` }]} /></View>
+          {savedAttractions.length ? (
+            <View style={styles.savedList}>
+              {savedAttractions.slice(0, 4).map((saved) => (
+                <View key={saved.id} style={styles.savedPlace}>
+                  {saved.attraction_data.imageUrl ? <Image source={{ uri: saved.attraction_data.imageUrl }} style={styles.savedImage} /> : <View style={styles.savedImageFallback}><Ionicons name="location" size={16} color={colors.primary} /></View>}
+                  <Text style={styles.savedName} numberOfLines={1}>{saved.attraction_name}</Text>
+                  <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                </View>
+              ))}
+            </View>
+          ) : null}
+          <Button onPress={findPlaces} variant={savedAttractions.length >= 3 ? "secondary" : "primary"} style={styles.planningButton}>Find places in {trip.destination.split(",")[0]}</Button>
+          {savedAttractions.length >= 3 ? <Button onPress={generateItinerary} loading={generating} disabled={offline}>Generate my itinerary</Button> : null}
+        </View>
       )}
     </Screen>
   )
@@ -226,12 +283,18 @@ export default function TripScreen() {
 
 const styles = StyleSheet.create({
   page: { paddingTop: 6 },
-  tripHeader: { flexDirection: "row", alignItems: "flex-start", gap: 14 },
-  headerCopy: { flex: 1 },
-  title: { color: colors.text, fontSize: 29, lineHeight: 34, fontWeight: "800", marginTop: 4 },
-  destination: { color: colors.primary, fontSize: 15, fontWeight: "800", marginTop: 7 },
-  dates: { color: colors.textMuted, fontSize: 13, marginTop: 4 },
-  shareButton: { width: 44, height: 44, borderRadius: 14, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  tripHero: { minHeight: 390, borderRadius: 28, overflow: "hidden", justifyContent: "space-between", padding: 18, ...shadows.floating },
+  tripHeroImage: { borderRadius: 28 },
+  tripHeroShade: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.42)" },
+  heroTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  statusPill: { backgroundColor: "rgba(255,255,255,0.9)", borderRadius: 99, paddingHorizontal: 11, paddingVertical: 7 },
+  statusPillText: { color: colors.primaryDark, fontSize: 9, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
+  heroCopy: { paddingTop: 80 },
+  heroOverline: { color: "#FF9B68", fontSize: 9, fontWeight: "800", letterSpacing: 1.5 },
+  title: { color: "#FFFFFF", fontSize: 38, lineHeight: 43, fontFamily: typography.serif, fontWeight: "700", marginTop: 5 },
+  destination: { color: "rgba(255,255,255,0.86)", fontSize: 15, fontWeight: "800", marginTop: 7 },
+  dates: { color: "rgba(255,255,255,0.66)", fontSize: 13, marginTop: 4 },
+  shareButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.28)", borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", alignItems: "center", justifyContent: "center" },
   startMode: { marginTop: 2 },
   dayTabs: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   dayTab: { minWidth: 65, borderRadius: 14, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: colors.surface },
@@ -245,16 +308,18 @@ const styles = StyleSheet.create({
   warningTitle: { color: colors.warning, fontSize: 14, fontWeight: "800", textTransform: "capitalize" },
   warningBody: { color: colors.warning, fontSize: 12, lineHeight: 18, marginTop: 3 },
   itineraryHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  dayHeading: { color: colors.text, fontSize: 20, fontWeight: "800", marginTop: 2 },
+  dayHeading: { color: colors.text, fontSize: 23, fontFamily: typography.serif, fontWeight: "700", marginTop: 2 },
   stopCount: { color: colors.textMuted, fontSize: 12, fontWeight: "700" },
   items: { gap: 10 },
-  itemCard: { flexDirection: "row", padding: 16 },
+  itemCard: { padding: 0, overflow: "hidden" },
+  itemImage: { width: "100%", height: 170, backgroundColor: colors.surfaceMuted },
+  itemBody: { flexDirection: "row", padding: 16 },
   timeline: { width: 22, alignItems: "center", marginRight: 10 },
   timelineDot: { width: 11, height: 11, borderRadius: 6, backgroundColor: colors.primary, marginTop: 5 },
   timelineLine: { width: 2, flex: 1, minHeight: 80, backgroundColor: colors.border, marginTop: 4, marginBottom: -28 },
   itemContent: { flex: 1 },
   itemTime: { color: colors.primary, fontSize: 12, fontWeight: "800" },
-  itemTitle: { color: colors.text, fontSize: 17, lineHeight: 22, fontWeight: "800", marginTop: 4 },
+  itemTitle: { color: colors.text, fontSize: 20, lineHeight: 25, fontFamily: typography.serif, fontWeight: "700", marginTop: 4 },
   itemBadge: { alignSelf: "flex-start", borderRadius: 99, paddingHorizontal: 8, paddingVertical: 4, marginTop: 8 },
   itemBadgeText: { fontSize: 10, fontWeight: "800" },
   fitSignals: { flexDirection: "row", flexWrap: "wrap", gap: 5, marginTop: 8 },
@@ -274,4 +339,18 @@ const styles = StyleSheet.create({
   modeActions: { flexDirection: "row", gap: 10, marginTop: 10 },
   modeAction: { flex: 1 },
   progressText: { color: colors.textMuted, textAlign: "center", fontSize: 12, fontWeight: "700" },
+  planningCard: { borderRadius: 28, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, padding: 20, ...shadows.card },
+  planningTitle: { color: colors.text, fontSize: 27, lineHeight: 33, fontFamily: typography.serif, fontWeight: "700", marginTop: 5 },
+  planningBody: { color: colors.textMuted, fontSize: 13, lineHeight: 20, marginTop: 9 },
+  savedProgressRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 20 },
+  savedProgress: { color: colors.text, fontSize: 12, fontWeight: "800" },
+  savedNeeded: { color: colors.primary, fontSize: 11, fontWeight: "700" },
+  savedTrack: { height: 7, backgroundColor: colors.surfaceMuted, borderRadius: 4, overflow: "hidden", marginTop: 8 },
+  savedFill: { height: "100%", backgroundColor: colors.primary, borderRadius: 4 },
+  savedList: { gap: 8, marginTop: 17 },
+  savedPlace: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 15, backgroundColor: colors.background, padding: 8 },
+  savedImage: { width: 38, height: 38, borderRadius: 11 },
+  savedImageFallback: { width: 38, height: 38, borderRadius: 11, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  savedName: { flex: 1, color: colors.text, fontSize: 13, fontWeight: "700" },
+  planningButton: { marginTop: 18, marginBottom: 10 },
 })

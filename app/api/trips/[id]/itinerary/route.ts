@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server"
+import { createRequestClient } from "@/lib/supabase/request"
 import { NextResponse } from "next/server"
 import { generateText, Output } from "ai"
 import { anthropic } from "@ai-sdk/anthropic"
@@ -69,10 +69,7 @@ export async function POST(
         )
       ))
     : null
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { supabase, user } = await createRequestClient(req)
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })

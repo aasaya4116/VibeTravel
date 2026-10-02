@@ -3,7 +3,7 @@ import { Alert, Linking, Pressable, StyleSheet, Text, View } from "react-native"
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { Button, Card, Eyebrow, LoadingScreen, Screen } from "@/components/ui"
-import { colors } from "@/lib/theme"
+import { colors, typography } from "@/lib/theme"
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/providers/auth-provider"
 import { useDashboard } from "@/hooks/use-dashboard"
@@ -103,14 +103,14 @@ export default function ProfileScreen() {
 
       <Button variant="secondary" onPress={signOut}>Sign out</Button>
       <Button variant="ghost" onPress={confirmDelete} loading={deleting} style={styles.deleteButton}>Delete account</Button>
-      <Text style={styles.version}>VibeTravel for iOS · Version 1.0</Text>
+      <Text style={styles.version}>VibeTravel for iOS · Version 1.1</Text>
     </Screen>
   )
 }
 
 const styles = StyleSheet.create({
   page: { paddingTop: 10 },
-  title: { color: colors.text, fontSize: 32, fontWeight: "800", marginTop: -9 },
+  title: { color: colors.text, fontSize: 35, fontFamily: typography.serif, fontWeight: "700", marginTop: -9 },
   identity: { flexDirection: "row", alignItems: "center", gap: 14 },
   avatar: { width: 54, height: 54, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: colors.primarySoft },
   avatarText: { color: colors.primary, fontSize: 21, fontWeight: "800" },

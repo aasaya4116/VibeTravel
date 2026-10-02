@@ -12,7 +12,7 @@ import {
   type ViewStyle,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-import { colors, radii } from "@/lib/theme"
+import { colors, radii, shadows, typography } from "@/lib/theme"
 
 export function Screen({
   children,
@@ -126,6 +126,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     padding: 18,
+    ...shadows.card,
   },
   button: {
     minHeight: 48,
@@ -145,7 +146,7 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.8 },
   eyebrow: { color: colors.primary, fontSize: 11, fontWeight: "800", letterSpacing: 1.5, textTransform: "uppercase" },
   empty: { alignItems: "center", paddingVertical: 30, gap: 10 },
-  emptyTitle: { color: colors.text, fontSize: 20, fontWeight: "800", textAlign: "center" },
+  emptyTitle: { color: colors.text, fontSize: 22, fontFamily: typography.serif, fontWeight: "700", textAlign: "center" },
   emptyBody: { color: colors.textMuted, fontSize: 14, lineHeight: 21, textAlign: "center", marginBottom: 8 },
   offline: { backgroundColor: colors.warningSoft, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10 },
   offlineText: { color: colors.warning, fontSize: 12, fontWeight: "700", textAlign: "center" },

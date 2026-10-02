@@ -25,13 +25,42 @@ export interface FamilyVibe {
 }
 
 export interface Attraction {
+  googlePlaceId?: string
   name: string
-  description?: string
-  category?: string
-  location?: string
+  description: string
+  category: string
+  location: string
   imageUrl?: string
   googleMapsUri?: string | null
   familyFitReason?: string
+  familyFitSignals?: Array<{
+    type: "age" | "sensory" | "pace" | "style" | "budget" | "dietary" | "general"
+    label: string
+  }>
+  vibes?: string[]
+  ageRange?: string
+  strollerFriendly?: boolean | null
+  sensoryNotes?: string
+  estimatedDuration?: string
+  priceRange?: string | null
+  rating?: number
+  userRatingCount?: number | null
+  tips?: string[]
+  personalizedForFamily?: boolean
+  verifiedPlace?: boolean
+  websiteUri?: string | null
+  accessibleEntrance?: boolean | null
+  primaryType?: string | null
+  plannedDate?: string | null
+}
+
+export interface SavedAttraction {
+  id: string
+  user_id: string
+  trip_id: string | null
+  attraction_name: string
+  attraction_data: Attraction
+  created_at: string
 }
 
 export interface ItineraryItem {

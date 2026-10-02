@@ -1,10 +1,12 @@
 import type { User } from "@supabase/supabase-js"
 import { supabase } from "./supabase"
 import type {
+  Attraction,
   DashboardData,
   FamilyVibe,
   ItineraryDay,
   Profile,
+  SavedAttraction,
   Trip,
   TripReadinessState,
 } from "./types"
@@ -75,20 +77,68 @@ export async function loadDashboard(user: User): Promise<DashboardData> {
 export async function loadTrip(userId: string, tripId: string) {
   const cacheKey = `trip:${userId}:${tripId}`
   try {
-    const { data, error } = await supabase
-      .from("trips")
-      .select("*")
-      .eq("id", tripId)
-      .eq("user_id", userId)
-      .single()
-    if (error) throw error
-    writeCache(cacheKey, data)
-    return { trip: data as Trip, offline: false }
+    const [tripResult, savedResult] = await Promise.all([
+      supabase.from("trips").select("*").eq("id", tripId).eq("user_id", userId).single(),
+      supabase
+        .from("saved_attractions")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("trip_id", tripId)
+        .order("created_at", { ascending: true }),
+    ])
+    if (tripResult.error) throw tripResult.error
+    if (savedResult.error) throw savedResult.error
+    const result = {
+      trip: tripResult.data as Trip,
+      savedAttractions: (savedResult.data ?? []) as SavedAttraction[],
+    }
+    writeCache(cacheKey, result)
+    return { ...result, offline: false }
   } catch (error) {
-    const cached = readCache<Trip>(cacheKey)
-    if (cached) return { trip: cached, offline: true }
+    const cached = readCache<{ trip: Trip; savedAttractions: SavedAttraction[] } | Trip>(cacheKey)
+    if (cached && "trip" in cached) return { ...cached, offline: true }
+    if (cached) return { trip: cached, savedAttractions: [], offline: true }
     throw error
   }
+}
+
+export async function saveAttractionToTrip(
+  userId: string,
+  tripId: string,
+  attraction: Attraction,
+  plannedDate: string | null = null
+) {
+  const attractionData = { ...attraction, plannedDate }
+  const { data, error } = await supabase
+    .from("saved_attractions")
+    .upsert(
+      {
+        user_id: userId,
+        trip_id: tripId,
+        attraction_name: attraction.name,
+        attraction_data: attractionData,
+      },
+      { onConflict: "user_id,attraction_name,trip_id" }
+    )
+    .select("*")
+    .single()
+  if (error) throw error
+  return data as SavedAttraction
+}
+
+export async function generateTripItinerary(accessToken: string, tripId: string) {
+  const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_SITE_URL ?? "https://vibe-travel-six.vercel.app"
+  const response = await fetch(`${apiUrl}/api/trips/${tripId}/itinerary`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({}),
+  })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(body.error || "We couldn't build this itinerary right now.")
+  return body.itinerary as ItineraryDay[]
 }
 
 export async function saveItinerary(userId: string, trip: Trip, itinerary: ItineraryDay[]) {

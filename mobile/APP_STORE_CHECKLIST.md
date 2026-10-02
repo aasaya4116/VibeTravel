@@ -31,3 +31,6 @@ VibeTravel may collect data linked to the user: email address, display name, fam
 - [ ] iPhone and iPad screenshots using fictional trip and traveler information.
 - [x] App description, subtitle, keywords, promotional text, and review notes.
 - [ ] TestFlight “What to Test” notes and support contact.
+- [ ] Confirm the Explore tab loads destination imagery and Family Vibe reasons.
+- [ ] Search a destination, save three verified places, and generate an itinerary natively.
+- [ ] Confirm destination and attraction images fail gracefully on a slow connection.

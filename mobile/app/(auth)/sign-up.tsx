@@ -3,7 +3,7 @@ import { Link } from "expo-router"
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Button } from "@/components/ui"
-import { colors, radii } from "@/lib/theme"
+import { colors, radii, typography } from "@/lib/theme"
 import { hasSupabaseConfiguration, supabase } from "@/lib/supabase"
 
 export default function SignUpScreen() {
@@ -62,7 +62,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   page: { flex: 1, justifyContent: "center", padding: 24 },
   eyebrow: { color: colors.primary, fontSize: 12, fontWeight: "800", letterSpacing: 1.4, textTransform: "uppercase" },
-  title: { color: colors.text, fontSize: 31, lineHeight: 37, fontWeight: "800", marginTop: 10, marginBottom: 25 },
+  title: { color: colors.text, fontSize: 34, lineHeight: 40, fontFamily: typography.serif, fontWeight: "700", marginTop: 10, marginBottom: 25 },
   form: { gap: 10 },
   label: { color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 4 },
   input: { minHeight: 50, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radii.medium, paddingHorizontal: 16, color: colors.text, fontSize: 16 },
