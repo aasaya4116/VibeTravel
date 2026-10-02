@@ -238,7 +238,7 @@ export function TripShareDialog({ tripId, tripTitle, destination }: TripShareDia
                 <div className="flex gap-2.5">
                   <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
                   <p className="text-xs leading-relaxed text-muted-foreground">
-                    Viewers cannot edit your trip or see your profile. Stop sharing anytime to disable this link immediately.
+                    Viewers can see the itinerary and its stop notes. They cannot edit your trip or see your profile, readiness details, costs, booking links, or confirmation codes. Stop sharing anytime to disable this link immediately.
                   </p>
                 </div>
               </div>
@@ -264,7 +264,7 @@ export function TripShareDialog({ tripId, tripTitle, destination }: TripShareDia
                 <div>
                   <p className="text-sm font-medium text-foreground">Create one private link</p>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                    Family can open it without an account. The itinerary is view-only, and you stay in control.
+                    Family can open it without an account. The itinerary and stop notes are view-only; readiness details, costs, and confirmation codes stay private.
                   </p>
                 </div>
               </div>
