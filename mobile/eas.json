@@ -12,6 +12,7 @@
       "distribution": "internal"
     },
     "production": {
+      "pnpm": "9.15.9",
       "autoIncrement": true
     }
   },
