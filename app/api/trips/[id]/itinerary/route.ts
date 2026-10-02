@@ -75,8 +75,8 @@ export async function POST(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
-  // Fetch trip, saved attractions, and family vibe in parallel
-  const [tripResult, savedResult, vibeResult] = await Promise.all([
+  // Fetch trip, saved attractions, family vibe, and the lead traveler in parallel.
+  const [tripResult, savedResult, vibeResult, profileResult] = await Promise.all([
     supabase
       .from("trips")
       .select("*")
@@ -94,6 +94,11 @@ export async function POST(
       .select("*")
       .eq("user_id", user.id)
       .single(),
+    supabase
+      .from("profiles")
+      .select("display_name")
+      .eq("id", user.id)
+      .maybeSingle(),
   ])
 
   if (tripResult.error || !tripResult.data) {
@@ -174,6 +179,7 @@ export async function POST(
   const vibeContext = familyVibe
     ? `
 Family vibe profile:
+- Account owner / lead traveler: ${profileResult.data?.display_name || "not named"}
 - Kids: ${JSON.stringify(familyVibe.kids)}
 - Other travelers: ${JSON.stringify(familyVibe.travelers || [])}
 - Travel style: ${familyVibe.travel_style?.join(", ") || "not specified"}

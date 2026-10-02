@@ -19,7 +19,8 @@ export default function TripsScreen() {
           <Text style={styles.title}>Trips</Text>
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel="Create a trip" onPress={() => router.push("/trips/new")} style={styles.addButton}>
-          <Ionicons name="add" size={24} color="#FFFFFF" />
+          <Text style={styles.addButtonText}>New trip</Text>
+          <Ionicons name="add" size={17} color="#FFFFFF" />
         </Pressable>
       </View>
       {data?.offline ? <OfflineBanner /> : null}
@@ -51,7 +52,7 @@ export default function TripsScreen() {
               </ImageBackground>
               <View style={styles.tripFooter}>
                 <View><Text style={styles.footerLabel}>ITINERARY</Text><Text style={styles.days}>{trip.itinerary?.length ?? 0} planned days</Text></View>
-                <Text style={styles.open}>Open trip →</Text>
+                <Text style={styles.open}>Open trip  →</Text>
               </View>
             </Pressable>
           ))}
@@ -62,27 +63,28 @@ export default function TripsScreen() {
 }
 
 const styles = StyleSheet.create({
-  page: { paddingTop: 10 },
+  page: { paddingTop: 10, gap: 20 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
   title: { color: colors.text, fontSize: 35, fontFamily: typography.serif, fontWeight: "700", marginTop: 3 },
-  addButton: { width: 46, height: 46, borderRadius: 15, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-  list: { gap: 12 },
-  trip: { backgroundColor: colors.surface, borderRadius: 26, borderWidth: 1, borderColor: colors.border, overflow: "hidden", ...shadows.card },
+  addButton: { minHeight: 42, borderRadius: 7, paddingHorizontal: 14, backgroundColor: colors.dark, flexDirection: "row", gap: 7, alignItems: "center", justifyContent: "center" },
+  addButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "800", letterSpacing: 0.3 },
+  list: { gap: 24 },
+  trip: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingBottom: 6 },
   pressed: { opacity: 0.75 },
-  tripImage: { height: 285, justifyContent: "space-between", padding: 17 },
-  tripImageRadius: { borderTopLeftRadius: 25, borderTopRightRadius: 25 },
-  tripShade: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.38)" },
+  tripImage: { height: 300, justifyContent: "space-between", padding: 17, borderRadius: 8, overflow: "hidden", ...shadows.card },
+  tripImageRadius: { borderRadius: 8 },
+  tripShade: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.45)" },
   tripTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  badge: { alignSelf: "flex-start", backgroundColor: "rgba(255,255,255,0.9)", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 99 },
-  badgeActive: { backgroundColor: colors.successSoft },
-  badgeText: { color: colors.primaryDark, fontSize: 9, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.8 },
-  badgeTextActive: { color: colors.success },
-  openCircle: { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(0,0,0,0.28)", borderWidth: 1, borderColor: "rgba(255,255,255,0.32)", alignItems: "center", justifyContent: "center" },
+  badge: { alignSelf: "flex-start", paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.7)" },
+  badgeActive: { borderBottomColor: "#A9C6B8" },
+  badgeText: { color: "#FFFFFF", fontSize: 9, fontWeight: "800", textTransform: "uppercase", letterSpacing: 1.1 },
+  badgeTextActive: { color: "#D9E9E0" },
+  openCircle: { width: 36, height: 36, borderRadius: 18, borderWidth: 1, borderColor: "rgba(255,255,255,0.5)", alignItems: "center", justifyContent: "center" },
   tripCopy: { paddingTop: 50 },
   tripTitle: { color: "#FFFFFF", fontSize: 30, lineHeight: 35, fontFamily: typography.serif, fontWeight: "700" },
   destination: { color: "rgba(255,255,255,0.8)", fontSize: 14, fontWeight: "700", marginTop: 5 },
   dates: { color: "rgba(255,255,255,0.62)", fontSize: 12, marginTop: 4 },
-  tripFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16 },
+  tripFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 13 },
   footerLabel: { color: colors.textMuted, fontSize: 8, fontWeight: "800", letterSpacing: 1.2 },
   days: { color: colors.textMuted, fontSize: 11, fontWeight: "700" },
   open: { color: colors.primary, fontSize: 11, fontWeight: "800" },

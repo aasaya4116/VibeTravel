@@ -145,14 +145,16 @@ export async function POST(req: Request) {
   const destination = String(body?.destination ?? "").trim().slice(0, 200)
   const filters = body?.filters
   const familyVibe = body?.familyVibe
+  const ownerName = String(body?.ownerName ?? "").trim().slice(0, 80)
   const hasFamilyContext = Boolean(
-    familyVibe &&
+    ownerName ||
+    (familyVibe &&
       ((Array.isArray(familyVibe.kids) && familyVibe.kids.length > 0) ||
         (Array.isArray(familyVibe.travelers) && familyVibe.travelers.length > 0) ||
         (Array.isArray(familyVibe.travel_style) && familyVibe.travel_style.length > 0) ||
         (Array.isArray(familyVibe.sensory_needs) && familyVibe.sensory_needs.length > 0) ||
         familyVibe.pace ||
-        familyVibe.budget_preference)
+        familyVibe.budget_preference))
   )
   const preferenceFeedback = normalizeRecommendationFeedback(
     body?.preferenceFeedback,
@@ -218,7 +220,7 @@ export async function POST(req: Request) {
 
   const filterContext = `Requested filters: age=${filters?.ageRange || "any"}, verified step-free entrance=${filters?.strollerFriendly ? "required" : "any"}, budget=${effectiveBudget}, category=${filters?.category || "any"}`
   const vibeContext = hasFamilyContext
-    ? `Family context: kids=${JSON.stringify(familyVibe.kids)}, other travelers=${JSON.stringify(familyVibe.travelers || [])}, style=${familyVibe.travel_style?.join(", ") || "any"}, sensory=${familyVibe.sensory_needs?.join(", ") || "none"}, pace=${familyVibe.pace || "moderate"}, dietary=${familyVibe.dietary?.join(", ") || "none"}`
+    ? `Family context: account owner/lead traveler=${ownerName || "not named"}, kids=${JSON.stringify(familyVibe?.kids || [])}, other travelers=${JSON.stringify(familyVibe?.travelers || [])}, style=${familyVibe?.travel_style?.join(", ") || "any"}, sensory=${familyVibe?.sensory_needs?.join(", ") || "none"}, pace=${familyVibe?.pace || "moderate"}, dietary=${familyVibe?.dietary?.join(", ") || "none"}`
     : "No family profile is available; give general family planning guidance."
   const feedbackContext = preferenceFeedback.length
     ? `Earlier recommendation feedback from this device (use it to downrank similar mismatches):\n${preferenceFeedback

@@ -1,8 +1,8 @@
 import { useMemo } from "react"
-import { Image, ImageBackground, Pressable, ScrollView, StyleSheet, Text, View } from "react-native"
+import { Image, ImageBackground, Pressable, StyleSheet, Text, View } from "react-native"
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
-import { Card, EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen } from "@/components/ui"
+import { EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen } from "@/components/ui"
 import { formatTripDates, getDaysUntil } from "@/lib/format"
 import { getReadinessPercent } from "@/lib/data"
 import { destinationCards, getTripImage } from "@/lib/destinations"
@@ -17,6 +17,42 @@ function chooseNextTrip(trips: Trip[]) {
     if (b.status === "active" && a.status !== "active") return 1
     return (a.start_date ?? "9999").localeCompare(b.start_date ?? "9999")
   })[0]
+}
+
+function HowItWorksHero() {
+  const image = destinationCards.find((destination) => destination.slug === "lisbon")?.imageUrl
+
+  return (
+    <ImageBackground source={{ uri: image }} style={styles.howHero} imageStyle={styles.howHeroImage}>
+      <View style={styles.howHeroShade} />
+      <View style={styles.howHeroCopy}>
+        <Text style={styles.howEyebrow}>HOW VIBETRAVEL WORKS</Text>
+        <Text style={styles.howTitle}>Your family’s rhythm, turned into a trip.</Text>
+        <Text style={styles.howBody}>Tell us what feels right. Save the places you love. We shape them into days your family can actually enjoy.</Text>
+        <View style={styles.howSteps}>
+          {[
+            ["01", "Set your vibe"],
+            ["02", "Choose your places"],
+            ["03", "Build a realistic plan"],
+          ].map(([number, label]) => (
+            <View key={number} style={styles.howStep}>
+              <Text style={styles.howStepNumber}>{number}</Text>
+              <Text style={styles.howStepLabel}>{label}</Text>
+            </View>
+          ))}
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Explore destinations matched to your family"
+          onPress={() => router.push("/explore" as never)}
+          style={({ pressed }) => [styles.howAction, pressed && styles.pressed]}
+        >
+          <Text style={styles.howActionText}>Explore your matches</Text>
+          <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
+        </Pressable>
+      </View>
+    </ImageBackground>
+  )
 }
 
 export default function TodayScreen() {
@@ -34,13 +70,26 @@ export default function TodayScreen() {
       <View style={styles.header}>
         <View>
           <Eyebrow>Your travel world</Eyebrow>
-          <Text style={styles.title}>Good to see you, {firstName}.</Text>
+          <Text style={styles.title}>Where to next, {firstName}?</Text>
         </View>
         <View style={styles.avatar}><Text style={styles.avatarText}>{firstName[0]?.toUpperCase()}</Text></View>
       </View>
 
       {data?.offline ? <OfflineBanner /> : null}
       {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Plan a new trip"
+        onPress={() => router.push("/trips/new")}
+        style={({ pressed }) => [styles.planAction, pressed && styles.pressed]}
+      >
+        <View style={styles.planActionCopy}>
+          <Text style={styles.planActionLabel}>PLAN A NEW JOURNEY</Text>
+          <Text style={styles.planActionTitle}>Where will your family go next?</Text>
+        </View>
+        <Ionicons name="arrow-forward" size={21} color="#FFFFFF" />
+      </Pressable>
 
       {nextTrip ? (
         <Pressable
@@ -56,7 +105,7 @@ export default function TodayScreen() {
                 <View style={styles.statusDot} />
                 <Text style={styles.statusText}>{nextTrip.status === "active" ? "In progress" : daysUntil != null && daysUntil >= 0 ? `${daysUntil} days to go` : "Planning"}</Text>
               </View>
-              <Ionicons name="arrow-forward-circle" size={30} color="#FFFFFF" />
+              <Text style={styles.heroCount}>{readiness}% READY</Text>
             </View>
             <View style={styles.heroCopy}>
               <Text style={styles.heroOverline}>YOUR NEXT STORY</Text>
@@ -70,6 +119,10 @@ export default function TodayScreen() {
                 <Text style={styles.heroMeta}>{readiness}% ready</Text>
                 <Text style={styles.heroMeta}>{nextTrip.itinerary?.length ?? 0} planned days</Text>
               </View>
+              <View style={styles.heroButton}>
+                <Text style={styles.heroButtonText}>{nextTrip.status === "active" ? "Open trip mode" : "Continue planning"}</Text>
+                <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
+              </View>
             </View>
           </ImageBackground>
         </Pressable>
@@ -82,48 +135,48 @@ export default function TodayScreen() {
       )}
 
       <View style={styles.sectionHeading}>
-        <View><Eyebrow>Chosen for your vibe</Eyebrow><Text style={styles.sectionTitle}>Where next?</Text></View>
-        <Pressable onPress={() => router.push("/explore" as never)}><Text style={styles.browseAll}>Browse all</Text></Pressable>
+        <View><Eyebrow>Chosen for your vibe</Eyebrow><Text style={styles.sectionTitle}>Chosen for your family</Text></View>
+        <Pressable onPress={() => router.push("/explore" as never)}><Text style={styles.browseAll}>View all</Text></Pressable>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.destinationRail}>
-        {destinationCards.slice(0, 5).map((destination) => (
+      <View style={styles.destinationList}>
+        {destinationCards.slice(0, 3).map((destination) => (
           <Pressable
             key={destination.slug}
             onPress={() => router.push({ pathname: "/explore", params: { destination: destination.destination } } as never)}
-            style={({ pressed }) => [styles.destinationCard, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.destinationRow, pressed && styles.pressed]}
           >
             <Image source={{ uri: destination.imageUrl }} style={styles.destinationImage} />
-            <View style={styles.destinationShade} />
             <View style={styles.destinationCopy}>
               <Text style={styles.destinationName}>{destination.name}</Text>
-              <Text style={styles.destinationReason} numberOfLines={2}>{destination.headline}</Text>
+              <Text style={styles.destinationReason} numberOfLines={1}>{destination.headline}</Text>
             </View>
+            <Ionicons name="arrow-forward" size={17} color={colors.primary} />
           </Pressable>
         ))}
-      </ScrollView>
+      </View>
 
-      <Text style={styles.sectionTitle}>Made for the moment</Text>
-      <View style={styles.quickGrid}>
-        <Card style={styles.quickCard}>
-          <Ionicons name="navigate-circle-outline" size={27} color={colors.primary} />
-          <Text style={styles.quickTitle}>Trip Mode</Text>
-          <Text style={styles.quickBody}>One stop at a time with directions and check-offs.</Text>
-        </Card>
-        <Card style={styles.quickCard}>
-          <Ionicons name="cloud-offline-outline" size={27} color={colors.success} />
-          <Text style={styles.quickTitle}>Offline ready</Text>
-          <Text style={styles.quickBody}>Recently opened trips remain available without a signal.</Text>
-        </Card>
+      <HowItWorksHero />
+
+      <View style={styles.editorialSection}>
+        <Text style={styles.sectionTitle}>Travel with less friction</Text>
+        <View style={styles.toolRow}>
+          <Ionicons name="navigate-outline" size={20} color={colors.primary} />
+          <View style={styles.toolCopy}><Text style={styles.toolTitle}>Trip Mode</Text><Text style={styles.toolBody}>Directions and check-offs, one stop at a time.</Text></View>
+        </View>
+        <View style={styles.toolRow}>
+          <Ionicons name="cloud-offline-outline" size={20} color={colors.success} />
+          <View style={styles.toolCopy}><Text style={styles.toolTitle}>Offline ready</Text><Text style={styles.toolBody}>Recently opened trips stay with you without a signal.</Text></View>
+        </View>
       </View>
 
       {data?.familyVibe ? (
-        <Card>
+        <View style={styles.vibeSection}>
           <View style={styles.cardHeading}>
             <View>
               <Eyebrow>Your family vibe</Eyebrow>
               <Text style={styles.cardTitle}>{data.familyVibe.family_name || "Personalized for your crew"}</Text>
             </View>
-            <Ionicons name="sparkles-outline" size={24} color={colors.primary} />
+            <Text style={styles.editLink}>Profile →</Text>
           </View>
           <View style={styles.chips}>
             {data.familyVibe.travel_style.slice(0, 4).map((style) => (
@@ -131,56 +184,78 @@ export default function TodayScreen() {
             ))}
             <View style={styles.chip}><Text style={styles.chipText}>{data.familyVibe.pace} pace</Text></View>
           </View>
-        </Card>
+        </View>
       ) : null}
     </Screen>
   )
 }
 
 const styles = StyleSheet.create({
-  page: { paddingTop: 10 },
+  page: { paddingTop: 10, gap: 20 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
-  title: { color: colors.text, fontSize: 31, lineHeight: 36, fontFamily: typography.serif, fontWeight: "700", marginTop: 5 },
-  avatar: { width: 43, height: 43, borderRadius: 22, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
-  avatarText: { color: colors.primary, fontSize: 17, fontWeight: "800" },
-  heroShell: { borderRadius: 28, overflow: "hidden", ...shadows.floating },
+  title: { color: colors.text, fontSize: 34, lineHeight: 38, fontFamily: typography.serif, fontWeight: "700", marginTop: 5 },
+  avatar: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  avatarText: { color: colors.text, fontSize: 12, fontWeight: "800" },
+  planAction: { minHeight: 64, borderRadius: radii.medium, backgroundColor: colors.dark, paddingHorizontal: 17, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 13 },
+  planActionCopy: { flex: 1 },
+  planActionLabel: { color: "rgba(255,255,255,0.7)", fontSize: 9, fontWeight: "900", letterSpacing: 1.45 },
+  planActionTitle: { color: "#FFFFFF", fontSize: 14, lineHeight: 19, fontWeight: "700", marginTop: 3 },
+  heroShell: { borderRadius: radii.medium, overflow: "hidden", ...shadows.floating },
   hero: { minHeight: 390, justifyContent: "space-between" },
-  heroImage: { borderRadius: 28 },
-  heroShade: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(13,11,9,0.42)" },
-  heroTop: { position: "absolute", left: 22, right: 22, top: 20, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  statusBadge: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(255,255,255,0.12)", borderRadius: 99, paddingHorizontal: 12, paddingVertical: 7 },
-  statusDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#FF9B68" },
-  statusText: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
-  heroCopy: { padding: 22, backgroundColor: "rgba(0,0,0,0.22)" },
-  heroOverline: { color: "#FF9B68", fontSize: 9, fontWeight: "800", letterSpacing: 1.5 },
-  heroTitle: { color: "#FFFFFF", fontSize: 35, lineHeight: 40, fontFamily: typography.serif, fontWeight: "700", marginTop: 5 },
+  heroImage: { borderRadius: radii.medium },
+  heroShade: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(13,11,9,0.48)" },
+  heroTop: { position: "absolute", left: 18, right: 18, top: 17, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  statusBadge: { flexDirection: "row", alignItems: "center", gap: 7 },
+  statusDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#C77A59" },
+  statusText: { color: "#FFFFFF", fontSize: 10, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
+  heroCount: { color: "rgba(255,255,255,0.8)", fontSize: 9, fontWeight: "800", letterSpacing: 0.8 },
+  heroCopy: { position: "absolute", left: 0, right: 0, bottom: 0, padding: 18, backgroundColor: "rgba(0,0,0,0.24)" },
+  heroOverline: { color: "#C77A59", fontSize: 9, fontWeight: "800", letterSpacing: 1.5 },
+  heroTitle: { color: "#FFFFFF", fontSize: 39, lineHeight: 43, fontFamily: typography.serif, fontWeight: "700", marginTop: 5 },
   heroDestination: { color: "#F2D8C9", fontSize: 15, fontWeight: "700", marginTop: 5 },
   heroDates: { color: "rgba(255,255,255,0.7)", fontSize: 13, marginTop: 5 },
   progressTrack: { height: 5, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.15)", marginTop: 22, overflow: "hidden" },
-  progressFill: { height: "100%", backgroundColor: "#FF8852", borderRadius: 3 },
+  progressFill: { height: "100%", backgroundColor: "#C77A59", borderRadius: 3 },
   progressRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
   heroMeta: { color: "rgba(255,255,255,0.75)", fontSize: 11, fontWeight: "700" },
+  heroButton: { minHeight: 45, marginTop: 17, paddingHorizontal: 0, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "rgba(255,255,255,0.5)", flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
+  heroButtonText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" },
   pressed: { opacity: 0.84, transform: [{ scale: 0.99 }] },
-  sectionHeading: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginTop: 6 },
-  sectionTitle: { color: colors.text, fontSize: 24, fontFamily: typography.serif, fontWeight: "700", marginTop: 3 },
-  browseAll: { color: colors.primary, fontSize: 12, fontWeight: "800", paddingBottom: 2 },
-  destinationRail: { gap: 12, paddingRight: 18 },
-  destinationCard: { width: 205, height: 250, borderRadius: 23, overflow: "hidden", backgroundColor: colors.dark },
-  destinationImage: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" },
-  destinationShade: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.3)" },
-  destinationCopy: { position: "absolute", left: 16, right: 16, bottom: 16 },
-  destinationName: { color: "#FFFFFF", fontSize: 27, fontFamily: typography.serif, fontWeight: "700" },
-  destinationReason: { color: "rgba(255,255,255,0.72)", fontSize: 11, lineHeight: 16, marginTop: 4 },
-  quickGrid: { flexDirection: "row", gap: 12 },
-  quickCard: { flex: 1, minHeight: 165, padding: 16 },
-  quickTitle: { color: colors.text, fontSize: 16, fontWeight: "800", marginTop: 13 },
-  quickBody: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 6 },
+  sectionHeading: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  sectionTitle: { color: colors.text, fontSize: 23, fontFamily: typography.serif, fontWeight: "700", marginTop: 3 },
+  browseAll: { color: colors.primary, fontSize: 11, fontWeight: "800", paddingBottom: 2 },
+  destinationList: { marginTop: -8 },
+  destinationRow: { minHeight: 87, flexDirection: "row", alignItems: "center", gap: 13, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, paddingVertical: 12 },
+  destinationImage: { width: 76, height: 64, borderRadius: radii.small, backgroundColor: colors.surfaceMuted },
+  destinationCopy: { flex: 1 },
+  destinationName: { color: colors.text, fontSize: 20, fontFamily: typography.serif, fontWeight: "700" },
+  destinationReason: { color: colors.textMuted, fontSize: 11, lineHeight: 16, marginTop: 3 },
+  howHero: { minHeight: 420, borderRadius: radii.medium, overflow: "hidden", justifyContent: "flex-end", ...shadows.floating },
+  howHeroImage: { borderRadius: radii.medium },
+  howHeroShade: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(14,12,10,0.62)" },
+  howHeroCopy: { padding: 20 },
+  howEyebrow: { color: "#D99B7B", fontSize: 9, fontWeight: "900", letterSpacing: 1.65 },
+  howTitle: { color: "#FFFFFF", fontSize: 34, lineHeight: 38, fontFamily: typography.serif, fontWeight: "700", marginTop: 7, maxWidth: 320 },
+  howBody: { color: "rgba(255,255,255,0.74)", fontSize: 12, lineHeight: 19, marginTop: 10, maxWidth: 340 },
+  howSteps: { marginTop: 20, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "rgba(255,255,255,0.32)" },
+  howStep: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(255,255,255,0.2)" },
+  howStepNumber: { color: "#D99B7B", width: 24, fontSize: 9, fontWeight: "900", letterSpacing: 0.9 },
+  howStepLabel: { color: "#FFFFFF", fontSize: 12, fontWeight: "700" },
+  howAction: { minHeight: 47, marginTop: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  howActionText: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
+  editorialSection: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 20 },
+  toolRow: { flexDirection: "row", alignItems: "flex-start", gap: 13, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  toolCopy: { flex: 1 },
+  toolTitle: { color: colors.text, fontSize: 14, fontWeight: "800" },
+  toolBody: { color: colors.textMuted, fontSize: 11, lineHeight: 17, marginTop: 3 },
+  vibeSection: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 20 },
   cardHeading: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  cardTitle: { color: colors.text, fontSize: 19, fontWeight: "800", marginTop: 4 },
+  cardTitle: { color: colors.text, fontSize: 21, fontFamily: typography.serif, fontWeight: "700", marginTop: 4 },
+  editLink: { color: colors.primary, fontSize: 11, fontWeight: "800" },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 16 },
   chip: { backgroundColor: colors.primarySoft, borderRadius: 99, paddingHorizontal: 11, paddingVertical: 7 },
   chipText: { color: colors.primaryDark, fontSize: 11, fontWeight: "700", textTransform: "capitalize" },
-  primaryAction: { backgroundColor: colors.primary, borderRadius: radii.medium, paddingHorizontal: 20, paddingVertical: 13 },
+  primaryAction: { backgroundColor: colors.dark, borderRadius: radii.medium, paddingHorizontal: 20, paddingVertical: 13 },
   primaryActionText: { color: "#FFFFFF", fontWeight: "800" },
   error: { color: colors.danger, backgroundColor: colors.dangerSoft, padding: 12, borderRadius: 12 },
 })

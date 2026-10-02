@@ -74,6 +74,26 @@ export async function loadDashboard(user: User): Promise<DashboardData> {
   }
 }
 
+export async function updateProfileDisplayName(userId: string, displayName: string) {
+  const normalizedName = displayName.trim()
+  if (!normalizedName) throw new Error("Enter your name before saving.")
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .upsert(
+      {
+        id: userId,
+        display_name: normalizedName,
+      },
+      { onConflict: "id" }
+    )
+    .select("id, display_name, avatar_url")
+    .single()
+
+  if (error) throw error
+  return data as Profile
+}
+
 export async function loadTrip(userId: string, tripId: string) {
   const cacheKey = `trip:${userId}:${tripId}`
   try {
