@@ -94,6 +94,35 @@ export async function updateProfileDisplayName(userId: string, displayName: stri
   return data as Profile
 }
 
+export async function updateFamilyVibe(
+  userId: string,
+  vibe: Omit<FamilyVibe, "id" | "user_id">
+) {
+  const { data, error } = await supabase
+    .from("family_vibes")
+    .upsert(
+      {
+        user_id: userId,
+        family_name: vibe.family_name?.trim() || null,
+        kids: vibe.kids ?? [],
+        travelers: vibe.travelers ?? [],
+        travel_style: vibe.travel_style ?? [],
+        sensory_needs: vibe.sensory_needs ?? [],
+        mobility_notes: vibe.mobility_notes?.trim() || null,
+        dietary: vibe.dietary ?? [],
+        pace: vibe.pace,
+        budget_preference: vibe.budget_preference,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" }
+    )
+    .select("*")
+    .single()
+
+  if (error) throw error
+  return data as FamilyVibe
+}
+
 export async function loadTrip(userId: string, tripId: string) {
   const cacheKey = `trip:${userId}:${tripId}`
   try {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
-import { Alert, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native"
+import { Alert, Keyboard, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native"
+import { SafeAreaView } from "react-native-safe-area-context"
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { Button, Card, Eyebrow, LoadingScreen, Screen } from "@/components/ui"
@@ -7,10 +8,50 @@ import { colors, typography } from "@/lib/theme"
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/providers/auth-provider"
 import { useDashboard } from "@/hooks/use-dashboard"
-import { updateProfileDisplayName } from "@/lib/data"
+import { updateFamilyVibe, updateProfileDisplayName } from "@/lib/data"
+import type { FamilyVibe } from "@/lib/types"
 
 const siteUrl = process.env.EXPO_PUBLIC_SITE_URL ?? "https://vibe-travel-six.vercel.app"
 const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? siteUrl
+
+type FamilyVibeDraft = Omit<FamilyVibe, "id" | "user_id">
+
+const travelStyleOptions = [
+  "Cultural explorer",
+  "Nature lover",
+  "Foodie family",
+  "Urban adventurer",
+  "Beach & relaxation",
+  "Off the beaten path",
+  "History buff",
+  "Art & design",
+  "Active & outdoorsy",
+  "Slow travel",
+  "Technology & innovation",
+]
+const dietaryOptions = ["Vegetarian", "Vegan", "Gluten-free", "Dairy-free", "Nut allergy", "Halal", "Kosher"]
+const paceOptions: Array<FamilyVibeDraft["pace"]> = ["slow", "moderate", "fast"]
+const budgetOptions: Array<{ value: FamilyVibeDraft["budget_preference"]; label: string }> = [
+  { value: "free", label: "Free" },
+  { value: "$", label: "$" },
+  { value: "$$", label: "$$" },
+  { value: "$$$", label: "$$$" },
+  { value: "any", label: "Mix" },
+]
+
+function toVibeDraft(vibe: FamilyVibe | null | undefined): FamilyVibeDraft {
+  return {
+    family_name: vibe?.family_name ?? "",
+    kids: vibe?.kids ?? [],
+    travelers: vibe?.travelers ?? [],
+    travel_style: vibe?.travel_style ?? [],
+    sensory_needs: vibe?.sensory_needs ?? [],
+    mobility_notes: vibe?.mobility_notes ?? null,
+    dietary: vibe?.dietary ?? [],
+    pace: vibe?.pace ?? "moderate",
+    budget_preference: vibe?.budget_preference ?? "any",
+  }
+}
 
 function SettingRow({ icon, label, onPress, destructive = false }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; destructive?: boolean }) {
   return (
@@ -29,6 +70,9 @@ export default function ProfileScreen() {
   const [editingOwner, setEditingOwner] = useState(false)
   const [ownerName, setOwnerName] = useState("")
   const [savingOwner, setSavingOwner] = useState(false)
+  const [editingVibe, setEditingVibe] = useState(false)
+  const [vibeDraft, setVibeDraft] = useState<FamilyVibeDraft>(() => toVibeDraft(null))
+  const [savingVibe, setSavingVibe] = useState(false)
 
   useEffect(() => {
     if (!editingOwner) setOwnerName(data?.profile?.display_name || "")
@@ -38,6 +82,36 @@ export default function ProfileScreen() {
 
   async function signOut() {
     await supabase.auth.signOut()
+  }
+
+  function openVibeEditor() {
+    setVibeDraft(toVibeDraft(data?.familyVibe))
+    setEditingVibe(true)
+  }
+
+  function toggleVibeChoice(field: "travel_style" | "dietary", value: string) {
+    setVibeDraft((current) => {
+      const choices = current[field]
+      return {
+        ...current,
+        [field]: choices.includes(value) ? choices.filter((item) => item !== value) : [...choices, value],
+      }
+    })
+  }
+
+  async function saveFamilyVibe() {
+    if (!session?.user) return
+    setSavingVibe(true)
+    Keyboard.dismiss()
+    try {
+      await updateFamilyVibe(session.user.id, vibeDraft)
+      await refresh()
+      setEditingVibe(false)
+    } catch (error) {
+      Alert.alert("Family Vibe not saved", error instanceof Error ? error.message : "Please try again.")
+    } finally {
+      setSavingVibe(false)
+    }
   }
 
   async function saveOwnerProfile() {
@@ -97,6 +171,7 @@ export default function ProfileScreen() {
   const vibe = data?.familyVibe
 
   return (
+    <>
     <Screen contentStyle={styles.page}>
       <Eyebrow>Your account</Eyebrow>
       <Text style={styles.title}>Profile</Text>
@@ -165,9 +240,16 @@ export default function ProfileScreen() {
             {vibe.travel_style.map((style) => <View key={style} style={styles.chip}><Text style={styles.chipText}>{style}</Text></View>)}
             <View style={styles.chip}><Text style={styles.chipText}>{vibe.pace} pace</Text></View>
           </View>
-          <Button variant="secondary" onPress={() => Linking.openURL(`${siteUrl}/profile/vibe`)} style={styles.editButton}>Edit family vibe</Button>
+          <Button variant="secondary" onPress={openVibeEditor} style={styles.editButton}>Edit family vibe</Button>
         </Card>
-      ) : null}
+      ) : (
+        <Card style={styles.editorialCard}>
+          <Eyebrow>Family vibe</Eyebrow>
+          <Text style={styles.cardTitle}>Make every recommendation feel like yours.</Text>
+          <Text style={styles.emptyVibeText}>Add your travel style, pace, food needs, and budget inside the app.</Text>
+          <Button variant="secondary" onPress={openVibeEditor} style={styles.editButton}>Set up family vibe</Button>
+        </Card>
+      )}
 
       <Card style={[styles.editorialCard, styles.settingsCard]}>
         <SettingRow icon="shield-checkmark-outline" label="Privacy Policy" onPress={() => router.push("/privacy")} />
@@ -180,6 +262,101 @@ export default function ProfileScreen() {
       <Button variant="ghost" onPress={confirmDelete} loading={deleting} style={styles.deleteButton}>Delete account</Button>
       <Text style={styles.version}>VibeTravel for iOS · Version 1.1</Text>
     </Screen>
+
+    <Modal visible={editingVibe} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setEditingVibe(false)}>
+      <SafeAreaView style={styles.vibeEditorSafe}>
+        <View style={styles.vibeEditorHeader}>
+          <View style={styles.vibeEditorHeading}>
+            <Eyebrow>Personalize VibeTravel</Eyebrow>
+            <Text style={styles.vibeEditorTitle}>Your Family Vibe</Text>
+          </View>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close Family Vibe editor" onPress={() => { Keyboard.dismiss(); setEditingVibe(false) }} style={styles.vibeEditorClose}>
+            <Ionicons name="close" size={22} color={colors.text} />
+          </Pressable>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.vibeEditorContent} keyboardDismissMode="interactive" keyboardShouldPersistTaps="handled">
+          <View style={styles.vibeSection}>
+            <Text style={styles.vibeSectionLabel}>FAMILY NAME</Text>
+            <Text style={styles.vibeSectionHint}>What should we call your travel group?</Text>
+            <TextInput
+              value={vibeDraft.family_name ?? ""}
+              onChangeText={(family_name) => setVibeDraft((current) => ({ ...current, family_name }))}
+              placeholder="The Asaya family"
+              placeholderTextColor={colors.textMuted}
+              returnKeyType="done"
+              onSubmitEditing={Keyboard.dismiss}
+              style={styles.vibeNameInput}
+            />
+          </View>
+
+          <View style={styles.vibeSection}>
+            <Text style={styles.vibeSectionLabel}>TRAVEL STYLE</Text>
+            <Text style={styles.vibeSectionTitle}>How does your family like to travel?</Text>
+            <Text style={styles.vibeSectionHint}>Choose all that fit. These shape Explore and your itineraries.</Text>
+            <View style={styles.vibeChoices}>
+              {travelStyleOptions.map((option) => {
+                const active = vibeDraft.travel_style.includes(option)
+                return (
+                  <Pressable key={option} onPress={() => toggleVibeChoice("travel_style", option)} style={[styles.vibeChoice, active && styles.vibeChoiceActive]}>
+                    <Text style={[styles.vibeChoiceText, active && styles.vibeChoiceTextActive]}>{option}</Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+          </View>
+
+          <View style={styles.vibeSection}>
+            <Text style={styles.vibeSectionLabel}>PACE</Text>
+            <Text style={styles.vibeSectionTitle}>How full should a day feel?</Text>
+            <View style={styles.vibeChoices}>
+              {paceOptions.map((option) => {
+                const active = vibeDraft.pace === option
+                return (
+                  <Pressable key={option} onPress={() => setVibeDraft((current) => ({ ...current, pace: option }))} style={[styles.vibeChoice, active && styles.vibeChoiceActive]}>
+                    <Text style={[styles.vibeChoiceText, active && styles.vibeChoiceTextActive]}>{option[0].toUpperCase() + option.slice(1)}</Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+          </View>
+
+          <View style={styles.vibeSection}>
+            <Text style={styles.vibeSectionLabel}>TYPICAL TRIP BUDGET</Text>
+            <View style={styles.vibeChoices}>
+              {budgetOptions.map((option) => {
+                const active = vibeDraft.budget_preference === option.value
+                return (
+                  <Pressable key={option.value} onPress={() => setVibeDraft((current) => ({ ...current, budget_preference: option.value }))} style={[styles.vibeChoice, styles.budgetChoice, active && styles.vibeChoiceActive]}>
+                    <Text style={[styles.vibeChoiceText, active && styles.vibeChoiceTextActive]}>{option.label}</Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+          </View>
+
+          <View style={styles.vibeSection}>
+            <Text style={styles.vibeSectionLabel}>DIETARY NEEDS</Text>
+            <Text style={styles.vibeSectionHint}>We’ll use these when suggesting food and daily plans.</Text>
+            <View style={styles.vibeChoices}>
+              {dietaryOptions.map((option) => {
+                const active = vibeDraft.dietary.includes(option)
+                return (
+                  <Pressable key={option} onPress={() => toggleVibeChoice("dietary", option)} style={[styles.vibeChoice, active && styles.vibeChoiceActive]}>
+                    <Text style={[styles.vibeChoiceText, active && styles.vibeChoiceTextActive]}>{option}</Text>
+                  </Pressable>
+                )
+              })}
+            </View>
+          </View>
+        </ScrollView>
+
+        <View style={styles.vibeEditorFooter}>
+          <Button loading={savingVibe} onPress={saveFamilyVibe}>Save Family Vibe</Button>
+        </View>
+      </SafeAreaView>
+    </Modal>
+    </>
   )
 }
 
@@ -212,6 +389,7 @@ const styles = StyleSheet.create({
   chip: { borderWidth: 1, borderColor: colors.border, borderRadius: 99, paddingHorizontal: 10, paddingVertical: 7 },
   chipText: { color: colors.textMuted, fontSize: 11, fontWeight: "700", textTransform: "capitalize" },
   editButton: { marginTop: 17 },
+  emptyVibeText: { color: colors.textMuted, fontSize: 13, lineHeight: 20, marginTop: 9 },
   settingsCard: { paddingVertical: 4 },
   setting: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 54, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   settingText: { flex: 1, color: colors.text, fontSize: 15, fontWeight: "600" },
@@ -219,4 +397,22 @@ const styles = StyleSheet.create({
   dangerText: { color: colors.danger },
   deleteButton: { marginTop: -5 },
   version: { color: colors.textMuted, fontSize: 11, textAlign: "center", marginTop: 6 },
+  vibeEditorSafe: { flex: 1, backgroundColor: colors.background },
+  vibeEditorHeader: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 17, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  vibeEditorHeading: { flex: 1, paddingRight: 18 },
+  vibeEditorTitle: { color: colors.text, fontSize: 32, lineHeight: 38, fontFamily: typography.serif, fontWeight: "700", marginTop: 5 },
+  vibeEditorClose: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  vibeEditorContent: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 38 },
+  vibeSection: { paddingVertical: 22, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  vibeSectionLabel: { color: colors.primary, fontSize: 9, fontWeight: "900", letterSpacing: 1.4 },
+  vibeSectionTitle: { color: colors.text, fontSize: 21, lineHeight: 27, fontFamily: typography.serif, fontWeight: "700", marginTop: 6 },
+  vibeSectionHint: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 6 },
+  vibeNameInput: { minHeight: 52, borderBottomWidth: 1, borderBottomColor: colors.text, color: colors.text, fontSize: 17, fontWeight: "700", paddingHorizontal: 1, marginTop: 8 },
+  vibeChoices: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 14 },
+  vibeChoice: { minHeight: 40, borderWidth: 1, borderColor: colors.border, borderRadius: 99, paddingHorizontal: 13, alignItems: "center", justifyContent: "center", backgroundColor: "transparent" },
+  vibeChoiceActive: { borderColor: colors.dark, backgroundColor: colors.dark },
+  vibeChoiceText: { color: colors.text, fontSize: 11, fontWeight: "700" },
+  vibeChoiceTextActive: { color: "#FFFFFF" },
+  budgetChoice: { minWidth: 62 },
+  vibeEditorFooter: { padding: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, backgroundColor: colors.background },
 })
