@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Keyboard,
   Modal,
   Pressable,
   ScrollView,
@@ -19,11 +20,13 @@ import DiscoveryCanvas from "@/components/discovery-canvas"
 import {
   destinationCards,
   destinationLenses,
+  createDestinationCard,
   describeVibeMatch,
   findDestinationCard,
   getDefaultDestinationLens,
   getDestinationQueryForLens,
   rankDestinationsForVibe,
+  resolveDestinationCard,
   type DestinationCard,
   type DestinationLens,
 } from "@/lib/destinations"
@@ -66,12 +69,13 @@ export default function ExploreScreen() {
   const params = useLocalSearchParams<{ tripId?: string; destination?: string }>()
   const { user } = useAuth()
   const { data, loading } = useDashboard()
-  const initialDestination = findDestinationCard(params.destination) ?? destinationCards[0]
+  const initialDestination = resolveDestinationCard(params.destination) ?? destinationCards[0]
   const [selected, setSelected] = useState<DestinationCard>(initialDestination)
   const [lens, setLens] = useState<DestinationLens>(() => getDefaultDestinationLens(data?.familyVibe ?? null))
-  const [query, setQuery] = useState(initialDestination.query)
+  const [query, setQuery] = useState("")
   const [attractions, setAttractions] = useState<Attraction[]>([])
   const [summary, setSummary] = useState("")
+  const [searchError, setSearchError] = useState("")
   const [searching, setSearching] = useState(false)
   const [pendingAttraction, setPendingAttraction] = useState<Attraction | null>(null)
   const [saving, setSaving] = useState(false)
@@ -91,13 +95,29 @@ export default function ExploreScreen() {
     ))
   }, [browseQuery])
 
+  const customDestination = useMemo(() => {
+    const value = browseQuery.trim()
+    if (!value || findDestinationCard(value)) return null
+    return createDestinationCard(value)
+  }, [browseQuery])
+
+  const searchSuggestions = useMemo(() => {
+    if (lens === "Food + culture") return ["Local food", "Markets", "Art + culture"]
+    if (lens === "Easy with kids") return ["Hands-on", "Parks", "Easy meals"]
+    if (lens === "Nature reset") return ["Nature", "Beaches", "Gardens"]
+    return selected.tags.slice(0, 3)
+  }, [lens, selected.tags])
+
   const vibeDescription = describeVibeMatch(data?.familyVibe ?? null)
 
   useEffect(() => {
-    const destination = findDestinationCard(params.destination)
+    const destination = resolveDestinationCard(params.destination)
     if (!destination) return
     setSelected(destination)
-    setQuery(destination.query)
+    setQuery("")
+    setAttractions([])
+    setSummary("")
+    setSearchError("")
   }, [params.destination])
 
   useEffect(() => {
@@ -107,15 +127,17 @@ export default function ExploreScreen() {
     setLens(defaultLens)
     if (ranked[0]) {
       setSelected(ranked[0])
-      setQuery(getDestinationQueryForLens(ranked[0], defaultLens))
+      setQuery("")
     }
   }, [data?.familyVibe, lensTouched, params.destination])
 
-  function chooseDestination(destination: DestinationCard, destinationLens: DestinationLens = lens) {
+  function chooseDestination(destination: DestinationCard) {
+    Keyboard.dismiss()
     setSelected(destination)
-    setQuery(getDestinationQueryForLens(destination, destinationLens))
+    setQuery("")
     setAttractions([])
     setSummary("")
+    setSearchError("")
     setBrowseOpen(false)
     setBrowseQuery("")
   }
@@ -123,21 +145,28 @@ export default function ExploreScreen() {
   function chooseLens(nextLens: DestinationLens) {
     setLens(nextLens)
     setLensTouched(true)
+    setAttractions([])
+    setSummary("")
+    setSearchError("")
+    setQuery("")
+    if (params.destination) return
     const ranked = rankDestinationsForVibe(data?.familyVibe ?? null, nextLens)
-    if (ranked[0]) chooseDestination(ranked[0], nextLens)
+    if (ranked[0]) chooseDestination(ranked[0])
   }
 
   async function searchPlaces() {
+    Keyboard.dismiss()
     setSearching(true)
     setAttractions([])
     setSummary("")
+    setSearchError("")
     try {
       const response = await fetch(`${apiUrl}/api/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           destination: selected.destination,
-          query: query.trim() || selected.query,
+          query: query.trim() || getDestinationQueryForLens(selected, lens),
           ownerName: data?.profile?.display_name,
           familyVibe: data?.familyVibe,
           filters: {},
@@ -145,21 +174,29 @@ export default function ExploreScreen() {
       })
       const text = await response.text()
       if (!response.ok) {
-        const parsed = JSON.parse(text || "{}")
+        const parsed = (() => {
+          try { return JSON.parse(text || "{}") } catch { return {} }
+        })()
         throw new Error(parsed.error || "We couldn't find verified places right now.")
       }
       const found: Attraction[] = []
       let resultSummary = ""
-      text.split("\n").filter(Boolean).forEach((line) => {
-        const item = JSON.parse(line)
-        if (item.name) found.push(item as Attraction)
-        if (item.summary) resultSummary = item.summary
+      text.split(/\r?\n/).forEach((line) => {
+        const normalizedLine = line.trim().replace(/^data:\s*/, "")
+        if (!normalizedLine || normalizedLine === "[DONE]") return
+        try {
+          const item = JSON.parse(normalizedLine)
+          if (item.name) found.push(item as Attraction)
+          if (item.summary) resultSummary = item.summary
+        } catch {
+          // Ignore malformed stream fragments and keep any valid verified results.
+        }
       })
       setAttractions(found)
-      setSummary(resultSummary)
-      if (!found.length) Alert.alert("No verified matches", "Try a broader idea or another destination.")
+      setSummary(resultSummary || (found.length ? `${found.length} verified place${found.length === 1 ? "" : "s"} in ${selected.name}.` : ""))
+      if (!found.length) setSearchError(`No verified matches appeared for ${selected.name}. Try “food”, “museums”, or another broader idea.`)
     } catch (error) {
-      Alert.alert("Search unavailable", error instanceof Error ? error.message : "Please try again shortly.")
+      setSearchError(error instanceof Error ? error.message : "Search is temporarily unavailable. Please try again shortly.")
     } finally {
       setSearching(false)
     }
@@ -267,10 +304,31 @@ export default function ExploreScreen() {
               placeholderTextColor={colors.textMuted}
               style={styles.searchInput}
               returnKeyType="search"
+              clearButtonMode="while-editing"
+              blurOnSubmit
               onSubmitEditing={searchPlaces}
             />
+            {query ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setQuery("")} style={styles.clearSearch}>
+                <Ionicons name="close-circle" size={21} color="rgba(255,255,255,0.58)" />
+              </Pressable>
+            ) : null}
+          </View>
+          <Text style={styles.searchContext}>Using your Family Vibe · {getDestinationQueryForLens(selected, lens)}</Text>
+          <View style={styles.searchSuggestions}>
+            {searchSuggestions.map((suggestion) => (
+              <Pressable key={suggestion} onPress={() => setQuery(suggestion)} style={styles.searchSuggestion}>
+                <Text style={styles.searchSuggestionText}>{suggestion}</Text>
+              </Pressable>
+            ))}
           </View>
           <Button variant="secondary" onPress={searchPlaces} loading={searching} style={styles.searchButton}>Find matching places</Button>
+          {searchError ? (
+            <View style={styles.searchError}>
+              <Ionicons name="information-circle-outline" size={18} color="#F1C6B5" />
+              <Text style={styles.searchErrorText}>{searchError}</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.sectionHeading}>
@@ -330,10 +388,23 @@ export default function ExploreScreen() {
               placeholder="Search city, country, or region"
               placeholderTextColor="rgba(255,255,255,0.45)"
               style={styles.browserSearchInput}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
             />
           </View>
-          <ScrollView contentContainerStyle={styles.browserList} keyboardShouldPersistTaps="handled">
+          <ScrollView contentContainerStyle={styles.browserList} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <Text style={styles.browserListLabel}>{browseQuery ? "SEARCH RESULTS" : "CURATED DESTINATIONS"}</Text>
+            {customDestination ? (
+              <Pressable onPress={() => chooseDestination(customDestination)} style={({ pressed }) => [styles.customDestinationRow, pressed && styles.browserRowPressed]}>
+                <View style={styles.customDestinationIcon}><Ionicons name="search" size={18} color="#FFFFFF" /></View>
+                <View style={styles.browserRowCopy}>
+                  <Text style={styles.customDestinationLabel}>SEARCH ANY DESTINATION</Text>
+                  <Text style={styles.customDestinationTitle}>Explore {customDestination.destination}</Text>
+                  <Text style={styles.browserReason}>Find verified places using your Family Vibe</Text>
+                </View>
+                <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
+              </Pressable>
+            ) : null}
             {browsableDestinations.map((destination) => (
               <Pressable key={destination.slug} onPress={() => chooseDestination(destination)} style={({ pressed }) => [styles.browserRow, pressed && styles.browserRowPressed]}>
                 <View style={styles.browserRowCopy}>
@@ -345,7 +416,7 @@ export default function ExploreScreen() {
                 <View style={styles.browserArrow}><Ionicons name="arrow-forward" size={17} color="#FFFFFF" /></View>
               </Pressable>
             ))}
-            {!browsableDestinations.length ? <Text style={styles.browserEmpty}>No curated destination matches that search yet.</Text> : null}
+            {!browsableDestinations.length && !customDestination ? <Text style={styles.browserEmpty}>Type any city or region to explore it.</Text> : null}
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -397,7 +468,14 @@ const styles = StyleSheet.create({
   searchEyebrow: { color: "rgba(255,255,255,0.44)", fontSize: 9, fontWeight: "800", letterSpacing: 1.4 },
   searchInputRow: { minHeight: 52, borderRadius: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(255,255,255,0.42)", flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 2 },
   searchInput: { flex: 1, color: "#FFFFFF", fontSize: 14 },
+  clearSearch: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+  searchContext: { color: "rgba(255,255,255,0.58)", fontSize: 10, lineHeight: 15 },
+  searchSuggestions: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+  searchSuggestion: { borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.28)", borderRadius: 99, paddingHorizontal: 10, paddingVertical: 7 },
+  searchSuggestionText: { color: "rgba(255,255,255,0.82)", fontSize: 10, fontWeight: "700" },
   searchButton: { backgroundColor: colors.surface, borderColor: colors.surface },
+  searchError: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "rgba(255,255,255,0.2)", paddingTop: 12 },
+  searchErrorText: { flex: 1, color: "rgba(255,255,255,0.78)", fontSize: 11, lineHeight: 17 },
   sectionHeading: { paddingHorizontal: 18, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
   sectionHeadingCopy: { flex: 1, paddingRight: 12 },
   sectionTitle: { color: colors.text, fontSize: 25, fontFamily: typography.serif, fontWeight: "700", marginTop: 3 },
@@ -458,4 +536,8 @@ const styles = StyleSheet.create({
   browserImage: { width: 76, height: 84, borderRadius: radii.small, backgroundColor: "rgba(255,255,255,0.08)" },
   browserArrow: { position: "absolute", right: 8, bottom: 16, width: 30, height: 30, borderRadius: 15, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   browserEmpty: { color: "rgba(255,255,255,0.62)", fontSize: 14, textAlign: "center", paddingVertical: 48 },
+  customDestinationRow: { minHeight: 94, marginBottom: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(255,255,255,0.2)", flexDirection: "row", alignItems: "center", gap: 13, paddingVertical: 14 },
+  customDestinationIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  customDestinationLabel: { color: "rgba(255,255,255,0.46)", fontSize: 8, fontWeight: "900", letterSpacing: 1.2 },
+  customDestinationTitle: { color: "#FFFFFF", fontSize: 20, fontFamily: typography.serif, fontWeight: "700", marginTop: 4 },
 })

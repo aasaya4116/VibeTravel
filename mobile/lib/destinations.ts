@@ -9,8 +9,8 @@ export interface DestinationCard {
   region: string
   destination: string
   imageUrl: string
-  latitude: number
-  longitude: number
+  latitude?: number
+  longitude?: number
   headline: string
   familyFitReason: string
   tags: string[]
@@ -182,6 +182,23 @@ export const destinationCards: DestinationCard[] = [
     lenses: ["Your vibe", "Food + culture", "Easy with kids", "Nature reset"],
   },
   {
+    slug: "lagos",
+    name: "Lagos",
+    country: "Nigeria",
+    region: "Africa",
+    destination: "Lagos, Nigeria",
+    imageUrl: "https://images.unsplash.com/photo-1577948000111-9c970dfe3743?w=1400&h=1100&fit=crop",
+    latitude: 6.5244,
+    longitude: 3.3792,
+    headline: "Bold flavor, art, and coastal energy",
+    familyFitReason: "Markets, contemporary art, Nigerian food, beaches, and creative neighborhoods give families a vivid mix of culture and downtime.",
+    tags: ["Nigerian food", "Creative culture", "Coastal days"],
+    energy: "Lively, flexible",
+    idealStay: "4–6 days",
+    query: "family-friendly Nigerian restaurants, art, culture, beaches, markets, and hands-on activities",
+    lenses: ["Your vibe", "Food + culture", "Easy with kids", "Nature reset"],
+  },
+  {
     slug: "chicago",
     name: "Chicago",
     country: "United States",
@@ -225,9 +242,9 @@ export function getDefaultDestinationLens(familyVibe: FamilyVibe | null): Destin
 }
 
 const lensEditorialOrder: Partial<Record<DestinationLens, string[]>> = {
-  "Food + culture": ["mexico-city", "cape-town", "lisbon", "tokyo", "kyoto", "seoul", "singapore", "chicago"],
-  "Easy with kids": ["copenhagen", "cape-town", "singapore", "san-diego", "tokyo", "lisbon", "mexico-city", "seoul", "chicago", "seattle"],
-  "Nature reset": ["san-diego", "cape-town", "kyoto", "seattle", "singapore"],
+  "Food + culture": ["mexico-city", "lagos", "cape-town", "lisbon", "tokyo", "kyoto", "seoul", "singapore", "chicago"],
+  "Easy with kids": ["copenhagen", "cape-town", "lagos", "singapore", "san-diego", "tokyo", "lisbon", "mexico-city", "seoul", "chicago", "seattle"],
+  "Nature reset": ["san-diego", "cape-town", "lagos", "kyoto", "seattle", "singapore"],
 }
 
 function destinationScore(card: DestinationCard, familyVibe: FamilyVibe | null, lens: DestinationLens) {
@@ -298,6 +315,35 @@ export function findDestinationCard(value: string | null | undefined) {
     const destination = card.destination.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()
     return normalized === destination || normalized === name || normalized.startsWith(`${name} `)
   }) ?? null
+}
+
+export function createDestinationCard(value: string): DestinationCard {
+  const destination = value.trim()
+  const [cityPart, ...countryParts] = destination.split(",").map((part) => part.trim()).filter(Boolean)
+  const name = cityPart || destination
+  const country = countryParts.join(", ") || "Your destination"
+  const slug = destination.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "destination"
+
+  return {
+    slug: `custom-${slug}`,
+    name,
+    country,
+    region: "Anywhere",
+    destination,
+    imageUrl: "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=1400&h=1100&fit=crop",
+    headline: "Build a trip around what your family loves",
+    familyFitReason: `Search verified places in ${name} using your Family Vibe, pace, and interests.`,
+    tags: ["Your destination", "Vibe-matched", "Verified places"],
+    energy: "Set by your vibe",
+    idealStay: "Your dates",
+    query: "family-friendly food, culture, parks, museums, and memorable local experiences",
+    lenses: ["Your vibe", "Food + culture", "Easy with kids", "Nature reset"],
+  }
+}
+
+export function resolveDestinationCard(value: string | null | undefined) {
+  if (!value?.trim()) return null
+  return findDestinationCard(value) ?? createDestinationCard(value)
 }
 
 export function getTripImage(destination: string) {

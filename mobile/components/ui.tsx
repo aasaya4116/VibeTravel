@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Pressable,
   RefreshControl,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -29,6 +30,8 @@ export function Screen({
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView
         contentContainerStyle={[styles.screen, contentStyle]}
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           onRefresh ? (
             <RefreshControl refreshing={Boolean(refreshing)} onRefresh={onRefresh} tintColor={colors.primary} />

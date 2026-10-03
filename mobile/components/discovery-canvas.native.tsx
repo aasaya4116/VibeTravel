@@ -12,34 +12,41 @@ interface DiscoveryCanvasProps {
 }
 
 export default function DiscoveryCanvas({ destination, lens, searching, onExplore }: DiscoveryCanvasProps) {
+  const hasCoordinates = Number.isFinite(destination.latitude) && Number.isFinite(destination.longitude)
   const region = {
-    latitude: destination.latitude,
-    longitude: destination.longitude,
+    latitude: destination.latitude ?? 0,
+    longitude: destination.longitude ?? 0,
     latitudeDelta: 0.18,
     longitudeDelta: 0.18,
   }
 
   return (
     <View style={styles.canvas}>
-      <MapView
-        key={destination.slug}
-        style={StyleSheet.absoluteFill}
-        initialRegion={region}
-        showsCompass={false}
-        showsUserLocation={false}
-        toolbarEnabled={false}
-      >
-        <Marker
-          coordinate={{ latitude: destination.latitude, longitude: destination.longitude }}
-          title={destination.name}
-          description={destination.headline}
-          pinColor={colors.primary}
-        />
-      </MapView>
+      {hasCoordinates ? (
+        <MapView
+          key={destination.slug}
+          style={StyleSheet.absoluteFill}
+          initialRegion={region}
+          showsCompass={false}
+          showsUserLocation={false}
+          toolbarEnabled={false}
+        >
+          <Marker
+            coordinate={{ latitude: destination.latitude!, longitude: destination.longitude! }}
+            title={destination.name}
+            description={destination.headline}
+            pinColor={colors.primary}
+          />
+        </MapView>
+      ) : (
+        <ImageBackground source={{ uri: destination.imageUrl }} style={StyleSheet.absoluteFill}>
+          <View style={styles.fallbackShade} />
+        </ImageBackground>
+      )}
 
       <View pointerEvents="none" style={styles.mapLabel}>
         <Ionicons name="map-outline" size={13} color={colors.text} />
-        <Text style={styles.mapLabelText}>{lens.toUpperCase()} MAP</Text>
+        <Text style={styles.mapLabelText}>{hasCoordinates ? `${lens.toUpperCase()} MAP` : "DESTINATION PREVIEW"}</Text>
       </View>
 
       <ImageBackground source={{ uri: destination.imageUrl }} style={styles.story} imageStyle={styles.storyImage}>
@@ -83,4 +90,5 @@ const styles = StyleSheet.create({
   actionText: { color: "#FFFFFF", fontSize: 13, fontWeight: "900" },
   pressed: { opacity: 0.72 },
   disabled: { opacity: 0.68 },
+  fallbackShade: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(10,9,8,0.2)" },
 })
