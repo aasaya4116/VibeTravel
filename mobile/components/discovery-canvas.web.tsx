@@ -1,6 +1,7 @@
 import { ActivityIndicator, ImageBackground, Pressable, StyleSheet, Text, View } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import type { DestinationCard, DestinationLens } from "@/lib/destinations"
+import { remoteImageSource } from "@/lib/media"
 import { colors, radii, shadows, typography } from "@/lib/theme"
 
 interface DiscoveryCanvasProps {
@@ -8,11 +9,12 @@ interface DiscoveryCanvasProps {
   lens: DestinationLens
   searching: boolean
   onExplore: () => void
+  accessToken?: string | null
 }
 
-export default function DiscoveryCanvas({ destination, lens, searching, onExplore }: DiscoveryCanvasProps) {
+export default function DiscoveryCanvas({ destination, lens, searching, onExplore, accessToken }: DiscoveryCanvasProps) {
   return (
-    <ImageBackground source={{ uri: destination.imageUrl }} style={styles.hero} imageStyle={styles.heroImage}>
+    <ImageBackground source={remoteImageSource(destination.imageUrl, accessToken)} style={styles.hero} imageStyle={styles.heroImage}>
       <View style={styles.shade} />
       <View style={styles.previewPill}>
         <Ionicons name="location" size={13} color="#FFFFFF" />

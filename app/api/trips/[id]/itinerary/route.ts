@@ -9,6 +9,7 @@ import {
   mergeItinerarySection,
   mergeRegeneratedDay,
   pinSavedAttractionsToDates,
+  reconcileSavedAttractionsInItinerary,
 } from "@/lib/itinerary-editing"
 import {
   assignAttractionsToBatches,
@@ -268,8 +269,14 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
   const pendingAttractions = attractions.filter(
     (attraction) => !existingAttractionNames.has(attraction.name.trim().toLowerCase())
   )
+  // A full rebuild replaces the whole itinerary, so it must receive every
+  // saved pick. Using only pending picks here could erase previously included
+  // traveler choices on a retry or rebuild.
+  const attractionsToAssign = !isTargetDay && !isDelta && !requestedDates
+    ? attractions
+    : pendingAttractions
   const attractionAssignments = assignAttractionsToBatches(
-    pendingAttractions,
+    attractionsToAssign,
     generationBatches
   )
 
@@ -278,6 +285,7 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
   )
 
   let parsed: z.infer<typeof itineraryOutputSchema> | undefined
+  let generationMode: "full" | "saved-picks-only" = "full"
   try {
     const generatedBatches = await Promise.all(
       generationBatches.map(async (batchDates, batchIndex) => {
@@ -316,6 +324,7 @@ ${weatherContext ? "- Use the weather forecast when choosing indoor versus outdo
 Rules:
 - Return each of these dates exactly once and no other dates: ${exactDates}.
 - KEEP all existing itinerary items exactly as-is, especially user-saved attractions marked recommended: false.
+- INCLUDE every newly saved place supplied for this batch, using its exact name and recommended: false.
 - Apply the requested improvement by adding, adjusting, or swapping only AI-suggested items.
 - Do NOT remove user-saved, completed, or skipped items.
 - Recommended activities must be REAL places that actually exist in ${trip.destination}.
@@ -358,6 +367,9 @@ Improvement request: ${deltaInstruction}
 
 Existing days in this batch:
 ${JSON.stringify(existingBatch, null, 2)}
+${batchAttractions.length ? `
+Newly saved places to add in this batch (MUST include each exact name and mark recommended: false):
+${batchAttractions.map((attraction) => `- ${attraction.name} (${attraction.estimatedDuration || "1-2 hours"})${attraction.plannedDate ? ` — preferred date: ${attraction.plannedDate}` : ""}`).join("\n")}` : ""}
 
 Return every supplied date, including unchanged dates.`
             : `Trip: ${trip.title}, destination: ${trip.destination}. Full trip: ${dateRangeDesc}.
@@ -372,7 +384,9 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
         const result = await generateText({
           model: anthropic(ITINERARY_MODEL),
           maxOutputTokens: Math.min(8_000, Math.max(3_000, batchDates.length * 900)),
-          maxRetries: 1,
+          // Never spend a second model call behind the user's back. The
+          // deterministic saved-picks fallback below keeps the trip usable.
+          maxRetries: 0,
           abortSignal: AbortSignal.timeout(remainingGenerationMs),
           output: Output.object({ schema: itineraryOutputSchema }),
           system,
@@ -398,15 +412,41 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
     const errorName = err instanceof Error ? err.name : "UnknownError"
     const timedOut = errorName === "AbortError" || errorName === "TimeoutError"
     console.error(`[itinerary:${requestId}] generation failed (${errorName}):`, err)
-    return NextResponse.json(
-      {
-        error: timedOut
-          ? "This itinerary is taking longer than expected. Your trip is safe—please try again."
-          : "We couldn't build this itinerary right now. Your saved places are safe—please try again.",
-        requestId,
-      },
-      { status: timedOut ? 504 : 502 }
+    if (isTargetDay || isDelta || attractionsToAssign.length === 0) {
+      return NextResponse.json(
+        {
+          error: timedOut
+            ? "This itinerary is taking longer than expected. Your trip is safe—please try again."
+            : "We couldn't build this itinerary right now. Your saved places are safe—please try again.",
+          requestId,
+        },
+        { status: timedOut ? 504 : 502 }
+      )
+    }
+
+    // A model outage must not make the core workflow unusable. Persist a
+    // deterministic base plan containing every saved traveler pick; the user
+    // can refine individual days later without paying for an automatic retry.
+    generationMode = "saved-picks-only"
+    const fallbackDays = reconcileSavedAttractionsInItinerary(
+      generationDateValues.map((date) => ({ date, items: [] })),
+      attractionsToAssign,
+      () => `fallback-${crypto.randomUUID()}`
     )
+    parsed = {
+      days: fallbackDays.map((day) => ({
+        date: day.date,
+        items: day.items.map((item) => ({
+          attraction_name: item.attraction_name,
+          start_time: item.start_time,
+          end_time: item.end_time,
+          notes: item.notes,
+          recommended: false,
+          item_type: "place" as const,
+          fit_signals: item.fit_signals ?? [],
+        })),
+      })),
+    }
   }
 
   if (!parsed?.days?.length) {
@@ -465,7 +505,7 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
   // A model response should contain every saved place, but do not let an
   // omission drop a traveler pick. Add any missing place to a day in the same
   // generation window before saving the assembled itinerary.
-  if (!isTargetDay && !isDelta) {
+  if (!isTargetDay) {
     const returnedNames = new Set(
       generatedDays.flatMap((day) =>
         day.items.map((item) => item.attraction_name.trim().toLowerCase())
@@ -541,6 +581,34 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
     )
   }
 
+  // Any multi-day write (full build, section, or "add saved places") must
+  // finish with the same invariant: every traveler save exists exactly once.
+  // This also repairs older itineraries created before the invariant existed.
+  if (!isTargetDay) {
+    itinerary = reconcileSavedAttractionsInItinerary(
+      itinerary,
+      attractions,
+      () => `item-${crypto.randomUUID()}`
+    )
+  }
+
+  const includedSavedNames = new Set(
+    itinerary.flatMap((day) => day.items)
+      .filter((item) => item.recommended === false)
+      .map((item) => item.attraction_name.trim().toLowerCase())
+  )
+  const missingSavedNames = attractions
+    .map((attraction) => attraction.name.trim())
+    .filter((name) => !includedSavedNames.has(name.toLowerCase()))
+
+  if (!isTargetDay && missingSavedNames.length > 0) {
+    console.error(`[itinerary:${requestId}] saved-place invariant failed`, { missingSavedNames })
+    return NextResponse.json(
+      { error: "We kept your saved places safe, but could not place all of them in the itinerary. Please try again.", requestId },
+      { status: 500 }
+    )
+  }
+
   const { error: updateError } = await supabase
     .from("trips")
     .update({
@@ -557,5 +625,14 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
     )
   }
 
-  return NextResponse.json({ itinerary })
+  return NextResponse.json({
+    itinerary,
+    inclusion: {
+      savedCount: attractions.length,
+      includedCount: attractions.length - missingSavedNames.length,
+      missingNames: missingSavedNames,
+      requestId,
+      generationMode,
+    },
+  })
 }

@@ -175,7 +175,29 @@ export async function saveAttractionToTrip(
   return data as SavedAttraction
 }
 
-export async function generateTripItinerary(accessToken: string, tripId: string) {
+export interface GenerateItineraryOptions {
+  instruction?: string
+  dayDate?: string
+  dayInstruction?: string
+  dates?: string[]
+}
+
+export interface GenerateItineraryResult {
+  itinerary: ItineraryDay[]
+  inclusion?: {
+    savedCount: number
+    includedCount: number
+    missingNames: string[]
+    requestId: string
+    generationMode?: "full" | "saved-picks-only"
+  }
+}
+
+export async function generateTripItinerary(
+  accessToken: string,
+  tripId: string,
+  options: GenerateItineraryOptions = {}
+): Promise<GenerateItineraryResult> {
   const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_SITE_URL ?? "https://vibe-travel-six.vercel.app"
   const response = await fetch(`${apiUrl}/api/trips/${tripId}/itinerary`, {
     method: "POST",
@@ -183,11 +205,14 @@ export async function generateTripItinerary(accessToken: string, tripId: string)
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({}),
+    body: JSON.stringify(options),
   })
   const body = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(body.error || "We couldn't build this itinerary right now.")
-  return body.itinerary as ItineraryDay[]
+  return {
+    itinerary: body.itinerary as ItineraryDay[],
+    inclusion: body.inclusion,
+  }
 }
 
 export async function saveItinerary(userId: string, trip: Trip, itinerary: ItineraryDay[]) {

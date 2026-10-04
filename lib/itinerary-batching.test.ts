@@ -7,12 +7,12 @@ import {
 } from "./itinerary-batching"
 
 describe("itinerary batching", () => {
-  it("splits a 32-day trip into four bounded generation calls", () => {
+  it("splits a 32-day trip into bounded four-day generation calls", () => {
     const dates = enumerateTripDates("2026-10-28", "2026-11-28")
     const batches = batchTripDates(dates)
 
     expect(dates).toHaveLength(32)
-    expect(batches.map((batch) => batch.length)).toEqual([8, 8, 8, 8])
+    expect(batches.map((batch) => batch.length)).toEqual([4, 4, 4, 4, 4, 4, 4, 4])
     expect(batches.flat()).toEqual(dates)
   })
 
@@ -29,7 +29,7 @@ describe("itinerary batching", () => {
 
     const assigned = assignAttractionsToBatches(attractions, batches)
 
-    expect(assigned[2].map((item) => item.name)).toContain("Sydney Opera House")
+    expect(assigned[5].map((item) => item.name)).toContain("Sydney Opera House")
     expect(assigned.flat().map((item) => item.name).sort()).toEqual(
       attractions.map((item) => item.name).sort()
     )

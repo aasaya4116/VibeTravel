@@ -4,10 +4,13 @@ import { Ionicons } from "@expo/vector-icons"
 import { EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen } from "@/components/ui"
 import { formatTripDates } from "@/lib/format"
 import { getTripImage } from "@/lib/destinations"
+import { remoteImageSource } from "@/lib/media"
 import { colors, shadows, typography } from "@/lib/theme"
 import { useDashboard } from "@/hooks/use-dashboard"
+import { useAuth } from "@/providers/auth-provider"
 
 export default function TripsScreen() {
+  const { session } = useAuth()
   const { data, loading, refreshing, error, refresh } = useDashboard()
   if (loading && !data) return <LoadingScreen label="Opening your trips…" />
 
@@ -36,7 +39,7 @@ export default function TripsScreen() {
               onPress={() => router.push({ pathname: "/trips/[id]", params: { id: trip.id } })}
               style={({ pressed }) => [styles.trip, pressed && styles.pressed]}
             >
-              <ImageBackground source={{ uri: getTripImage(trip.destination) }} style={styles.tripImage} imageStyle={styles.tripImageRadius}>
+              <ImageBackground source={remoteImageSource(getTripImage(trip.destination), session?.access_token)} style={styles.tripImage} imageStyle={styles.tripImageRadius}>
                 <View style={styles.tripShade} />
                 <View style={styles.tripTop}>
                   <View style={[styles.badge, trip.status === "active" && styles.badgeActive]}>

@@ -6,9 +6,11 @@ import { EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen } from "@/com
 import { formatTripDates, getDaysUntil } from "@/lib/format"
 import { getReadinessPercent } from "@/lib/data"
 import { destinationCards, getTripImage } from "@/lib/destinations"
+import { remoteImageSource } from "@/lib/media"
 import { colors, radii, shadows, typography } from "@/lib/theme"
 import type { Trip } from "@/lib/types"
 import { useDashboard } from "@/hooks/use-dashboard"
+import { useAuth } from "@/providers/auth-provider"
 
 function chooseNextTrip(trips: Trip[]) {
   const available = trips.filter((trip) => trip.status !== "completed")
@@ -19,11 +21,11 @@ function chooseNextTrip(trips: Trip[]) {
   })[0]
 }
 
-function HowItWorksHero() {
+function HowItWorksHero({ accessToken }: { accessToken?: string | null }) {
   const image = destinationCards.find((destination) => destination.slug === "lisbon")?.imageUrl
 
   return (
-    <ImageBackground source={{ uri: image }} style={styles.howHero} imageStyle={styles.howHeroImage}>
+    <ImageBackground source={remoteImageSource(image, accessToken)} style={styles.howHero} imageStyle={styles.howHeroImage}>
       <View style={styles.howHeroShade} />
       <View style={styles.howHeroCopy}>
         <Text style={styles.howEyebrow}>HOW VIBETRAVEL WORKS</Text>
@@ -56,6 +58,7 @@ function HowItWorksHero() {
 }
 
 export default function TodayScreen() {
+  const { session } = useAuth()
   const { data, loading, refreshing, error, refresh } = useDashboard()
   const nextTrip = useMemo(() => chooseNextTrip(data?.trips ?? []), [data?.trips])
 
@@ -98,7 +101,7 @@ export default function TodayScreen() {
           onPress={() => router.push({ pathname: "/trips/[id]", params: { id: nextTrip.id } })}
           style={({ pressed }) => [styles.heroShell, pressed && styles.pressed]}
         >
-          <ImageBackground source={{ uri: getTripImage(nextTrip.destination) }} style={styles.hero} imageStyle={styles.heroImage}>
+          <ImageBackground source={remoteImageSource(getTripImage(nextTrip.destination), session?.access_token)} style={styles.hero} imageStyle={styles.heroImage}>
             <View style={styles.heroShade} />
             <View style={styles.heroTop}>
               <View style={styles.statusBadge}>
@@ -145,7 +148,7 @@ export default function TodayScreen() {
             onPress={() => router.push({ pathname: "/explore", params: { destination: destination.destination } } as never)}
             style={({ pressed }) => [styles.destinationRow, pressed && styles.pressed]}
           >
-            <Image source={{ uri: destination.imageUrl }} style={styles.destinationImage} />
+            <Image source={remoteImageSource(destination.imageUrl, session?.access_token)} style={styles.destinationImage} />
             <View style={styles.destinationCopy}>
               <Text style={styles.destinationName}>{destination.name}</Text>
               <Text style={styles.destinationReason} numberOfLines={1}>{destination.headline}</Text>
@@ -155,7 +158,7 @@ export default function TodayScreen() {
         ))}
       </View>
 
-      <HowItWorksHero />
+      <HowItWorksHero accessToken={session?.access_token} />
 
       <View style={styles.editorialSection}>
         <Text style={styles.sectionTitle}>Travel with less friction</Text>

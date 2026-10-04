@@ -1,4 +1,5 @@
 import type { FamilyVibe } from "./types"
+import { destinationPhotoUrl } from "./media"
 
 export type DestinationLens = "Your vibe" | "Food + culture" | "Easy with kids" | "Nature reset"
 
@@ -163,6 +164,23 @@ export const destinationCards: DestinationCard[] = [
     idealStay: "3–5 days",
     query: "family science, gardens, hawker food, and easy city activities",
     lenses: ["Food + culture", "Easy with kids", "Nature reset"],
+  },
+  {
+    slug: "addis-ababa",
+    name: "Addis Ababa",
+    country: "Ethiopia",
+    region: "Africa",
+    destination: "Addis Ababa, Ethiopia",
+    imageUrl: destinationPhotoUrl("Addis Ababa, Ethiopia"),
+    latitude: 9.03,
+    longitude: 38.74,
+    headline: "Living history, coffee, and highland culture",
+    familyFitReason: "Museums, Ethiopian food, coffee traditions, and welcoming cultural spaces give curious families a rich introduction to the city.",
+    tags: ["Ethiopian food", "Living history", "Highland culture"],
+    energy: "Lively, grounded",
+    idealStay: "3–5 days",
+    query: "family-friendly Ethiopian food, museums, cultural experiences, parks, and hands-on activities",
+    lenses: ["Your vibe", "Food + culture", "Easy with kids"],
   },
   {
     slug: "cape-town",
@@ -330,7 +348,7 @@ export function createDestinationCard(value: string): DestinationCard {
     country,
     region: "Anywhere",
     destination,
-    imageUrl: "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=1400&h=1100&fit=crop",
+    imageUrl: destinationPhotoUrl(destination),
     headline: "Build a trip around what your family loves",
     familyFitReason: `Search verified places in ${name} using your Family Vibe, pace, and interests.`,
     tags: ["Your destination", "Vibe-matched", "Verified places"],
@@ -347,5 +365,5 @@ export function resolveDestinationCard(value: string | null | undefined) {
 }
 
 export function getTripImage(destination: string) {
-  return findDestinationCard(destination)?.imageUrl ?? "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=1400&h=1000&fit=crop"
+  return findDestinationCard(destination)?.imageUrl ?? destinationPhotoUrl(destination)
 }

@@ -4,7 +4,10 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 export const MAX_ITINERARY_DAYS = 90
 export const MAX_GENERATION_DAYS = 14
-export const ITINERARY_BATCH_DAYS = 8
+// Smaller structured outputs finish more reliably inside Vercel's request
+// window. Batches run in parallel, so an eight-day trip becomes two bounded
+// four-day plans instead of one fragile long model response.
+export const ITINERARY_BATCH_DAYS = 4
 
 export function enumerateTripDates(startDate: string, endDate: string): string[] {
   const start = new Date(`${startDate}T00:00:00Z`)

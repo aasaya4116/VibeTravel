@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import type { ReactNode, Ref } from "react"
 import {
   ActivityIndicator,
   Pressable,
@@ -20,15 +20,18 @@ export function Screen({
   refreshing,
   onRefresh,
   contentStyle,
+  scrollRef,
 }: {
   children: ReactNode
   refreshing?: boolean
   onRefresh?: () => void
   contentStyle?: StyleProp<ViewStyle>
+  scrollRef?: Ref<ScrollView>
 }) {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={[styles.screen, contentStyle]}
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         keyboardShouldPersistTaps="handled"

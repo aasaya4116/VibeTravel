@@ -266,3 +266,54 @@ export function pinSavedAttractionsToDates(
     )
   )
 }
+
+/**
+ * Final write-time invariant for a complete itinerary rebuild. Every saved
+ * traveler pick must appear exactly once, regardless of what the model
+ * returned. Name matching is normalized because legacy rows do not yet carry
+ * a stable saved-attraction id inside itinerary JSON.
+ */
+export function reconcileSavedAttractionsInItinerary(
+  days: ItineraryDay[],
+  savedAttractions: Attraction[],
+  createId: (attraction: Attraction) => string
+): ItineraryDay[] {
+  if (days.length === 0 || savedAttractions.length === 0) return days
+
+  const normalize = (value: string) => value.trim().toLowerCase()
+  const savedByName = new Map(
+    savedAttractions.map((attraction) => [normalize(attraction.name), attraction])
+  )
+  const seen = new Set<string>()
+  let reconciled = days.map((day) => ({
+    ...day,
+    items: day.items.flatMap((item) => {
+      const key = normalize(item.attraction_name)
+      const saved = savedByName.get(key)
+      if (!saved) return [item]
+      if (seen.has(key)) return []
+      seen.add(key)
+      return [{ ...item, recommended: false }]
+    }),
+  }))
+
+  let flexibleDayIndex = 0
+  for (const attraction of savedAttractions) {
+    const key = normalize(attraction.name)
+    if (seen.has(key)) continue
+
+    const preferredDayIndex = attraction.plannedDate
+      ? reconciled.findIndex((day) => day.date === attraction.plannedDate)
+      : -1
+    const dayIndex = preferredDayIndex >= 0
+      ? preferredDayIndex
+      : flexibleDayIndex++ % reconciled.length
+
+    reconciled = reconciled.map((day, index) => index === dayIndex
+      ? ensureSavedAttractionsInDay(day, [attraction], createId)
+      : day)
+    seen.add(key)
+  }
+
+  return reconciled
+}

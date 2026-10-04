@@ -6,6 +6,7 @@ import {
   mergeRegeneratedDay,
   moveItineraryItem,
   pinSavedAttractionsToDates,
+  reconcileSavedAttractionsInItinerary,
   removeItineraryItem,
   reorderItineraryItem,
   restoreItineraryItem,
@@ -324,5 +325,31 @@ describe("itinerary editing helpers", () => {
     expect(
       pinSavedAttractionsToDates(generated, saved, () => "unused")
     ).toBe(generated)
+  })
+
+  it("guarantees every saved place appears exactly once after a full rebuild", () => {
+    const rebuilt: ItineraryDay[] = [
+      {
+        date: "2026-10-02",
+        items: [
+          { id: "museum-ai", attraction_name: "Museum", start_time: "09:00", end_time: "10:00", recommended: true },
+          { id: "museum-duplicate", attraction_name: "Museum", start_time: "11:00", end_time: "12:00", recommended: false },
+        ],
+      },
+      { date: "2026-10-03", items: [] },
+    ]
+    const saved = [
+      { name: "Museum", estimatedDuration: "1 hour" } as Attraction,
+      { name: "Market", estimatedDuration: "1 hour", plannedDate: "2026-10-03" } as Attraction,
+      { name: "Coffee Ceremony", estimatedDuration: "1 hour" } as Attraction,
+    ]
+
+    const next = reconcileSavedAttractionsInItinerary(rebuilt, saved, (attraction) => `saved-${attraction.name}`)
+    const names = next.flatMap((day) => day.items.map((item) => item.attraction_name))
+
+    expect(names.filter((name) => name === "Museum")).toHaveLength(1)
+    expect(names).toEqual(expect.arrayContaining(["Museum", "Market", "Coffee Ceremony"]))
+    expect(next[1].items.some((item) => item.attraction_name === "Market")).toBe(true)
+    expect(next.flatMap((day) => day.items).filter((item) => saved.some((place) => place.name === item.attraction_name)).every((item) => item.recommended === false)).toBe(true)
   })
 })

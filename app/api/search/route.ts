@@ -269,6 +269,9 @@ export async function POST(req: Request) {
         if (candidates.length > 0) {
           const { elementStream } = streamObject({
             model: anthropic("claude-haiku-4-5-20251001"),
+            // Google results remain usable through the deterministic fallback;
+            // avoid hidden model retries that add latency and spend.
+            maxRetries: 0,
             output: "array",
             schema: recommendationSchema,
             system: `You rank a closed list of Google-verified places for family travel.

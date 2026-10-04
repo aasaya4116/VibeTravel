@@ -2,6 +2,7 @@ import { ActivityIndicator, ImageBackground, Pressable, StyleSheet, Text, View }
 import { Ionicons } from "@expo/vector-icons"
 import MapView, { Marker } from "react-native-maps"
 import type { DestinationCard, DestinationLens } from "@/lib/destinations"
+import { remoteImageSource } from "@/lib/media"
 import { colors, radii, shadows, typography } from "@/lib/theme"
 
 interface DiscoveryCanvasProps {
@@ -9,9 +10,10 @@ interface DiscoveryCanvasProps {
   lens: DestinationLens
   searching: boolean
   onExplore: () => void
+  accessToken?: string | null
 }
 
-export default function DiscoveryCanvas({ destination, lens, searching, onExplore }: DiscoveryCanvasProps) {
+export default function DiscoveryCanvas({ destination, lens, searching, onExplore, accessToken }: DiscoveryCanvasProps) {
   const hasCoordinates = Number.isFinite(destination.latitude) && Number.isFinite(destination.longitude)
   const region = {
     latitude: destination.latitude ?? 0,
@@ -39,7 +41,7 @@ export default function DiscoveryCanvas({ destination, lens, searching, onExplor
           />
         </MapView>
       ) : (
-        <ImageBackground source={{ uri: destination.imageUrl }} style={StyleSheet.absoluteFill}>
+        <ImageBackground source={remoteImageSource(destination.imageUrl, accessToken)} style={StyleSheet.absoluteFill}>
           <View style={styles.fallbackShade} />
         </ImageBackground>
       )}
@@ -49,7 +51,7 @@ export default function DiscoveryCanvas({ destination, lens, searching, onExplor
         <Text style={styles.mapLabelText}>{hasCoordinates ? `${lens.toUpperCase()} MAP` : "DESTINATION PREVIEW"}</Text>
       </View>
 
-      <ImageBackground source={{ uri: destination.imageUrl }} style={styles.story} imageStyle={styles.storyImage}>
+      <ImageBackground source={remoteImageSource(destination.imageUrl, accessToken)} style={styles.story} imageStyle={styles.storyImage}>
         <View style={styles.storyShade} />
         <View style={styles.storyCopy}>
           <Text style={styles.country}>{destination.country.toUpperCase()}</Text>

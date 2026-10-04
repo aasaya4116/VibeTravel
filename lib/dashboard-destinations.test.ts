@@ -50,6 +50,12 @@ describe("dashboard destination selection", () => {
     ).toContain("Lisbon, Portugal")
   })
 
+  it("recognizes Addis Ababa for the shared web and mobile picker", () => {
+    expect(
+      getDashboardDestinationOptions([], "Addis").map((option) => option.label)
+    ).toEqual(["Addis Ababa, Ethiopia"])
+  })
+
   it("gives every destination a server-proxied image fallback", () => {
     expect(getDashboardDestinationPhotoUrl("Tulum, Mexico")).toBe(
       "/api/destination-photo?destination=Tulum%2C%20Mexico"

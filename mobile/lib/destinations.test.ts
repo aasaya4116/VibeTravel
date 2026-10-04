@@ -14,6 +14,14 @@ describe("mobile destination discovery", () => {
     expect(destination?.latitude).toBeCloseTo(6.5244)
   })
 
+  it("recognizes Addis Ababa with destination-specific discovery metadata", () => {
+    const destination = resolveDestinationCard("Addis Ababa, Ethiopia")
+
+    expect(destination?.name).toBe("Addis Ababa")
+    expect(destination?.country).toBe("Ethiopia")
+    expect(destination?.imageUrl).toContain("destination-photo")
+  })
+
   it("creates an explorable destination instead of falling back to Tokyo", () => {
     const destination = resolveDestinationCard("Accra, Ghana")
 

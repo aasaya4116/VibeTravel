@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Alert,
@@ -11,9 +11,10 @@ import {
   Text,
   TextInput,
   View,
+  type LayoutChangeEvent,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-import { useLocalSearchParams } from "expo-router"
+import { router, useLocalSearchParams } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { Button, Eyebrow, LoadingScreen, Screen } from "@/components/ui"
 import DiscoveryCanvas from "@/components/discovery-canvas"
@@ -30,19 +31,31 @@ import {
   type DestinationCard,
   type DestinationLens,
 } from "@/lib/destinations"
-import { saveAttractionToTrip } from "@/lib/data"
+import { loadTrip, saveAttractionToTrip } from "@/lib/data"
+import { absoluteMediaUrl, apiUrl, remoteImageSource } from "@/lib/media"
 import { colors, radii, typography } from "@/lib/theme"
 import type { Attraction, Trip } from "@/lib/types"
 import { useDashboard } from "@/hooks/use-dashboard"
 import { useAuth } from "@/providers/auth-provider"
 
-const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_SITE_URL ?? "https://vibe-travel-six.vercel.app"
+const fallbackPlaceImage = "https://images.unsplash.com/photo-1533105079780-92b9be482077?w=1200&h=800&fit=crop"
 
-function ResultCard({ attraction, onSave }: { attraction: Attraction; onSave: () => void }) {
+function ResultCard({
+  attraction,
+  onSave,
+  saved,
+  saving,
+}: {
+  attraction: Attraction
+  onSave: () => void
+  saved: boolean
+  saving: boolean
+}) {
   const signals = attraction.familyFitSignals?.map((signal) => signal.label) ?? attraction.vibes ?? []
+  const [imageUrl, setImageUrl] = useState(attraction.imageUrl || fallbackPlaceImage)
   return (
     <View style={styles.resultCard}>
-      {attraction.imageUrl ? <Image source={{ uri: attraction.imageUrl }} style={styles.resultImage} /> : null}
+      <Image source={remoteImageSource(imageUrl)} onError={() => setImageUrl(fallbackPlaceImage)} style={styles.resultImage} />
       <View style={styles.resultContent}>
         <View style={styles.resultTopline}>
           <Text style={styles.resultCategory}>{attraction.category || "PLACE"}</Text>
@@ -59,7 +72,9 @@ function ResultCard({ attraction, onSave }: { attraction: Attraction; onSave: ()
         <View style={styles.signalRow}>
           {signals.slice(0, 3).map((signal) => <Text key={signal} style={styles.signal}>{signal}</Text>)}
         </View>
-        <Button onPress={onSave} style={styles.saveButton}>Add to a trip</Button>
+        <Button onPress={onSave} loading={saving} disabled={saved} variant={saved ? "secondary" : "primary"} style={[styles.saveButton, saved && styles.savedButton]}>
+          {saved ? "Added to trip ✓" : "Add to trip"}
+        </Button>
       </View>
     </View>
   )
@@ -67,7 +82,7 @@ function ResultCard({ attraction, onSave }: { attraction: Attraction; onSave: ()
 
 export default function ExploreScreen() {
   const params = useLocalSearchParams<{ tripId?: string; destination?: string }>()
-  const { user } = useAuth()
+  const { user, session } = useAuth()
   const { data, loading } = useDashboard()
   const initialDestination = resolveDestinationCard(params.destination) ?? destinationCards[0]
   const [selected, setSelected] = useState<DestinationCard>(initialDestination)
@@ -82,6 +97,16 @@ export default function ExploreScreen() {
   const [browseOpen, setBrowseOpen] = useState(false)
   const [browseQuery, setBrowseQuery] = useState("")
   const [lensTouched, setLensTouched] = useState(false)
+  const [scopedTrip, setScopedTrip] = useState<Trip | null>(null)
+  const [savedAttractionNames, setSavedAttractionNames] = useState<Set<string>>(new Set())
+  const [recentlySavedNames, setRecentlySavedNames] = useState<Set<string>>(new Set())
+  const [savingName, setSavingName] = useState("")
+  const [lastSavedName, setLastSavedName] = useState("")
+  const [lastSavedTripTitle, setLastSavedTripTitle] = useState("")
+  const [hasSearched, setHasSearched] = useState(false)
+  const [revealResults, setRevealResults] = useState(false)
+  const screenRef = useRef<ScrollView>(null)
+  const autoSearchKey = useRef("")
 
   const visibleDestinations = useMemo(() => {
     return rankDestinationsForVibe(data?.familyVibe ?? null, lens)
@@ -111,6 +136,26 @@ export default function ExploreScreen() {
   const vibeDescription = describeVibeMatch(data?.familyVibe ?? null)
 
   useEffect(() => {
+    if (!user || !params.tripId) {
+      setScopedTrip(null)
+      setSavedAttractionNames(new Set())
+      return
+    }
+    let active = true
+    loadTrip(user.id, params.tripId)
+      .then((result) => {
+        if (!active) return
+        setScopedTrip(result.trip)
+        setSavedAttractionNames(new Set(result.savedAttractions.map((saved) => saved.attraction_name.trim().toLowerCase())))
+      })
+      .catch(() => {
+        if (!active) return
+        setScopedTrip(data?.trips.find((trip) => trip.id === params.tripId) ?? null)
+      })
+    return () => { active = false }
+  }, [data?.trips, params.tripId, user])
+
+  useEffect(() => {
     const destination = resolveDestinationCard(params.destination)
     if (!destination) return
     setSelected(destination)
@@ -118,6 +163,7 @@ export default function ExploreScreen() {
     setAttractions([])
     setSummary("")
     setSearchError("")
+    setHasSearched(false)
   }, [params.destination])
 
   useEffect(() => {
@@ -138,6 +184,7 @@ export default function ExploreScreen() {
     setAttractions([])
     setSummary("")
     setSearchError("")
+    setHasSearched(false)
     setBrowseOpen(false)
     setBrowseQuery("")
   }
@@ -148,6 +195,7 @@ export default function ExploreScreen() {
     setAttractions([])
     setSummary("")
     setSearchError("")
+    setHasSearched(false)
     setQuery("")
     if (params.destination) return
     const ranked = rankDestinationsForVibe(data?.familyVibe ?? null, nextLens)
@@ -157,6 +205,7 @@ export default function ExploreScreen() {
   async function searchPlaces() {
     Keyboard.dismiss()
     setSearching(true)
+    setHasSearched(true)
     setAttractions([])
     setSummary("")
     setSearchError("")
@@ -186,13 +235,17 @@ export default function ExploreScreen() {
         if (!normalizedLine || normalizedLine === "[DONE]") return
         try {
           const item = JSON.parse(normalizedLine)
-          if (item.name) found.push(item as Attraction)
+          if (item.name) found.push({
+            ...(item as Attraction),
+            imageUrl: absoluteMediaUrl(item.imageUrl),
+          })
           if (item.summary) resultSummary = item.summary
         } catch {
           // Ignore malformed stream fragments and keep any valid verified results.
         }
       })
       setAttractions(found)
+      setRevealResults(true)
       setSummary(resultSummary || (found.length ? `${found.length} verified place${found.length === 1 ? "" : "s"} in ${selected.name}.` : ""))
       if (!found.length) setSearchError(`No verified matches appeared for ${selected.name}. Try “food”, “museums”, or another broader idea.`)
     } catch (error) {
@@ -204,10 +257,17 @@ export default function ExploreScreen() {
 
   async function saveToTrip(trip: Trip) {
     if (!pendingAttraction || !user) return
+    const attractionName = pendingAttraction.name
+    const normalizedName = attractionName.trim().toLowerCase()
     setSaving(true)
     try {
-      await saveAttractionToTrip(user.id, trip.id, pendingAttraction)
-      Alert.alert("Added to your trip", `${pendingAttraction.name} is saved to ${trip.title}.`)
+      await saveAttractionToTrip(user.id, trip.id, {
+        ...pendingAttraction,
+        imageUrl: absoluteMediaUrl(pendingAttraction.imageUrl),
+      })
+      setRecentlySavedNames((current) => new Set([...current, normalizedName]))
+      setLastSavedName(attractionName)
+      setLastSavedTripTitle(trip.title)
       setPendingAttraction(null)
     } catch (error) {
       Alert.alert("Place not saved", error instanceof Error ? error.message : "Please try again.")
@@ -217,32 +277,57 @@ export default function ExploreScreen() {
   }
 
   function beginSave(attraction: Attraction) {
-    setPendingAttraction(attraction)
     if (params.tripId) {
-      const trip = data?.trips.find((item) => item.id === params.tripId)
+      const trip = scopedTrip ?? data?.trips.find((item) => item.id === params.tripId)
       if (trip) void saveToTripWithAttraction(trip, attraction)
+      return
     }
+    setPendingAttraction(attraction)
   }
 
   async function saveToTripWithAttraction(trip: Trip, attraction: Attraction) {
     if (!user) return
-    setSaving(true)
+    const normalizedName = attraction.name.trim().toLowerCase()
+    setSavingName(normalizedName)
     try {
-      await saveAttractionToTrip(user.id, trip.id, attraction)
-      Alert.alert("Added to your trip", `${attraction.name} is saved to ${trip.title}.`)
+      await saveAttractionToTrip(user.id, trip.id, {
+        ...attraction,
+        imageUrl: absoluteMediaUrl(attraction.imageUrl),
+      })
+      setSavedAttractionNames((current) => new Set([...current, normalizedName]))
+      setLastSavedName(attraction.name)
+      setLastSavedTripTitle(trip.title)
       setPendingAttraction(null)
     } catch (error) {
       Alert.alert("Place not saved", error instanceof Error ? error.message : "Please try again.")
     } finally {
-      setSaving(false)
+      setSavingName("")
     }
+  }
+
+  useEffect(() => {
+    if (!params.tripId || !params.destination || loading || !scopedTrip) return
+    const key = `${params.tripId}:${selected.destination}`
+    if (autoSearchKey.current === key) return
+    autoSearchKey.current = key
+    void searchPlaces()
+    // This runs once for each trip-scoped destination. Search inputs remain user-controlled afterward.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, params.destination, params.tripId, scopedTrip?.id, selected.destination])
+
+  function revealSearchResults(event: LayoutChangeEvent) {
+    if (!revealResults) return
+    setRevealResults(false)
+    requestAnimationFrame(() => {
+      screenRef.current?.scrollTo({ y: Math.max(0, event.nativeEvent.layout.y - 18), animated: true })
+    })
   }
 
   if (loading && !data) return <LoadingScreen label="Finding places that fit…" />
 
   return (
     <>
-      <Screen contentStyle={styles.page}>
+      <Screen scrollRef={screenRef} contentStyle={styles.page}>
         <View style={styles.header}>
           <View>
             <Eyebrow>Explore by feeling</Eyebrow>
@@ -251,18 +336,30 @@ export default function ExploreScreen() {
           <View style={styles.sparkle}><Ionicons name="sparkles" size={19} color={colors.primary} /></View>
         </View>
 
+        {scopedTrip ? (
+          <Pressable onPress={() => router.push({ pathname: "/trips/[id]", params: { id: scopedTrip.id } })} style={({ pressed }) => [styles.tripContext, pressed && styles.pressed]}>
+            <View style={styles.tripContextIcon}><Ionicons name="briefcase-outline" size={18} color={colors.primary} /></View>
+            <View style={styles.tripContextCopy}>
+              <Text style={styles.tripContextLabel}>ADDING PLACES TO</Text>
+              <Text style={styles.tripContextTitle}>{scopedTrip.title}</Text>
+              <Text style={styles.tripContextMeta}>{savedAttractionNames.size} saved · Results are scoped to {scopedTrip.destination}</Text>
+            </View>
+            <View style={styles.tripContextAction}><Text style={styles.tripContextActionText}>VIEW TRIP</Text><Ionicons name="arrow-forward" size={17} color={colors.primary} /></View>
+          </Pressable>
+        ) : null}
+
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Browse destinations"
-          onPress={() => setBrowseOpen(true)}
+          accessibilityLabel={scopedTrip ? `Trip destination ${selected.name}` : "Browse destinations"}
+          onPress={() => { if (!scopedTrip) setBrowseOpen(true) }}
           style={({ pressed }) => [styles.destinationPicker, pressed && styles.pressed]}
         >
           <View style={styles.destinationPickerIcon}><Ionicons name="location-outline" size={18} color={colors.primary} /></View>
           <View style={styles.destinationPickerCopy}>
-            <Text style={styles.destinationPickerLabel}>BROWSE DESTINATIONS</Text>
+            <Text style={styles.destinationPickerLabel}>{scopedTrip ? "TRIP DESTINATION" : "BROWSE DESTINATIONS"}</Text>
             <Text style={styles.destinationPickerValue}>{selected.name}, {selected.country}</Text>
           </View>
-          <Ionicons name="chevron-down" size={20} color={colors.text} />
+          <Ionicons name={scopedTrip ? "lock-closed-outline" : "chevron-down"} size={20} color={scopedTrip ? colors.textMuted : colors.text} />
         </Pressable>
 
         <View style={styles.lensHeading}>
@@ -285,7 +382,7 @@ export default function ExploreScreen() {
           ))}
         </ScrollView>
 
-        <DiscoveryCanvas destination={selected} lens={lens} searching={searching} onExplore={searchPlaces} />
+        <DiscoveryCanvas destination={selected} lens={lens} searching={searching} onExplore={searchPlaces} accessToken={session?.access_token} />
 
         <View style={styles.fitCard}>
           <Text style={styles.fitLabel}>WHY IT FITS YOUR FAMILY</Text>
@@ -331,40 +428,65 @@ export default function ExploreScreen() {
           ) : null}
         </View>
 
-        <View style={styles.sectionHeading}>
-          <View style={styles.sectionHeadingCopy}>
-            <Eyebrow>Matched to your family</Eyebrow>
-            <Text style={styles.sectionTitle}>Worth a closer look</Text>
-            <Text style={styles.personalizedBy}>{lens} · {vibeDescription}</Text>
-          </View>
-          <Text style={styles.sectionCount}>{visibleDestinations.length} places</Text>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.destinationRail}>
-          {visibleDestinations.map((destination) => (
-            <Pressable key={destination.slug} onPress={() => chooseDestination(destination)} style={[styles.destinationCard, selected.slug === destination.slug && styles.destinationCardActive]}>
-              <Image source={{ uri: destination.imageUrl }} style={styles.destinationImage} />
-              <View style={styles.destinationShade} />
-              <View style={styles.destinationCopy}>
-                <Text style={styles.destinationName}>{destination.name}</Text>
-                <Text style={styles.destinationSub}>{destination.country}</Text>
-              </View>
-            </Pressable>
-          ))}
-        </ScrollView>
-
         {searching ? (
-          <View style={styles.loadingResults}><ActivityIndicator color={colors.primary} /><Text style={styles.loadingResultsText}>Finding verified places for your family…</Text></View>
+          <View style={styles.loadingResults}><ActivityIndicator color={colors.primary} /><Text style={styles.loadingResultsText}>Finding verified places in {selected.name} for your family…</Text></View>
         ) : null}
 
         {attractions.length ? (
-          <View style={styles.results}>
+          <View style={styles.results} onLayout={revealSearchResults}>
             <View style={styles.sectionHeading}>
               <View><Eyebrow>Matched to your vibe</Eyebrow><Text style={styles.sectionTitle}>Places in {selected.name}</Text></View>
               <Text style={styles.sectionCount}>{attractions.length}</Text>
             </View>
+            {lastSavedName && (scopedTrip || lastSavedTripTitle) ? (
+              <View style={styles.savedConfirmation}>
+                <Ionicons name="checkmark-circle" size={19} color={colors.success} />
+                <Text style={styles.savedConfirmationText}>{lastSavedName} is in {scopedTrip?.title ?? lastSavedTripTitle}. Added places stay marked below.</Text>
+              </View>
+            ) : null}
             {summary ? <Text style={styles.summary}>{summary}</Text> : null}
-            {attractions.map((attraction) => <ResultCard key={attraction.googlePlaceId ?? attraction.name} attraction={attraction} onSave={() => beginSave(attraction)} />)}
+            {attractions.map((attraction) => {
+              const normalizedName = attraction.name.trim().toLowerCase()
+              return (
+                <ResultCard
+                  key={attraction.googlePlaceId ?? attraction.name}
+                  attraction={attraction}
+                  onSave={() => beginSave(attraction)}
+                  saved={params.tripId ? savedAttractionNames.has(normalizedName) : recentlySavedNames.has(normalizedName)}
+                  saving={savingName === normalizedName}
+                />
+              )
+            })}
           </View>
+        ) : null}
+
+        {hasSearched && !searching && !attractions.length && !searchError ? (
+          <View style={styles.noResults}><Text style={styles.noResultsTitle}>No places appeared yet</Text><Text style={styles.noResultsBody}>Try a broader idea such as food, museums, parks, or family activities.</Text></View>
+        ) : null}
+
+        {!scopedTrip ? (
+          <>
+            <View style={styles.sectionHeading}>
+              <View style={styles.sectionHeadingCopy}>
+                <Eyebrow>Matched to your family</Eyebrow>
+                <Text style={styles.sectionTitle}>Worth a closer look</Text>
+                <Text style={styles.personalizedBy}>{lens} · {vibeDescription}</Text>
+              </View>
+              <Text style={styles.sectionCount}>{visibleDestinations.length} places</Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.destinationRail}>
+              {visibleDestinations.map((destination) => (
+                <Pressable key={destination.slug} onPress={() => chooseDestination(destination)} style={[styles.destinationCard, selected.slug === destination.slug && styles.destinationCardActive]}>
+                  <Image source={remoteImageSource(destination.imageUrl, session?.access_token)} style={styles.destinationImage} />
+                  <View style={styles.destinationShade} />
+                  <View style={styles.destinationCopy}>
+                    <Text style={styles.destinationName}>{destination.name}</Text>
+                    <Text style={styles.destinationSub}>{destination.country}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </>
         ) : null}
       </Screen>
 
@@ -412,7 +534,7 @@ export default function ExploreScreen() {
                   <Text style={styles.browserCountry}>{destination.country} · {destination.region}</Text>
                   <Text style={styles.browserReason} numberOfLines={1}>{destination.headline}</Text>
                 </View>
-                <Image source={{ uri: destination.imageUrl }} style={styles.browserImage} />
+                <Image source={remoteImageSource(destination.imageUrl, session?.access_token)} style={styles.browserImage} />
                 <View style={styles.browserArrow}><Ionicons name="arrow-forward" size={17} color="#FFFFFF" /></View>
               </Pressable>
             ))}
@@ -447,6 +569,14 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   title: { color: colors.text, fontSize: 34, lineHeight: 39, fontFamily: typography.serif, fontWeight: "700", marginTop: 4 },
   sparkle: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  tripContext: { marginHorizontal: 18, paddingVertical: 15, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border, flexDirection: "row", alignItems: "center", gap: 12 },
+  tripContextIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  tripContextCopy: { flex: 1 },
+  tripContextLabel: { color: colors.primary, fontSize: 8, fontWeight: "900", letterSpacing: 1.2 },
+  tripContextTitle: { color: colors.text, fontSize: 18, fontFamily: typography.serif, fontWeight: "700", marginTop: 2 },
+  tripContextMeta: { color: colors.textMuted, fontSize: 10, lineHeight: 15, marginTop: 2 },
+  tripContextAction: { alignItems: "flex-end", gap: 3 },
+  tripContextActionText: { color: colors.primary, fontSize: 8, fontWeight: "900", letterSpacing: 1 },
   destinationPicker: { marginHorizontal: 18, minHeight: 68, paddingHorizontal: 14, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border, flexDirection: "row", alignItems: "center", gap: 12 },
   destinationPickerIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
   destinationPickerCopy: { flex: 1 },
@@ -492,6 +622,8 @@ const styles = StyleSheet.create({
   loadingResults: { marginHorizontal: 18, paddingVertical: 28, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border, alignItems: "center", gap: 12 },
   loadingResultsText: { color: colors.textMuted, fontSize: 13 },
   results: { gap: 14, paddingBottom: 10 },
+  savedConfirmation: { marginHorizontal: 18, flexDirection: "row", alignItems: "flex-start", gap: 9, backgroundColor: colors.successSoft, borderRadius: radii.small, padding: 13 },
+  savedConfirmationText: { flex: 1, color: colors.success, fontSize: 11, lineHeight: 17, fontWeight: "700" },
   summary: { marginHorizontal: 18, color: colors.success, borderLeftWidth: 2, borderLeftColor: colors.success, paddingLeft: 13, fontSize: 12, lineHeight: 18 },
   resultCard: { marginHorizontal: 18, paddingBottom: 17, overflow: "hidden", backgroundColor: "transparent", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   resultImage: { width: "100%", height: 205, backgroundColor: colors.surfaceMuted },
@@ -507,6 +639,10 @@ const styles = StyleSheet.create({
   signalRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 13 },
   signal: { color: colors.textMuted, borderBottomWidth: 1, borderBottomColor: colors.border, paddingHorizontal: 2, paddingVertical: 5, fontSize: 9, fontWeight: "700" },
   saveButton: { marginTop: 16 },
+  savedButton: { borderColor: colors.success, backgroundColor: colors.successSoft },
+  noResults: { marginHorizontal: 18, paddingVertical: 20, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  noResultsTitle: { color: colors.text, fontSize: 18, fontFamily: typography.serif, fontWeight: "700" },
+  noResultsBody: { color: colors.textMuted, fontSize: 11, lineHeight: 17, marginTop: 4 },
   modalSafe: { flex: 1, backgroundColor: colors.background },
   modalHeader: { padding: 20, flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: colors.border },
   modalHeadingCopy: { flex: 1, paddingRight: 20 },

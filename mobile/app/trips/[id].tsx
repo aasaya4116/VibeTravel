@@ -1,21 +1,29 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import {
   Alert,
   Image,
   ImageBackground,
+  KeyboardAvoidingView,
   Linking,
+  Modal,
+  Platform,
   Pressable,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native"
-import { router, Stack, useLocalSearchParams } from "expo-router"
+import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router"
+import { SafeAreaView } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons"
 import { Button, Card, EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen } from "@/components/ui"
 import { formatDayLabel, formatTripDates } from "@/lib/format"
 import { generateTripItinerary, loadTrip, saveItinerary } from "@/lib/data"
 import { getTripImage } from "@/lib/destinations"
+import { absoluteMediaUrl, remoteImageSource } from "@/lib/media"
+import { moveItineraryItem, removeItineraryItem, reorderItineraryItem, updateItineraryItem } from "@/lib/itinerary-editing"
 import { colors, shadows, typography } from "@/lib/theme"
 import type { ItineraryItem, SavedAttraction, Trip } from "@/lib/types"
 import { useAuth } from "@/providers/auth-provider"
@@ -24,6 +32,10 @@ import { useDashboard } from "@/hooks/use-dashboard"
 const siteUrl = process.env.EXPO_PUBLIC_SITE_URL ?? "https://vibe-travel-six.vercel.app"
 const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? siteUrl
 const paceLimits = { slow: 3, moderate: 4, fast: 6 } as const
+
+function normalizePlaceName(value: string) {
+  return value.trim().toLocaleLowerCase().replace(/\s+/g, " ")
+}
 
 function itemStatus(item: ItineraryItem) {
   if (item.status === "completed") return { label: "Complete", color: colors.success, background: colors.successSoft }
@@ -46,6 +58,13 @@ export default function TripScreen() {
   const [generating, setGenerating] = useState(false)
   const [selectedDay, setSelectedDay] = useState(0)
   const [tripMode, setTripMode] = useState(false)
+  const [generationError, setGenerationError] = useState("")
+  const [generationNote, setGenerationNote] = useState("")
+  const [editingStop, setEditingStop] = useState<{ item: ItineraryItem; dayIndex: number } | null>(null)
+  const [editStartTime, setEditStartTime] = useState("")
+  const [editEndTime, setEditEndTime] = useState("")
+  const [editNotes, setEditNotes] = useState("")
+  const [editTargetDay, setEditTargetDay] = useState(0)
 
   const load = useCallback(async (isRefresh = false) => {
     if (!user || !id) return
@@ -65,28 +84,44 @@ export default function TripScreen() {
     }
   }, [id, user])
 
-  useEffect(() => {
-    load()
-  }, [load])
+  useFocusEffect(useCallback(() => {
+    void load()
+  }, [load]))
 
   const day = trip?.itinerary?.[selectedDay]
   const activeItem = useMemo(() => day?.items.find((item) => !item.status || item.status === "planned"), [day])
+  const itineraryPlaceNames = useMemo(() => new Set(
+    (trip?.itinerary ?? []).flatMap((itineraryDay) => itineraryDay.items.map((item) => normalizePlaceName(item.attraction_name)))
+  ), [trip?.itinerary])
+  const pendingSavedAttractions = useMemo(() => savedAttractions.filter(
+    (saved) => !itineraryPlaceNames.has(normalizePlaceName(saved.attraction_name))
+  ), [itineraryPlaceNames, savedAttractions])
   const pace = dashboard.data?.familyVibe?.pace ?? "moderate"
   const abovePace = Boolean(day && day.items.length > paceLimits[pace])
+
+  async function persistItinerary(itinerary: Trip["itinerary"]) {
+    if (!trip || !user || offline) return false
+    const previous = trip
+    setTrip({ ...trip, itinerary })
+    setSaving(true)
+    try {
+      setTrip(await saveItinerary(user.id, trip, itinerary))
+      return true
+    } catch (error) {
+      setTrip(previous)
+      Alert.alert("Change not saved", error instanceof Error ? error.message : "Reconnect and try again.")
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }
 
   async function updateStatus(itemId: string, status: "completed" | "skipped") {
     if (!trip || !user || offline) return
     const itinerary = trip.itinerary.map((currentDay, dayIndex) => dayIndex === selectedDay
       ? { ...currentDay, items: currentDay.items.map((item) => item.id === itemId ? { ...item, status } : item) }
       : currentDay)
-    setSaving(true)
-    try {
-      setTrip(await saveItinerary(user.id, trip, itinerary))
-    } catch (error) {
-      Alert.alert("Change not saved", error instanceof Error ? error.message : "Reconnect and try again.")
-    } finally {
-      setSaving(false)
-    }
+    await persistItinerary(itinerary)
   }
 
   function openDirections(item: ItineraryItem) {
@@ -114,18 +149,77 @@ export default function TripScreen() {
     }
   }
 
-  async function generateItinerary() {
+  async function generateItinerary(options: { instruction?: string; dayDate?: string; dayInstruction?: string } = {}) {
     if (!trip || !session || offline) return
     setGenerating(true)
+    setGenerationError("")
+    setGenerationNote("")
     try {
-      const itinerary = await generateTripItinerary(session.access_token, trip.id)
-      setTrip({ ...trip, itinerary })
-      setSelectedDay(0)
+      const result = await generateTripItinerary(session.access_token, trip.id, options)
+      if (result.inclusion && result.inclusion.includedCount < result.inclusion.savedCount) {
+        throw new Error(`Only ${result.inclusion.includedCount} of ${result.inclusion.savedCount} saved places were included. Nothing was replaced—please retry.`)
+      }
+      setTrip({ ...trip, itinerary: result.itinerary })
+      if (options.dayDate) {
+        setSelectedDay(Math.max(0, result.itinerary.findIndex((candidate) => candidate.date === options.dayDate)))
+        setGenerationNote("This day was refreshed. Your other days and traveler picks stayed intact.")
+      } else if (options.instruction) {
+        const firstAddedName = pendingSavedAttractions[0]?.attraction_name
+        const addedDayIndex = firstAddedName
+          ? result.itinerary.findIndex((candidate) => candidate.items.some((item) => normalizePlaceName(item.attraction_name) === normalizePlaceName(firstAddedName)))
+          : -1
+        if (addedDayIndex >= 0) setSelectedDay(addedDayIndex)
+        setGenerationNote(`${pendingSavedAttractions.length} newly saved place${pendingSavedAttractions.length === 1 ? "" : "s"} added to your itinerary. Existing traveler picks and edits stayed intact.`)
+      } else {
+        setSelectedDay(0)
+        setGenerationNote(result.inclusion?.generationMode === "saved-picks-only"
+          ? `We built a reliable base plan with all ${result.inclusion.includedCount} saved places. Refresh individual days when you want VibeTravel to add more suggestions.`
+          : result.inclusion
+          ? `All ${result.inclusion.includedCount} saved place${result.inclusion.includedCount === 1 ? "" : "s"} are included in your itinerary.`
+          : "Your itinerary is ready. Traveler picks are marked on each day.")
+      }
     } catch (error) {
-      Alert.alert("Itinerary not generated", error instanceof Error ? error.message : "Please try again.")
+      setGenerationError(error instanceof Error ? error.message : "Your saved places are safe. Please try again.")
     } finally {
       setGenerating(false)
     }
+  }
+
+  function openStopEditor(item: ItineraryItem) {
+    setEditingStop({ item, dayIndex: selectedDay })
+    setEditStartTime(item.start_time)
+    setEditEndTime(item.end_time)
+    setEditNotes(item.notes ?? "")
+    setEditTargetDay(selectedDay)
+  }
+
+  async function saveStopEdits() {
+    if (!trip || !editingStop) return
+    let itinerary = updateItineraryItem(trip.itinerary, editingStop.dayIndex, editingStop.item.id, {
+      start_time: editStartTime.trim(),
+      end_time: editEndTime.trim(),
+      notes: editNotes.trim(),
+    })
+    itinerary = moveItineraryItem(itinerary, editingStop.dayIndex, editingStop.item.id, editTargetDay)
+    if (await persistItinerary(itinerary)) {
+      setSelectedDay(editTargetDay)
+      setEditingStop(null)
+    }
+  }
+
+  function confirmRemoveStop() {
+    if (!trip || !editingStop) return
+    Alert.alert("Remove this stop?", `${editingStop.item.attraction_name} will be removed from the itinerary.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: async () => {
+          const itinerary = removeItineraryItem(trip.itinerary, editingStop.dayIndex, editingStop.item.id)
+          if (await persistItinerary(itinerary)) setEditingStop(null)
+        },
+      },
+    ])
   }
 
   function findPlaces() {
@@ -134,9 +228,9 @@ export default function TripScreen() {
   }
 
   function getItemImage(item: ItineraryItem) {
-    return item.attraction_data?.imageUrl ?? savedAttractions.find(
+    return absoluteMediaUrl(item.attraction_data?.imageUrl ?? savedAttractions.find(
       (saved) => saved.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
-    )?.attraction_data.imageUrl
+    )?.attraction_data.imageUrl)
   }
 
   if (loading && !trip) return <LoadingScreen label="Packing your itinerary…" />
@@ -174,10 +268,11 @@ export default function TripScreen() {
   }
 
   return (
+    <>
     <Screen refreshing={refreshing} onRefresh={() => load(true)} contentStyle={styles.page}>
       <Stack.Screen options={{ title: trip.destination }} />
       {offline ? <OfflineBanner /> : null}
-      <ImageBackground source={{ uri: getTripImage(trip.destination) }} style={styles.tripHero} imageStyle={styles.tripHeroImage}>
+      <ImageBackground source={remoteImageSource(getTripImage(trip.destination), session?.access_token)} style={styles.tripHero} imageStyle={styles.tripHeroImage}>
         <View style={styles.tripHeroShade} />
         <View style={styles.heroTopRow}>
           <View style={styles.statusPill}><Text style={styles.statusPillText}>{trip.status}</Text></View>
@@ -195,8 +290,41 @@ export default function TripScreen() {
 
       <Button onPress={() => setTripMode(true)} disabled={!day?.items.length} style={styles.startMode}>Start Trip Mode</Button>
 
+      {generationNote ? (
+        <View style={styles.generationSuccess}><Ionicons name="checkmark-circle" size={19} color={colors.success} /><Text style={styles.generationSuccessText}>{generationNote}</Text></View>
+      ) : null}
+      {generationError ? (
+        <View style={styles.generationError}>
+          <Ionicons name="alert-circle-outline" size={20} color={colors.danger} />
+          <View style={styles.generationErrorCopy}><Text style={styles.generationErrorTitle}>We couldn’t finish the itinerary</Text><Text style={styles.generationErrorBody}>{generationError} Your saved places have not been removed.</Text></View>
+          <Pressable onPress={() => generateItinerary()} disabled={generating} style={styles.retryButton}><Text style={styles.retryButtonText}>Retry</Text></Pressable>
+        </View>
+      ) : null}
+
       {trip.itinerary.length ? (
         <>
+          {pendingSavedAttractions.length ? (
+            <View style={styles.pendingPicks}>
+              <View style={styles.pendingPicksHeading}>
+                <View style={styles.pendingPicksIcon}><Ionicons name="bookmark" size={17} color={colors.primaryDark} /></View>
+                <View style={styles.pendingPicksCopy}>
+                  <Text style={styles.pendingPicksTitle}>{pendingSavedAttractions.length} saved place{pendingSavedAttractions.length === 1 ? " is" : "s are"} ready</Text>
+                  <Text style={styles.pendingPicksBody} numberOfLines={2}>{pendingSavedAttractions.slice(0, 3).map((saved) => saved.attraction_name).join(" · ")}{pendingSavedAttractions.length > 3 ? ` · +${pendingSavedAttractions.length - 3} more` : ""}</Text>
+                </View>
+              </View>
+              <Button
+                onPress={() => generateItinerary({ instruction: "Add every newly saved place to the itinerary. Preserve all existing traveler picks, completed or skipped stops, and manual edits; adjust only AI suggestions as needed." })}
+                loading={generating}
+                disabled={offline}
+              >
+                Add {pendingSavedAttractions.length === 1 ? "place" : `all ${pendingSavedAttractions.length}`} to itinerary
+              </Button>
+            </View>
+          ) : null}
+          <View style={styles.planActions}>
+            <View style={styles.planAction}><Button variant={pendingSavedAttractions.length ? "secondary" : "primary"} onPress={findPlaces}>Find more places</Button></View>
+            <View style={styles.planAction}><Button variant="secondary" onPress={() => generateItinerary()} loading={generating} disabled={offline}>Rebuild plan</Button></View>
+          </View>
           <View style={styles.dayTabs}>
             {trip.itinerary.map((itineraryDay, index) => (
               <Pressable key={`${itineraryDay.date}-${index}`} onPress={() => setSelectedDay(index)} style={[styles.dayTab, selectedDay === index && styles.dayTabActive]}>
@@ -223,6 +351,16 @@ export default function TripScreen() {
             </View>
             <Text style={styles.stopCount}>{day?.items.length ?? 0} stops</Text>
           </View>
+          {day ? (
+            <View style={styles.dayActions}>
+              <Pressable onPress={() => generateItinerary({ dayDate: day.date, dayInstruction: "Refresh this day with a realistic mix while preserving every traveler pick and manual edit that must remain." })} disabled={generating || offline} style={styles.dayAction}>
+                <Ionicons name="sparkles-outline" size={16} color={colors.primary} /><Text style={styles.dayActionText}>Refresh day</Text>
+              </Pressable>
+              <Pressable onPress={() => generateItinerary({ dayDate: day.date, dayInstruction: "Optimize this day's geographic order and travel flow while preserving every traveler pick." })} disabled={generating || offline} style={styles.dayAction}>
+                <Ionicons name="git-branch-outline" size={16} color={colors.primary} /><Text style={styles.dayActionText}>Optimize route</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           <View style={styles.items}>
             {day?.items.map((item, index) => {
@@ -230,7 +368,7 @@ export default function TripScreen() {
               const itemImage = getItemImage(item)
               return (
                 <Card key={item.id} style={styles.itemCard}>
-                  {itemImage ? <Image source={{ uri: itemImage }} style={styles.itemImage} /> : null}
+                  {itemImage ? <Image source={remoteImageSource(itemImage, session?.access_token)} style={styles.itemImage} /> : null}
                   <View style={styles.itemBody}>
                     <View style={styles.timeline}>
                       <View style={styles.timelineDot} />
@@ -244,7 +382,14 @@ export default function TripScreen() {
                       <View style={styles.fitSignals}>{item.fit_signals.slice(0, 3).map((signal) => <Text key={signal} style={styles.fitSignal}>{signal}</Text>)}</View>
                     ) : null}
                     {item.notes ? <Text style={styles.itemNotes}>{item.notes}</Text> : null}
-                    <Pressable onPress={() => openDirections(item)} style={styles.directions}><Ionicons name="navigate-outline" size={16} color={colors.primary} /><Text style={styles.directionsText}>Directions</Text></Pressable>
+                    <View style={styles.itemFooter}>
+                      <Pressable onPress={() => openDirections(item)} style={styles.directions}><Ionicons name="navigate-outline" size={16} color={colors.primary} /><Text style={styles.directionsText}>Directions</Text></Pressable>
+                      <View style={styles.itemControls}>
+                        <Pressable accessibilityLabel="Move stop earlier" disabled={index === 0 || saving} onPress={() => persistItinerary(reorderItineraryItem(trip.itinerary, selectedDay, item.id, -1))} style={[styles.itemControl, index === 0 && styles.itemControlDisabled]}><Ionicons name="arrow-up" size={17} color={colors.textMuted} /></Pressable>
+                        <Pressable accessibilityLabel="Move stop later" disabled={index === day.items.length - 1 || saving} onPress={() => persistItinerary(reorderItineraryItem(trip.itinerary, selectedDay, item.id, 1))} style={[styles.itemControl, index === day.items.length - 1 && styles.itemControlDisabled]}><Ionicons name="arrow-down" size={17} color={colors.textMuted} /></Pressable>
+                        <Pressable accessibilityLabel="Edit stop" disabled={saving} onPress={() => openStopEditor(item)} style={styles.itemControl}><Ionicons name="create-outline" size={18} color={colors.primary} /></Pressable>
+                      </View>
+                    </View>
                     </View>
                   </View>
                 </Card>
@@ -264,9 +409,9 @@ export default function TripScreen() {
           <View style={styles.savedTrack}><View style={[styles.savedFill, { width: `${Math.min((savedAttractions.length / 3) * 100, 100)}%` }]} /></View>
           {savedAttractions.length ? (
             <View style={styles.savedList}>
-              {savedAttractions.slice(0, 4).map((saved) => (
+              {savedAttractions.map((saved) => (
                 <View key={saved.id} style={styles.savedPlace}>
-                  {saved.attraction_data.imageUrl ? <Image source={{ uri: saved.attraction_data.imageUrl }} style={styles.savedImage} /> : <View style={styles.savedImageFallback}><Ionicons name="location" size={16} color={colors.primary} /></View>}
+                  {saved.attraction_data.imageUrl ? <Image source={remoteImageSource(saved.attraction_data.imageUrl, session?.access_token)} style={styles.savedImage} /> : <View style={styles.savedImageFallback}><Ionicons name="location" size={16} color={colors.primary} /></View>}
                   <Text style={styles.savedName} numberOfLines={1}>{saved.attraction_name}</Text>
                   <Ionicons name="checkmark-circle" size={18} color={colors.success} />
                 </View>
@@ -274,10 +419,39 @@ export default function TripScreen() {
             </View>
           ) : null}
           <Button onPress={findPlaces} variant={savedAttractions.length >= 3 ? "secondary" : "primary"} style={styles.planningButton}>Find places in {trip.destination.split(",")[0]}</Button>
-          {savedAttractions.length >= 3 ? <Button onPress={generateItinerary} loading={generating} disabled={offline}>Generate my itinerary</Button> : null}
+          {savedAttractions.length >= 3 ? <Button onPress={() => generateItinerary()} loading={generating} disabled={offline}>Generate my itinerary with all {savedAttractions.length} picks</Button> : null}
         </View>
       )}
     </Screen>
+    <Modal visible={Boolean(editingStop)} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setEditingStop(null)}>
+      <SafeAreaView style={styles.editorSafe}>
+        <View style={styles.editorHeader}>
+          <View style={styles.editorHeaderCopy}><Eyebrow>Edit itinerary stop</Eyebrow><Text style={styles.editorTitle}>{editingStop?.item.attraction_name}</Text></View>
+          <Pressable accessibilityLabel="Close editor" onPress={() => setEditingStop(null)} style={styles.editorClose}><Ionicons name="close" size={22} color={colors.text} /></Pressable>
+        </View>
+        <KeyboardAvoidingView style={styles.editorKeyboard} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView contentContainerStyle={styles.editorBody} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}>
+          <Text style={styles.editorLabel}>Time</Text>
+          <View style={styles.timeInputs}>
+            <TextInput value={editStartTime} onChangeText={setEditStartTime} placeholder="09:00" style={styles.timeInput} keyboardType="numbers-and-punctuation" />
+            <Text style={styles.timeSeparator}>to</Text>
+            <TextInput value={editEndTime} onChangeText={setEditEndTime} placeholder="10:30" style={styles.timeInput} keyboardType="numbers-and-punctuation" />
+          </View>
+          <Text style={styles.editorLabel}>Move to day</Text>
+          <View style={styles.editorDays}>
+            {trip.itinerary.map((candidate, index) => (
+              <Pressable key={candidate.date} onPress={() => setEditTargetDay(index)} style={[styles.editorDay, editTargetDay === index && styles.editorDayActive]}><Text style={[styles.editorDayText, editTargetDay === index && styles.editorDayTextActive]}>Day {index + 1}</Text></Pressable>
+            ))}
+          </View>
+          <Text style={styles.editorLabel}>Notes</Text>
+          <TextInput value={editNotes} onChangeText={setEditNotes} placeholder="Add practical notes for your family" multiline style={styles.notesInput} />
+          <Button onPress={saveStopEdits} loading={saving} disabled={!editStartTime.trim() || !editEndTime.trim()}>Save changes</Button>
+          <Button variant="danger" onPress={confirmRemoveStop} disabled={saving}>Remove stop</Button>
+        </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </Modal>
+    </>
   )
 }
 
@@ -296,6 +470,22 @@ const styles = StyleSheet.create({
   dates: { color: "rgba(255,255,255,0.66)", fontSize: 13, marginTop: 4 },
   shareButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.28)", borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", alignItems: "center", justifyContent: "center" },
   startMode: { marginTop: 2 },
+  generationSuccess: { flexDirection: "row", alignItems: "flex-start", gap: 9, padding: 13, backgroundColor: colors.successSoft, borderRadius: 12 },
+  generationSuccessText: { flex: 1, color: colors.success, fontSize: 11, lineHeight: 17, fontWeight: "700" },
+  generationError: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 14, backgroundColor: colors.dangerSoft, borderRadius: 12 },
+  generationErrorCopy: { flex: 1 },
+  generationErrorTitle: { color: colors.danger, fontSize: 13, fontWeight: "800" },
+  generationErrorBody: { color: colors.danger, fontSize: 11, lineHeight: 17, marginTop: 3 },
+  retryButton: { minHeight: 38, paddingHorizontal: 12, borderWidth: 1, borderColor: colors.danger, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  retryButtonText: { color: colors.danger, fontSize: 11, fontWeight: "800" },
+  pendingPicks: { gap: 13, borderRadius: 18, borderWidth: 1, borderColor: "#D8C3B6", backgroundColor: "#F7F0EA", padding: 16 },
+  pendingPicksHeading: { flexDirection: "row", alignItems: "center", gap: 11 },
+  pendingPicksIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: "#EAD8CC", alignItems: "center", justifyContent: "center" },
+  pendingPicksCopy: { flex: 1 },
+  pendingPicksTitle: { color: colors.text, fontSize: 15, fontWeight: "800" },
+  pendingPicksBody: { color: colors.textMuted, fontSize: 11, lineHeight: 17, marginTop: 3 },
+  planActions: { flexDirection: "row", gap: 10 },
+  planAction: { flex: 1 },
   dayTabs: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   dayTab: { minWidth: 65, borderRadius: 14, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: colors.surface },
   dayTabActive: { backgroundColor: colors.dark, borderColor: colors.dark },
@@ -308,6 +498,9 @@ const styles = StyleSheet.create({
   warningTitle: { color: colors.warning, fontSize: 14, fontWeight: "800", textTransform: "capitalize" },
   warningBody: { color: colors.warning, fontSize: 12, lineHeight: 18, marginTop: 3 },
   itineraryHeading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  dayActions: { flexDirection: "row", gap: 9 },
+  dayAction: { flex: 1, minHeight: 44, borderWidth: 1, borderColor: colors.border, borderRadius: 10, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  dayActionText: { color: colors.text, fontSize: 11, fontWeight: "800" },
   dayHeading: { color: colors.text, fontSize: 23, fontFamily: typography.serif, fontWeight: "700", marginTop: 2 },
   stopCount: { color: colors.textMuted, fontSize: 12, fontWeight: "700" },
   items: { gap: 10 },
@@ -325,8 +518,12 @@ const styles = StyleSheet.create({
   fitSignals: { flexDirection: "row", flexWrap: "wrap", gap: 5, marginTop: 8 },
   fitSignal: { color: colors.textMuted, borderWidth: 1, borderColor: colors.border, borderRadius: 99, paddingHorizontal: 7, paddingVertical: 3, fontSize: 9 },
   itemNotes: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 9 },
-  directions: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 12, alignSelf: "flex-start" },
+  itemFooter: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 12 },
+  directions: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start" },
   directionsText: { color: colors.primary, fontSize: 12, fontWeight: "800" },
+  itemControls: { flexDirection: "row", gap: 5 },
+  itemControl: { width: 38, height: 38, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  itemControlDisabled: { opacity: 0.35 },
   modePage: { paddingTop: 12 },
   modeHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   modeTitle: { color: colors.text, fontSize: 30, fontWeight: "800", marginTop: 3 },
@@ -353,4 +550,21 @@ const styles = StyleSheet.create({
   savedImageFallback: { width: 38, height: 38, borderRadius: 11, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
   savedName: { flex: 1, color: colors.text, fontSize: 13, fontWeight: "700" },
   planningButton: { marginTop: 18, marginBottom: 10 },
+  editorSafe: { flex: 1, backgroundColor: colors.background },
+  editorKeyboard: { flex: 1 },
+  editorHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", padding: 20, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  editorHeaderCopy: { flex: 1, paddingRight: 16 },
+  editorTitle: { color: colors.text, fontSize: 27, lineHeight: 32, fontFamily: typography.serif, fontWeight: "700", marginTop: 4 },
+  editorClose: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
+  editorBody: { padding: 20, gap: 14 },
+  editorLabel: { color: colors.text, fontSize: 12, fontWeight: "800", marginTop: 3 },
+  timeInputs: { flexDirection: "row", alignItems: "center", gap: 10 },
+  timeInput: { flex: 1, minHeight: 50, borderWidth: 1, borderColor: colors.border, borderRadius: 10, backgroundColor: colors.surface, color: colors.text, paddingHorizontal: 13, fontSize: 15 },
+  timeSeparator: { color: colors.textMuted, fontSize: 12 },
+  editorDays: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  editorDay: { minHeight: 40, paddingHorizontal: 12, borderWidth: 1, borderColor: colors.border, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  editorDayActive: { backgroundColor: colors.dark, borderColor: colors.dark },
+  editorDayText: { color: colors.text, fontSize: 11, fontWeight: "800" },
+  editorDayTextActive: { color: "#FFFFFF" },
+  notesInput: { minHeight: 110, borderWidth: 1, borderColor: colors.border, borderRadius: 10, backgroundColor: colors.surface, color: colors.text, padding: 13, fontSize: 14, textAlignVertical: "top" },
 })
