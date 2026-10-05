@@ -39,6 +39,7 @@ import { useDashboard } from "@/hooks/use-dashboard"
 import { useAuth } from "@/providers/auth-provider"
 
 const fallbackPlaceImage = "https://images.unsplash.com/photo-1533105079780-92b9be482077?w=1200&h=800&fit=crop"
+const resultBatchSize = 4
 
 function ResultCard({
   attraction,
@@ -105,8 +106,10 @@ export default function ExploreScreen() {
   const [lastSavedTripTitle, setLastSavedTripTitle] = useState("")
   const [hasSearched, setHasSearched] = useState(false)
   const [revealResults, setRevealResults] = useState(false)
+  const [visibleResultCount, setVisibleResultCount] = useState(resultBatchSize)
   const screenRef = useRef<ScrollView>(null)
   const autoSearchKey = useRef("")
+  const searchInFlight = useRef(false)
 
   const visibleDestinations = useMemo(() => {
     return rankDestinationsForVibe(data?.familyVibe ?? null, lens)
@@ -164,6 +167,7 @@ export default function ExploreScreen() {
     setSummary("")
     setSearchError("")
     setHasSearched(false)
+    setVisibleResultCount(resultBatchSize)
   }, [params.destination])
 
   useEffect(() => {
@@ -185,6 +189,7 @@ export default function ExploreScreen() {
     setSummary("")
     setSearchError("")
     setHasSearched(false)
+    setVisibleResultCount(resultBatchSize)
     setBrowseOpen(false)
     setBrowseQuery("")
   }
@@ -203,10 +208,13 @@ export default function ExploreScreen() {
   }
 
   async function searchPlaces() {
+    if (searchInFlight.current) return
+    searchInFlight.current = true
     Keyboard.dismiss()
     setSearching(true)
     setHasSearched(true)
     setAttractions([])
+    setVisibleResultCount(resultBatchSize)
     setSummary("")
     setSearchError("")
     try {
@@ -251,6 +259,7 @@ export default function ExploreScreen() {
     } catch (error) {
       setSearchError(error instanceof Error ? error.message : "Search is temporarily unavailable. Please try again shortly.")
     } finally {
+      searchInFlight.current = false
       setSearching(false)
     }
   }
@@ -317,9 +326,10 @@ export default function ExploreScreen() {
 
   function revealSearchResults(event: LayoutChangeEvent) {
     if (!revealResults) return
+    const resultsY = event.nativeEvent.layout.y
     setRevealResults(false)
     requestAnimationFrame(() => {
-      screenRef.current?.scrollTo({ y: Math.max(0, event.nativeEvent.layout.y - 18), animated: true })
+      screenRef.current?.scrollTo({ y: Math.max(0, resultsY - 18), animated: true })
     })
   }
 
@@ -445,7 +455,7 @@ export default function ExploreScreen() {
               </View>
             ) : null}
             {summary ? <Text style={styles.summary}>{summary}</Text> : null}
-            {attractions.map((attraction) => {
+            {attractions.slice(0, visibleResultCount).map((attraction) => {
               const normalizedName = attraction.name.trim().toLowerCase()
               return (
                 <ResultCard
@@ -457,6 +467,22 @@ export default function ExploreScreen() {
                 />
               )
             })}
+            {visibleResultCount < attractions.length ? (
+              <View style={styles.moreResults}>
+                <Text style={styles.moreResultsStatus} accessibilityLiveRegion="polite">
+                  Showing {Math.min(visibleResultCount, attractions.length)} of {attractions.length} places
+                </Text>
+                <Button
+                  variant="secondary"
+                  onPress={() => setVisibleResultCount((current) => Math.min(current + resultBatchSize, attractions.length))}
+                  accessibilityLabel={`Show ${Math.min(resultBatchSize, attractions.length - visibleResultCount)} more places`}
+                  accessibilityHint="Loads the next group of matching places"
+                  style={styles.moreResultsButton}
+                >
+                  Show {Math.min(resultBatchSize, attractions.length - visibleResultCount)} more
+                </Button>
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -628,6 +654,9 @@ const styles = StyleSheet.create({
   resultCard: { marginHorizontal: 18, paddingBottom: 17, overflow: "hidden", backgroundColor: "transparent", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   resultImage: { width: "100%", height: 205, backgroundColor: colors.surfaceMuted },
   resultContent: { paddingTop: 15 },
+  moreResults: { marginHorizontal: 18, alignItems: "center", gap: 9, paddingTop: 2, paddingBottom: 8 },
+  moreResultsStatus: { color: colors.textMuted, fontSize: 11, fontWeight: "700" },
+  moreResultsButton: { alignSelf: "stretch" },
   resultTopline: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   resultCategory: { color: colors.primary, fontSize: 9, fontWeight: "800", letterSpacing: 1.3 },
   rating: { color: colors.text, fontSize: 11, fontWeight: "800" },
