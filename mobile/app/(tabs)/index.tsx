@@ -120,7 +120,7 @@ export default function TodayScreen() {
               </View>
               <View style={styles.progressRow}>
                 <Text style={styles.heroMeta}>{readiness}% ready</Text>
-                <Text style={styles.heroMeta}>{nextTrip.itinerary?.length ?? 0} planned days</Text>
+                <Text style={styles.heroMeta}>Open to view your full plan</Text>
               </View>
               <View style={styles.heroButton}>
                 <Text style={styles.heroButtonText}>{nextTrip.status === "active" ? "Open trip mode" : "Continue planning"}</Text>

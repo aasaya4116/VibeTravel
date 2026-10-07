@@ -20,14 +20,14 @@ import { SafeAreaView } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons"
 import { Button, Card, EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen } from "@/components/ui"
 import { formatDayLabel, formatTripDates } from "@/lib/format"
-import { generateTripItinerary, loadTrip, saveItinerary } from "@/lib/data"
+import { generateTripItinerary, loadTrip, readTripCache, saveItinerary } from "@/lib/data"
 import { getTripImage } from "@/lib/destinations"
 import { absoluteMediaUrl, remoteImageSource } from "@/lib/media"
 import { moveItineraryItem, removeItineraryItem, reorderItineraryItem, updateItineraryItem } from "@/lib/itinerary-editing"
 import { colors, shadows, typography } from "@/lib/theme"
 import type { ItineraryItem, SavedAttraction, Trip } from "@/lib/types"
 import { useAuth } from "@/providers/auth-provider"
-import { useDashboard } from "@/hooks/use-dashboard"
+import { useFamilyPace } from "@/hooks/use-family-pace"
 
 const siteUrl = process.env.EXPO_PUBLIC_SITE_URL ?? "https://vibe-travel-six.vercel.app"
 const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? siteUrl
@@ -47,7 +47,7 @@ function itemStatus(item: ItineraryItem) {
 export default function TripScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { user, session } = useAuth()
-  const dashboard = useDashboard()
+  const pace = useFamilyPace()
   const [trip, setTrip] = useState<Trip | null>(null)
   const [savedAttractions, setSavedAttractions] = useState<SavedAttraction[]>([])
   const [offline, setOffline] = useState(false)
@@ -69,7 +69,18 @@ export default function TripScreen() {
   const load = useCallback(async (isRefresh = false) => {
     if (!user || !id) return
     if (isRefresh) setRefreshing(true)
-    else setLoading(true)
+    else {
+      const cached = readTripCache(user.id, id)
+      if (cached) {
+        setTrip(cached.trip)
+        setSavedAttractions(cached.savedAttractions)
+        setOffline(false)
+        setSelectedDay((current) => Math.min(current, Math.max(0, cached.trip.itinerary.length - 1)))
+        setLoading(false)
+      } else {
+        setLoading(true)
+      }
+    }
     try {
       const result = await loadTrip(user.id, id)
       setTrip(result.trip)
@@ -96,7 +107,6 @@ export default function TripScreen() {
   const pendingSavedAttractions = useMemo(() => savedAttractions.filter(
     (saved) => !itineraryPlaceNames.has(normalizePlaceName(saved.attraction_name))
   ), [itineraryPlaceNames, savedAttractions])
-  const pace = dashboard.data?.familyVibe?.pace ?? "moderate"
   const abovePace = Boolean(day && day.items.length > paceLimits[pace])
 
   async function persistItinerary(itinerary: Trip["itinerary"]) {

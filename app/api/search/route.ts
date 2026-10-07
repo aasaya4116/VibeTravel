@@ -1,7 +1,3 @@
-import { streamObject } from "ai"
-import { anthropic } from "@ai-sdk/anthropic"
-import { z } from "zod"
-import { getWikipediaImage } from "@/lib/wikipedia-image"
 import { getAttractionImage } from "@/lib/attraction-images"
 import {
   isConfigured as isGooglePlacesConfigured,
@@ -9,41 +5,25 @@ import {
   type PlaceResult,
 } from "@/lib/travel-apis/google-places"
 import type { Attraction } from "@/lib/types"
-import {
-  getVibeDiscoveryQuery,
-  normalizeRecommendationFeedback,
-} from "@/lib/recommendation-personalization"
+import { getVibeDiscoveryQuery } from "@/lib/recommendation-personalization"
 
-// Search waits for Google candidates before AI ranks them, then streams the
-// verified results as the ranking is generated.
-export const maxDuration = 30
+// Google returns a relevance-ranked, closed candidate set. Stream those
+// verified results directly so model latency never blocks discovery.
+export const maxDuration = 15
 
-const recommendationSchema = z.object({
-  placeId: z.string().describe("An exact placeId from the supplied candidate list"),
-  vibes: z.array(z.string()).describe("2-4 short vibe tags"),
-  ageRange: z.string().describe("A cautious planning suggestion, not an admission rule"),
-  sensoryNotes: z
-    .string()
-    .nullable()
-    .describe("A cautious planning consideration; null when the candidate data does not support one"),
-  estimatedDuration: z.string().describe("A clearly approximate visit duration"),
-  tips: z
-    .array(z.string())
-    .describe("Up to two planning tips; advise checking the venue for changing details"),
-  familyFitReason: z
-    .string()
-    .describe("One concise sentence explaining why this place fits the supplied family profile and search"),
-  familyFitSignals: z
-    .array(
-      z.object({
-        type: z.enum(["age", "sensory", "pace", "style", "budget", "dietary", "general"]),
-        label: z.string().describe("A compact, plain-language fit reason of 2-6 words"),
-      })
-    )
-    .describe("The strongest profile factors that influenced this recommendation"),
-})
-
-type AiRecommendation = z.infer<typeof recommendationSchema>
+type Recommendation = {
+  placeId: string
+  vibes: string[]
+  ageRange: string
+  sensoryNotes: string | null
+  estimatedDuration: string
+  tips: string[]
+  familyFitReason: string
+  familyFitSignals: Array<{
+    type: "age" | "sensory" | "pace" | "style" | "budget" | "dietary" | "general"
+    label: string
+  }>
+}
 
 function categoryForPlace(place: PlaceResult): string {
   const toCategory = (type: string | null | undefined) => {
@@ -72,30 +52,54 @@ function categoryForPlace(place: PlaceResult): string {
   return place.primaryTypeLabel || "Attraction"
 }
 
-function fallbackRecommendation(place: PlaceResult): AiRecommendation {
-  const type = place.primaryTypeLabel?.toLowerCase() || "attraction"
+function fallbackRecommendation(
+  place: PlaceResult,
+  familyVibe: Record<string, unknown> | null | undefined,
+  effectiveQuery: string
+): Recommendation {
+  const styles = Array.isArray(familyVibe?.travel_style)
+    ? familyVibe.travel_style.filter((style): style is string => typeof style === "string")
+    : []
+  const pace = typeof familyVibe?.pace === "string" ? familyVibe.pace : null
+  const strongestStyle = styles[0]
+  const category = categoryForPlace(place)
+  const queryLabel = effectiveQuery
+    .split(",")[0]
+    .trim()
+    .slice(0, 40)
+  const signals: Recommendation["familyFitSignals"] = []
+  if (strongestStyle) {
+    signals.push({ type: "style", label: strongestStyle.slice(0, 40) })
+  }
+  if (pace) {
+    signals.push({ type: "pace", label: `${pace} pace`.slice(0, 40) })
+  }
+  signals.push({ type: "general", label: `${category} match`.slice(0, 40) })
+
   return {
     placeId: place.id,
-    vibes: ["family option", "verified place"],
+    vibes: [...styles.slice(0, 2), "verified place"],
     ageRange: "Check venue guidance",
     sensoryNotes: null,
     estimatedDuration: "Plan 1–3 hours",
     tips: ["Confirm current hours and ticket requirements before visiting."],
-    familyFitReason: `${place.name} matches this search and is verified by Google. Check current venue guidance against your family's needs.`,
-    familyFitSignals: [],
+    familyFitReason: strongestStyle
+      ? `${place.name} is a Google-verified ${category.toLowerCase()} matching your ${strongestStyle.toLowerCase()} interests and this ${queryLabel || "family"} search.`
+      : `${place.name} is a Google-verified ${category.toLowerCase()} matching this ${queryLabel || "family"} search.`,
+    familyFitSignals: signals.slice(0, 3),
   }
 }
 
-async function toAttraction(
+function toAttraction(
   place: PlaceResult,
-  recommendation: AiRecommendation,
+  recommendation: Recommendation,
   personalizedForFamily: boolean
-): Promise<Attraction> {
+): Attraction {
   const category = categoryForPlace(place)
-  const wikiImage = place.photoUrl
-    ? null
-    : await getWikipediaImage(place.name, place.address)
-  const imageSource = place.photoUrl ? "google" : wikiImage ? "wikipedia" : "fallback"
+  // Search results should never wait on a secondary image provider. Google
+  // photos are already lazy-loaded through our proxy; category art is the
+  // deterministic fallback when a venue has no provider photo.
+  const imageSource = place.photoUrl ? "google" : "fallback"
 
   return {
     googlePlaceId: place.id,
@@ -113,7 +117,6 @@ async function toAttraction(
     location: place.address,
     imageUrl:
       place.photoUrl ||
-      wikiImage ||
       getAttractionImage(category, place.name),
     rating: place.rating ?? undefined,
     userRatingCount: place.userRatingCount,
@@ -156,11 +159,6 @@ export async function POST(req: Request) {
         familyVibe.pace ||
         familyVibe.budget_preference))
   )
-  const preferenceFeedback = normalizeRecommendationFeedback(
-    body?.preferenceFeedback,
-    10
-  )
-
   if (!destination) {
     return Response.json(
       { error: "Choose a city or region so every result can be verified in the right place." },
@@ -191,7 +189,10 @@ export async function POST(req: Request) {
 
   let candidates: PlaceResult[]
   try {
-    candidates = await searchVerifiedPlaces(providerQuery, destination, 12)
+    candidates = await searchVerifiedPlaces(providerQuery, destination, 12, {
+      signal: req.signal,
+      timeoutMs: 6_000,
+    })
   } catch {
     return Response.json(
       { error: "We couldn't verify places with Google right now. Please try again shortly." },
@@ -204,32 +205,6 @@ export async function POST(req: Request) {
   if (filters?.strollerFriendly) {
     candidates = candidates.filter((place) => place.accessibleEntrance === true)
   }
-
-  const candidateById = new Map(candidates.map((place) => [place.id, place]))
-  const candidateData = candidates.map((place) => ({
-    placeId: place.id,
-    name: place.name,
-    address: place.address,
-    type: place.primaryTypeLabel,
-    rating: place.rating,
-    reviewCount: place.userRatingCount,
-    price: place.priceLevel,
-    accessibleEntrance: place.accessibleEntrance,
-    businessStatus: place.businessStatus,
-  }))
-
-  const filterContext = `Requested filters: age=${filters?.ageRange || "any"}, verified step-free entrance=${filters?.strollerFriendly ? "required" : "any"}, budget=${effectiveBudget}, category=${filters?.category || "any"}`
-  const vibeContext = hasFamilyContext
-    ? `Family context: account owner/lead traveler=${ownerName || "not named"}, kids=${JSON.stringify(familyVibe?.kids || [])}, other travelers=${JSON.stringify(familyVibe?.travelers || [])}, style=${familyVibe?.travel_style?.join(", ") || "any"}, sensory=${familyVibe?.sensory_needs?.join(", ") || "none"}, pace=${familyVibe?.pace || "moderate"}, dietary=${familyVibe?.dietary?.join(", ") || "none"}`
-    : "No family profile is available; give general family planning guidance."
-  const feedbackContext = preferenceFeedback.length
-    ? `Earlier recommendation feedback from this device (use it to downrank similar mismatches):\n${preferenceFeedback
-        .map(
-          (item) =>
-            `- ${item.reason}: category=${item.category || "unknown"}, vibes=${item.vibes.join(", ") || "unknown"}, price=${item.priceRange || "unknown"}, age guidance=${item.ageRange || "unknown"}`
-        )
-        .join("\n")}`
-    : "No earlier recommendation feedback is available."
 
   const encoder = new TextEncoder()
   let streamCancelled = false
@@ -252,12 +227,12 @@ export async function POST(req: Request) {
 
       const emit = async (
         place: PlaceResult,
-        recommendation: AiRecommendation,
+        recommendation: Recommendation,
         personalizedForFamily: boolean
       ) => {
         if (streamCancelled || emittedIds.has(place.id)) return
         emittedIds.add(place.id)
-        const attraction = await toAttraction(
+        const attraction = toAttraction(
           place,
           recommendation,
           personalizedForFamily
@@ -267,59 +242,25 @@ export async function POST(req: Request) {
 
       try {
         if (candidates.length > 0) {
-          const { elementStream } = streamObject({
-            model: anthropic("claude-haiku-4-5-20251001"),
-            // Google results remain usable through the deterministic fallback;
-            // avoid hidden model retries that add latency and spend.
-            maxRetries: 0,
-            output: "array",
-            schema: recommendationSchema,
-            system: `You rank a closed list of Google-verified places for family travel.
-
-Non-negotiable rules:
-- Select ONLY exact placeId values from the supplied candidate list.
-- Never invent, rename, merge, or add a venue.
-- Rank by query relevance and family fit.
-- Use earlier feedback to downrank similar places that were too busy, too expensive, or not age-appropriate.
-- Treat name, address, rating, review count, price, accessibility, and business status as immutable provider facts.
-- Age fit, duration, sensory notes, tips, and vibes are planning guidance, not verified venue facts. Use cautious language and never claim specific facilities, policies, schedules, prices, or accessibility unless present in the candidate data.
-- Make familyFitReason one concise sentence that explicitly connects the place to the supplied travel group. Mention a traveler by name only when that person exists in the supplied profile.
-- familyFitSignals must contain at most three short, scannable reasons grounded in the supplied profile. Prefer concrete labels such as "Foodie family", "Age 9", "Grandparent-friendly", or "Moderate pace". If no profile is available, return one general search-match signal and do not imply personalization.
-- Return each selected placeId at most once.`,
-            prompt: `Destination: ${destination}
-Search: ${effectiveQuery}
-${filterContext}
-${vibeContext}
-${feedbackContext}
-
-Verified candidates:
-${JSON.stringify(candidateData)}`,
-          })
-
-          try {
-            for await (const recommendation of elementStream) {
-              if (streamCancelled) break
-              const place = candidateById.get(recommendation.placeId)
-              if (place) await emit(place, recommendation, hasFamilyContext)
-            }
-          } catch (error) {
-            if (!streamCancelled) {
-              console.error("[search] AI ranking error; using verified provider order:", error)
-            }
-          }
-
-          // Reliability fallback: if AI omits candidates or fails, still return
-          // real Google places in provider relevance order.
+          // Google has already ranked this closed, verified candidate set for
+          // the vibe-aware query. Emit it immediately so a slow model can
+          // never hold the user's results—or the end of the stream—open.
+          // Do not launch fire-and-forget enrichment here: serverless work is
+          // not guaranteed to continue after the response closes.
           for (const place of candidates) {
             if (streamCancelled) break
             if (!emittedIds.has(place.id)) {
-              await emit(place, fallbackRecommendation(place), false)
+              await emit(
+                place,
+                fallbackRecommendation(place, familyVibe, effectiveQuery),
+                hasFamilyContext
+              )
             }
           }
 
           enqueue(
             JSON.stringify({
-              summary: `${candidates.length} Google-verified place${candidates.length === 1 ? "" : "s"} in ${destination}, ${hasFamilyContext ? "ranked using your Family Vibe" : "ranked for this search"}.`,
+              summary: `${candidates.length} Google-verified place${candidates.length === 1 ? "" : "s"} in ${destination}, ${hasFamilyContext ? "matched using your Family Vibe" : "matched to this search"}.`,
             }) + "\n"
           )
         }
@@ -346,6 +287,7 @@ ${JSON.stringify(candidateData)}`,
       "Cache-Control": "no-store",
       "X-Accel-Buffering": "no",
       "X-VibeTravel-Result-Source": "google-places",
+      "Server-Timing": "search;desc=verified-provider-results",
     },
   })
 }

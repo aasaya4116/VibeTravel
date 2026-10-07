@@ -2,6 +2,7 @@ import { useEffect } from "react"
 import { Stack, useRouter, useSegments } from "expo-router"
 import { StatusBar } from "expo-status-bar"
 import { AuthProvider, useAuth } from "@/providers/auth-provider"
+import { DashboardProvider } from "@/hooks/use-dashboard"
 import { LoadingScreen } from "@/components/ui"
 import { colors } from "@/lib/theme"
 
@@ -49,7 +50,9 @@ function AppNavigator() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <AppNavigator />
+      <DashboardProvider>
+        <AppNavigator />
+      </DashboardProvider>
     </AuthProvider>
   )
 }
