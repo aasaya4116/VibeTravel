@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react"
-import { ActivityIndicator, Alert, Image, ImageBackground, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native"
+import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native"
 import { router } from "expo-router"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons"
 import { DateRangePicker } from "@/components/date-range-picker"
 import { Button, Eyebrow } from "@/components/ui"
 import { Text, TextInput } from "@/components/typography"
+import { RemoteImage, RemoteImageBackground } from "@/components/remote-image"
 import { createTrip } from "@/lib/data"
 import { destinationCards } from "@/lib/destinations"
 import { searchDestinationOptions, type DestinationOption } from "@/lib/destination-options"
-import { remoteImageSource } from "@/lib/media"
 import { colors, radii, typography } from "@/lib/theme"
 import { inclusiveTripDayCount, isValidIsoDate, localTodayIso, MAX_TRIP_DAYS, tripLengthLabel } from "@/lib/trip-dates"
 import { useAuth } from "@/providers/auth-provider"
@@ -193,10 +193,10 @@ export default function NewTripScreen() {
                   onPress={() => exploreInspiredDestination(card.destination)}
                   style={({ pressed }) => [styles.destinationCard, active && styles.destinationCardActive, pressed && styles.pressed]}
                 >
-                  <ImageBackground source={remoteImageSource(card.imageUrl, session?.access_token)} style={styles.destinationImage} imageStyle={styles.destinationImageRadius}>
+                  <RemoteImageBackground uri={card.imageUrl} accessToken={session?.access_token} preset="portraitCard" style={styles.destinationImage} imageStyle={styles.destinationImageRadius}>
                     <View style={styles.destinationShade} />
                     <View style={styles.destinationCopy}><Text style={styles.destinationName}>{card.name}</Text><Text style={styles.destinationCountry}>{card.country}</Text></View>
-                  </ImageBackground>
+                  </RemoteImageBackground>
                 </Pressable>
               )
             })}
@@ -249,7 +249,7 @@ export default function NewTripScreen() {
                     onPress={() => chooseDestination(option)}
                     style={({ pressed }) => [styles.suggestion, pressed && styles.pressed]}
                   >
-                    {option.imageUrl ? <Image source={remoteImageSource(option.imageUrl, session?.access_token)} style={styles.suggestionImage} /> : <View style={styles.suggestionImageFallback}><Ionicons name="location" size={18} color={colors.primary} /></View>}
+                    {option.imageUrl ? <RemoteImage uri={option.imageUrl} accessToken={session?.access_token} preset="thumbnail" style={styles.suggestionImage} /> : <View style={styles.suggestionImageFallback}><Ionicons name="location" size={18} color={colors.primary} /></View>}
                     <View style={styles.suggestionCopy}>
                       <Text style={styles.suggestionCity}>{option.city}</Text>
                       <Text style={styles.suggestionRegion}>{option.region}</Text>

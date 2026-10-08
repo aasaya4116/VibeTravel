@@ -1,13 +1,13 @@
 import { useMemo } from "react"
-import { Image, ImageBackground, Pressable, StyleSheet, View } from "react-native"
+import { Pressable, StyleSheet, View } from "react-native"
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen } from "@/components/ui"
 import { Text } from "@/components/typography"
+import { RemoteImage, RemoteImageBackground } from "@/components/remote-image"
 import { formatTripDates, getDaysUntil } from "@/lib/format"
 import { getReadinessPercent } from "@/lib/data"
 import { destinationCards, getTripImage } from "@/lib/destinations"
-import { remoteImageSource } from "@/lib/media"
 import { colors, radii, shadows, typography } from "@/lib/theme"
 import type { Trip } from "@/lib/types"
 import { useDashboard } from "@/hooks/use-dashboard"
@@ -26,7 +26,7 @@ function HowItWorksHero({ accessToken }: { accessToken?: string | null }) {
   const image = destinationCards.find((destination) => destination.slug === "lisbon")?.imageUrl
 
   return (
-    <ImageBackground source={remoteImageSource(image, accessToken)} style={styles.howHero} imageStyle={styles.howHeroImage}>
+    <RemoteImageBackground uri={image} accessToken={accessToken} preset="portraitCard" style={styles.howHero} imageStyle={styles.howHeroImage}>
       <View style={styles.howHeroShade} />
       <View style={styles.howHeroCopy}>
         <Text style={styles.howEyebrow}>HOW VIBETRAVEL WORKS</Text>
@@ -54,7 +54,7 @@ function HowItWorksHero({ accessToken }: { accessToken?: string | null }) {
           <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
         </Pressable>
       </View>
-    </ImageBackground>
+    </RemoteImageBackground>
   )
 }
 
@@ -102,7 +102,7 @@ export default function TodayScreen() {
           onPress={() => router.push({ pathname: "/trips/[id]", params: { id: nextTrip.id } })}
           style={({ pressed }) => [styles.heroShell, pressed && styles.pressed]}
         >
-          <ImageBackground source={remoteImageSource(getTripImage(nextTrip.destination), session?.access_token)} style={styles.hero} imageStyle={styles.heroImage}>
+          <RemoteImageBackground uri={getTripImage(nextTrip.destination)} accessToken={session?.access_token} preset="hero" style={styles.hero} imageStyle={styles.heroImage}>
             <View style={styles.heroShade} />
             <View style={styles.heroTop}>
               <View style={styles.statusBadge}>
@@ -128,7 +128,7 @@ export default function TodayScreen() {
                 <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
               </View>
             </View>
-          </ImageBackground>
+          </RemoteImageBackground>
         </Pressable>
       ) : (
         <EmptyState
@@ -149,7 +149,7 @@ export default function TodayScreen() {
             onPress={() => router.push({ pathname: "/explore", params: { destination: destination.destination } } as never)}
             style={({ pressed }) => [styles.destinationRow, pressed && styles.pressed]}
           >
-            <Image source={remoteImageSource(destination.imageUrl, session?.access_token)} style={styles.destinationImage} />
+            <RemoteImage uri={destination.imageUrl} accessToken={session?.access_token} preset="thumbnail" style={styles.destinationImage} />
             <View style={styles.destinationCopy}>
               <Text style={styles.destinationName}>{destination.name}</Text>
               <Text style={styles.destinationReason} numberOfLines={1}>{destination.headline}</Text>

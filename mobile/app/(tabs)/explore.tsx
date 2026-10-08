@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Keyboard,
   Modal,
   Pressable,
@@ -16,6 +15,7 @@ import { router, useLocalSearchParams } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { Button, Eyebrow, LoadingScreen, Screen } from "@/components/ui"
 import { Text, TextInput } from "@/components/typography"
+import { RemoteImage } from "@/components/remote-image"
 import DiscoveryCanvas from "@/components/discovery-canvas"
 import {
   destinationCards,
@@ -43,7 +43,8 @@ import {
   searchDestinationOptions,
   type DestinationOption,
 } from "@/lib/destination-options"
-import { absoluteMediaUrl, apiUrl, remoteImageSource } from "@/lib/media"
+import { absoluteMediaUrl, apiUrl } from "@/lib/media"
+import { startOperationTiming } from "@/lib/observability"
 import { colors, radii, typography } from "@/lib/theme"
 import type { Attraction, Trip } from "@/lib/types"
 import { useDashboard } from "@/hooks/use-dashboard"
@@ -106,7 +107,7 @@ function ResultCard({
   const [imageUrl, setImageUrl] = useState(attraction.imageUrl || fallbackPlaceImage)
   return (
     <View style={styles.resultCard}>
-      <Image source={remoteImageSource(imageUrl)} onError={() => setImageUrl(fallbackPlaceImage)} style={styles.resultImage} />
+      <RemoteImage uri={imageUrl} preset="landscape" onError={() => setImageUrl(fallbackPlaceImage)} style={styles.resultImage} />
       <View style={styles.resultContent}>
         <View style={styles.resultTopline}>
           <Text style={styles.resultCategory}>{attraction.category || "PLACE"}</Text>
@@ -438,6 +439,9 @@ export default function ExploreScreen() {
     setSearching(true)
     setHasSearched(true)
     setSearchError("")
+    const baseTimingAttributes = { had_results: attractions.length > 0 }
+    const timing = startOperationTiming("search.places", baseTimingAttributes)
+    let httpStatus = 0
     try {
       const response = await fetch(`${apiUrl}/api/search`, {
         method: "POST",
@@ -454,8 +458,12 @@ export default function ExploreScreen() {
           filters: {},
         }),
       })
+      httpStatus = response.status
       const text = await response.text()
-      if (requestId !== searchRequestId.current) return
+      if (requestId !== searchRequestId.current) {
+        timing.finish({ ...baseTimingAttributes, aborted: true, http_status: httpStatus })
+        return
+      }
       if (!response.ok) {
         const parsed = (() => {
           try { return JSON.parse(text || "{}") } catch { return {} }
@@ -490,8 +498,17 @@ export default function ExploreScreen() {
           ? `No new ${searchLens.toLowerCase()} matches appeared. Your current places are still here—try a broader search.`
           : `No verified matches appeared for ${destination.name}. Try “food”, “museums”, or another broader idea.`)
       }
+      timing.finish({
+        had_results: found.length > 0,
+        http_status: httpStatus,
+        result_count: found.length,
+      })
     } catch (error) {
-      if (requestId !== searchRequestId.current || (error instanceof Error && error.name === "AbortError")) return
+      if (requestId !== searchRequestId.current || (error instanceof Error && error.name === "AbortError")) {
+        timing.finish({ ...baseTimingAttributes, aborted: true, http_status: httpStatus })
+        return
+      }
+      timing.fail(error, { ...baseTimingAttributes, http_status: httpStatus })
       const message = attractions.length
         ? "We couldn’t refresh these matches. Your current places are still here—try again."
         : "Search is temporarily unavailable. Try again in a moment."
@@ -856,7 +873,7 @@ export default function ExploreScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.destinationRail}>
               {visibleDestinations.map((destination) => (
                 <Pressable key={destination.slug} onPress={() => chooseDestination(destination)} style={[styles.destinationCard, selected.slug === destination.slug && styles.destinationCardActive]}>
-                  <Image source={remoteImageSource(destination.imageUrl, session?.access_token)} style={styles.destinationImage} />
+                  <RemoteImage uri={destination.imageUrl} accessToken={session?.access_token} preset="portraitCard" style={styles.destinationImage} />
                   <View style={styles.destinationShade} />
                   <View style={styles.destinationCopy}>
                     <Text style={styles.destinationName}>{destination.name}</Text>
@@ -945,7 +962,7 @@ export default function ExploreScreen() {
                 style={({ pressed }) => [styles.destinationRepairOption, pressed && styles.pressed]}
               >
                 {option.imageUrl ? (
-                  <Image source={remoteImageSource(option.imageUrl, session?.access_token)} style={styles.destinationRepairImage} />
+                  <RemoteImage uri={option.imageUrl} accessToken={session?.access_token} preset="thumbnail" style={styles.destinationRepairImage} />
                 ) : (
                   <View style={styles.destinationRepairImageFallback}><Ionicons name="location" size={20} color={colors.primary} /></View>
                 )}
@@ -1021,7 +1038,7 @@ export default function ExploreScreen() {
                   <Text style={styles.browserCountry}>{destination.country} · {destination.region}</Text>
                   <Text style={styles.browserReason} numberOfLines={1}>{destination.headline}</Text>
                 </View>
-                <Image source={remoteImageSource(destination.imageUrl, session?.access_token)} style={styles.browserImage} />
+                <RemoteImage uri={destination.imageUrl} accessToken={session?.access_token} preset="thumbnail" style={styles.browserImage} />
                 <View style={styles.browserArrow}><Ionicons name="arrow-forward" size={17} color="#FFFFFF" /></View>
               </Pressable>
             ))}

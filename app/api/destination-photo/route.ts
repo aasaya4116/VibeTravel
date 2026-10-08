@@ -4,6 +4,12 @@ import { isConfigured, searchPlaces } from "@/lib/travel-apis/google-places"
 
 export const maxDuration = 15
 
+function clampedDimension(value: string | null, fallback: number, maximum: number) {
+  const parsed = Number.parseInt(value ?? "", 10)
+  if (!Number.isFinite(parsed)) return fallback
+  return Math.min(Math.max(parsed, 64), maximum)
+}
+
 export async function GET(req: NextRequest) {
   const destination = (req.nextUrl.searchParams.get("destination") ?? "")
     .trim()
@@ -12,6 +18,9 @@ export async function GET(req: NextRequest) {
   if (!destination) {
     return new Response("Destination required", { status: 400 })
   }
+
+  const width = clampedDimension(req.nextUrl.searchParams.get("width"), 1200, 1600)
+  const height = clampedDimension(req.nextUrl.searchParams.get("height"), 800, 2000)
 
   const { user } = await createRequestClient(req)
 
@@ -29,6 +38,10 @@ export async function GET(req: NextRequest) {
   }
 
   const photoUrl = new URL(place.photoUrl, req.nextUrl.origin)
+  if (photoUrl.origin === req.nextUrl.origin && photoUrl.pathname === "/api/place-photo") {
+    photoUrl.searchParams.set("width", String(width))
+    photoUrl.searchParams.set("height", String(height))
+  }
   const response = NextResponse.redirect(photoUrl, 307)
   response.headers.set(
     "Cache-Control",

@@ -2,7 +2,6 @@ import { useState } from "react"
 import { Link } from "expo-router"
 import {
   KeyboardAvoidingView,
-  ImageBackground,
   Platform,
   Pressable,
   StyleSheet,
@@ -12,6 +11,7 @@ import { SafeAreaView } from "react-native-safe-area-context"
 import { StatusBar } from "expo-status-bar"
 import { Button } from "@/components/ui"
 import { Text, TextInput } from "@/components/typography"
+import { RemoteImageBackground } from "@/components/remote-image"
 import { colors, radii, shadows, typography } from "@/lib/theme"
 import { hasSupabaseConfiguration, supabase } from "@/lib/supabase"
 
@@ -35,7 +35,7 @@ export default function SignInScreen() {
   }
 
   return (
-    <ImageBackground source={{ uri: "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?w=1400&h=1800&fit=crop" }} style={styles.backdrop}>
+    <RemoteImageBackground uri="https://images.unsplash.com/photo-1540959733332-eab4deabeeaf" preset="backdrop" style={styles.backdrop}>
       <StatusBar style="light" />
       <View style={styles.backdropShade} />
       <SafeAreaView style={styles.safe}>
@@ -94,7 +94,7 @@ export default function SignInScreen() {
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </ImageBackground>
+    </RemoteImageBackground>
   )
 }
 

@@ -1,4 +1,5 @@
 import { useEffect } from "react"
+import * as Sentry from "@sentry/react-native"
 import { Stack, useRouter, useSegments } from "expo-router"
 import { StatusBar } from "expo-status-bar"
 import * as SplashScreen from "expo-splash-screen"
@@ -14,7 +15,9 @@ import { AuthProvider, useAuth } from "@/providers/auth-provider"
 import { DashboardProvider } from "@/hooks/use-dashboard"
 import { LoadingScreen } from "@/components/ui"
 import { colors, typography } from "@/lib/theme"
+import { initializeObservability } from "@/lib/observability"
 
+initializeObservability()
 SplashScreen.preventAutoHideAsync().catch(() => undefined)
 
 function AppNavigator() {
@@ -60,7 +63,7 @@ function AppNavigator() {
   )
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     DMSans_400Regular,
     DMSans_500Medium,
@@ -86,3 +89,5 @@ export default function RootLayout() {
     </AuthProvider>
   )
 }
+
+export default Sentry.wrap(RootLayout)

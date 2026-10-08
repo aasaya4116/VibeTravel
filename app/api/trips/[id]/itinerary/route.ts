@@ -508,7 +508,9 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
   } catch (err) {
     const errorName = err instanceof Error ? err.name : "UnknownError"
     const timedOut = errorName === "AbortError" || errorName === "TimeoutError"
-    console.error(`[itinerary:${requestId}] generation failed (${errorName}):`, err)
+    // Keep production logs useful without serializing provider payloads or
+    // model prompts, which can contain traveler and saved-place details.
+    console.error(`[itinerary:${requestId}] generation failed (${errorName})`)
     if (req.signal.aborted) {
       return NextResponse.json(
         { error: "Itinerary request was cancelled.", requestId },
@@ -704,7 +706,9 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
     .filter((name) => !includedSavedNames.has(name.toLowerCase()))
 
   if (!isTargetDay && missingSavedNames.length > 0) {
-    console.error(`[itinerary:${requestId}] saved-place invariant failed`, { missingSavedNames })
+    console.error(`[itinerary:${requestId}] saved-place invariant failed`, {
+      missingSavedCount: missingSavedNames.length,
+    })
     return NextResponse.json(
       { error: "We kept your saved places safe, but could not place all of them in the itinerary. Please try again.", requestId },
       { status: 500 }

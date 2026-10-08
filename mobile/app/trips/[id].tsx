@@ -1,8 +1,6 @@
 import { useCallback, useMemo, useState } from "react"
 import {
   Alert,
-  Image,
-  ImageBackground,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -18,10 +16,11 @@ import { SafeAreaView } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons"
 import { Button, Card, EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen } from "@/components/ui"
 import { Text, TextInput } from "@/components/typography"
+import { RemoteImage, RemoteImageBackground } from "@/components/remote-image"
 import { formatDayLabel, formatTripDates } from "@/lib/format"
 import { generateTripItinerary, loadTrip, readTripCache, saveItinerary } from "@/lib/data"
 import { getTripImage } from "@/lib/destinations"
-import { absoluteMediaUrl, remoteImageSource } from "@/lib/media"
+import { absoluteMediaUrl } from "@/lib/media"
 import { moveItineraryItem, removeItineraryItem, reorderItineraryItem, updateItineraryItem } from "@/lib/itinerary-editing"
 import { colors, shadows, typography } from "@/lib/theme"
 import type { ItineraryItem, SavedAttraction, Trip } from "@/lib/types"
@@ -301,7 +300,7 @@ export default function TripScreen() {
     <Screen refreshing={refreshing} onRefresh={() => load(true)} contentStyle={styles.page}>
       <Stack.Screen options={{ title: trip.destination }} />
       {offline ? <OfflineBanner /> : null}
-      <ImageBackground source={remoteImageSource(getTripImage(trip.destination), session?.access_token)} style={styles.tripHero} imageStyle={styles.tripHeroImage}>
+      <RemoteImageBackground uri={getTripImage(trip.destination)} accessToken={session?.access_token} preset="hero" style={styles.tripHero} imageStyle={styles.tripHeroImage}>
         <View style={styles.tripHeroShade} />
         <View style={styles.heroTopRow}>
           <View style={styles.statusPill}><Text style={styles.statusPillText}>{trip.status}</Text></View>
@@ -322,7 +321,7 @@ export default function TripScreen() {
           <Text style={styles.destination}>{trip.destination}</Text>
           <Text style={styles.dates}>{formatTripDates(trip.start_date, trip.end_date)}</Text>
         </View>
-      </ImageBackground>
+      </RemoteImageBackground>
 
       <Button onPress={() => setTripMode(true)} disabled={!day?.items.length} style={styles.startMode}>Start Trip Mode</Button>
 
@@ -418,7 +417,7 @@ export default function TripScreen() {
               const itemImage = getItemImage(item)
               return (
                 <Card key={item.id} style={styles.itemCard}>
-                  {itemImage ? <Image source={remoteImageSource(itemImage, session?.access_token)} style={styles.itemImage} /> : null}
+                  {itemImage ? <RemoteImage uri={itemImage} accessToken={session?.access_token} preset="landscape" style={styles.itemImage} /> : null}
                   <View style={styles.itemBody}>
                     <View style={styles.timeline}>
                       <View style={styles.timelineDot} />
@@ -461,7 +460,7 @@ export default function TripScreen() {
             <View style={styles.savedList}>
               {savedAttractions.map((saved) => (
                 <View key={saved.id} style={styles.savedPlace}>
-                  {saved.attraction_data.imageUrl ? <Image source={remoteImageSource(saved.attraction_data.imageUrl, session?.access_token)} style={styles.savedImage} /> : <View style={styles.savedImageFallback}><Ionicons name="location" size={16} color={colors.primary} /></View>}
+                  {saved.attraction_data.imageUrl ? <RemoteImage uri={saved.attraction_data.imageUrl} accessToken={session?.access_token} preset="thumbnail" style={styles.savedImage} /> : <View style={styles.savedImageFallback}><Ionicons name="location" size={16} color={colors.primary} /></View>}
                   <Text style={styles.savedName} numberOfLines={1}>{saved.attraction_name}</Text>
                   <Ionicons name="checkmark-circle" size={18} color={colors.success} />
                 </View>
