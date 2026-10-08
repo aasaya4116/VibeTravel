@@ -25,6 +25,10 @@ import {
   PACE_GUIDES,
   type TravelPace,
 } from "@/lib/itinerary-intelligence"
+import {
+  buildSavedPicksDraft,
+  mergeSavedPicksIntoItinerary,
+} from "@/lib/itinerary-draft"
 
 export const maxDuration = 60
 
@@ -63,6 +67,7 @@ export async function POST(
   const deltaInstruction: string | undefined = body?.instruction
   const targetDayDate: string | undefined = body?.dayDate
   const targetDayInstruction: string | undefined = body?.dayInstruction
+  const fastDraft = body?.fastDraft === true
   const requestedDates: string[] | null = Array.isArray(body?.dates)
     ? Array.from(new Set<string>(
         (body.dates as unknown[]).filter(
@@ -134,9 +139,20 @@ export async function POST(
   }
 
   // Refinements require an existing itinerary.
-  if ((deltaInstruction || targetDayDate) && (!trip.itinerary || trip.itinerary.length === 0)) {
+  if (
+    !fastDraft &&
+    (deltaInstruction || targetDayDate) &&
+    (!trip.itinerary || trip.itinerary.length === 0)
+  ) {
     return NextResponse.json(
       { error: "No existing itinerary to refine. Generate one first." },
+      { status: 400 }
+    )
+  }
+
+  if (fastDraft && targetDayDate) {
+    return NextResponse.json(
+      { error: "Fast draft is only available when building or extending a full itinerary." },
       { status: 400 }
     )
   }
@@ -205,8 +221,10 @@ Family vibe profile:
     : `Accommodation: Not specified. Group activities so each day covers one distinct neighborhood or area to minimize cross-city travel.`
 
   // Fetch weather forecast (best-effort — skipped if key missing)
-  const weatherForecast = trip.start_date && trip.end_date
-    ? await getWeatherForecast(trip.destination, trip.start_date, trip.end_date)
+  const weatherForecast = !fastDraft && trip.start_date && trip.end_date
+    ? await getWeatherForecast(trip.destination, trip.start_date, trip.end_date, {
+        signal: req.signal,
+      })
     : null
 
   const weatherContext = weatherForecast
@@ -242,13 +260,13 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
       { status: 400 }
     )
   }
-  if (!isTargetDay && !isDelta && fullTripDateValues.length > MAX_GENERATION_DAYS && !requestedDates) {
+  if (!fastDraft && !isTargetDay && !isDelta && fullTripDateValues.length > MAX_GENERATION_DAYS && !requestedDates) {
     return NextResponse.json(
       { error: `Choose up to ${MAX_GENERATION_DAYS} trip days before generating a detailed plan.` },
       { status: 400 }
     )
   }
-  if (isDelta && fullTripDateValues.length > MAX_GENERATION_DAYS) {
+  if (!fastDraft && isDelta && fullTripDateValues.length > MAX_GENERATION_DAYS) {
     return NextResponse.json(
       { error: "For longer trips, refresh individual days so the rest of your plan stays intact." },
       { status: 400 }
@@ -279,6 +297,61 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
     attractionsToAssign,
     generationBatches
   )
+  const existingItinerary = (trip.itinerary ?? []) as ItineraryDay[]
+
+  // Adding traveler saves to an existing itinerary is a local reconciliation,
+  // not a reason to regenerate the trip. This preserves every manual edit,
+  // status, and AI suggestion while inserting each newly saved place once.
+  if (fastDraft && existingItinerary.length > 0) {
+    const itinerary = mergeSavedPicksIntoItinerary(
+      existingItinerary,
+      attractions,
+      fullTripDateValues,
+      () => `item-${crypto.randomUUID()}`
+    )
+    const includedSavedNames = new Set(
+      itinerary.flatMap((day) => day.items)
+        .filter((item) => item.recommended === false)
+        .map((item) => item.attraction_name.trim().toLowerCase())
+    )
+    const missingSavedNames = attractions
+      .map((attraction) => attraction.name.trim())
+      .filter((name) => !includedSavedNames.has(name.toLowerCase()))
+
+    if (missingSavedNames.length > 0) {
+      return NextResponse.json(
+        {
+          error: "We kept your saved places safe, but could not place all of them in the itinerary. Please try again.",
+          requestId,
+        },
+        { status: 500 }
+      )
+    }
+
+    const { error: updateError } = await supabase
+      .from("trips")
+      .update({
+        itinerary,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", tripId)
+      .eq("user_id", user.id)
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      itinerary,
+      inclusion: {
+        savedCount: attractions.length,
+        includedCount: attractions.length,
+        missingNames: [],
+        requestId,
+        generationMode: "saved-picks-only" as const,
+      },
+    })
+  }
 
   console.info(
     `[itinerary:${requestId}] generating ${generationDateValues.length} of ${fullTripDateValues.length} days in ${generationBatches.length} batch(es)`
@@ -286,7 +359,28 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
 
   let parsed: z.infer<typeof itineraryOutputSchema> | undefined
   let generationMode: "full" | "saved-picks-only" = "full"
-  try {
+  if (fastDraft) {
+    generationMode = "saved-picks-only"
+    const draftDays = buildSavedPicksDraft(
+      generationDateValues,
+      attractionAssignments.flat(),
+      () => `item-${crypto.randomUUID()}`
+    )
+    parsed = {
+      days: draftDays.map((day) => ({
+        date: day.date,
+        items: day.items.map((item) => ({
+          attraction_name: item.attraction_name,
+          start_time: item.start_time,
+          end_time: item.end_time,
+          notes: item.notes,
+          recommended: false,
+          item_type: "place" as const,
+          fit_signals: item.fit_signals ?? [],
+        })),
+      })),
+    }
+  } else try {
     const generatedBatches = await Promise.all(
       generationBatches.map(async (batchDates, batchIndex) => {
         const remainingGenerationMs =
@@ -387,7 +481,10 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
           // Never spend a second model call behind the user's back. The
           // deterministic saved-picks fallback below keeps the trip usable.
           maxRetries: 0,
-          abortSignal: AbortSignal.timeout(remainingGenerationMs),
+          abortSignal: AbortSignal.any([
+            req.signal,
+            AbortSignal.timeout(remainingGenerationMs),
+          ]),
           output: Output.object({ schema: itineraryOutputSchema }),
           system,
           messages: [{ role: "user", content }],
@@ -412,6 +509,12 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
     const errorName = err instanceof Error ? err.name : "UnknownError"
     const timedOut = errorName === "AbortError" || errorName === "TimeoutError"
     console.error(`[itinerary:${requestId}] generation failed (${errorName}):`, err)
+    if (req.signal.aborted) {
+      return NextResponse.json(
+        { error: "Itinerary request was cancelled.", requestId },
+        { status: 499 }
+      )
+    }
     if (isTargetDay || isDelta || attractionsToAssign.length === 0) {
       return NextResponse.json(
         {
@@ -428,10 +531,10 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
     // deterministic base plan containing every saved traveler pick; the user
     // can refine individual days later without paying for an automatic retry.
     generationMode = "saved-picks-only"
-    const fallbackDays = reconcileSavedAttractionsInItinerary(
-      generationDateValues.map((date) => ({ date, items: [] })),
-      attractionsToAssign,
-      () => `fallback-${crypto.randomUUID()}`
+    const fallbackDays = buildSavedPicksDraft(
+      generationDateValues,
+      attractionAssignments.flat(),
+      () => `item-${crypto.randomUUID()}`
     )
     parsed = {
       days: fallbackDays.map((day) => ({
@@ -456,7 +559,6 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
     )
   }
 
-  const existingItinerary = (trip.itinerary ?? []) as ItineraryDay[]
   const savedAttractionByName = new Map(
     attractions.map((attraction) => [attraction.name.trim().toLowerCase(), attraction])
   )

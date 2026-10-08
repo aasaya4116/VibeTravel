@@ -1,4 +1,7 @@
 const API_KEY = process.env.OPENWEATHER_API_KEY
+const DAY_MS = 24 * 60 * 60 * 1000
+const FORECAST_WINDOW_DAYS = 5
+const WEATHER_DEADLINE_MS = 2_500
 
 export function isConfigured() {
   return !!API_KEY
@@ -38,11 +41,38 @@ function kelvinToF(k: number): number {
   return Math.round((k - 273.15) * 9/5 + 32)
 }
 
-async function geocode(destination: string): Promise<{ lat: number; lon: number } | null> {
+export function isWithinWeatherForecastWindow(
+  startDate: string,
+  endDate: string,
+  now = new Date()
+): boolean {
+  const start = new Date(`${startDate}T00:00:00Z`)
+  const end = new Date(`${endDate}T23:59:59Z`)
+  if (
+    Number.isNaN(start.getTime()) ||
+    Number.isNaN(end.getTime()) ||
+    end < start
+  ) {
+    return false
+  }
+
+  const today = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate()
+  )
+  const forecastEnd = today + FORECAST_WINDOW_DAYS * DAY_MS
+  return end.getTime() >= today && start.getTime() <= forecastEnd
+}
+
+async function geocode(
+  destination: string,
+  signal: AbortSignal
+): Promise<{ lat: number; lon: number } | null> {
   try {
     const res = await fetch(
       `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(destination)}&limit=1&appid=${API_KEY}`,
-      { signal: AbortSignal.timeout(4_000) }
+      { signal }
     )
     if (!res.ok) return null
     const data = await res.json()
@@ -56,18 +86,32 @@ async function geocode(destination: string): Promise<{ lat: number; lon: number 
 export async function getWeatherForecast(
   destination: string,
   startDate: string, // YYYY-MM-DD
-  endDate: string    // YYYY-MM-DD
+  endDate: string,   // YYYY-MM-DD
+  options: { signal?: AbortSignal; now?: Date; timeoutMs?: number } = {}
 ): Promise<WeatherForecast | null> {
-  if (!API_KEY) return null
+  if (
+    !API_KEY ||
+    !isWithinWeatherForecastWindow(startDate, endDate, options.now)
+  ) {
+    return null
+  }
 
   try {
-    const coords = await geocode(destination)
+    // Share one small budget across geocoding and forecast retrieval instead
+    // of allowing two sequential provider timeouts to delay generation.
+    const deadlineSignal = AbortSignal.timeout(
+      options.timeoutMs ?? WEATHER_DEADLINE_MS
+    )
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, deadlineSignal])
+      : deadlineSignal
+    const coords = await geocode(destination, signal)
     if (!coords) return null
 
     // Use 5-day forecast (free tier) — 3-hour intervals
     const res = await fetch(
       `https://api.openweathermap.org/data/2.5/forecast?lat=${coords.lat}&lon=${coords.lon}&appid=${API_KEY}&cnt=40`,
-      { signal: AbortSignal.timeout(4_000) }
+      { signal }
     )
     if (!res.ok) return null
 

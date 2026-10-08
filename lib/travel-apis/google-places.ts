@@ -1,4 +1,5 @@
 const API_KEY = process.env.GOOGLE_PLACES_API_KEY
+const DEFAULT_SEARCH_TIMEOUT_MS = 6_000
 
 export function isConfigured() {
   return !!API_KEY
@@ -88,11 +89,18 @@ function toPlaceResult(place: GooglePlace): PlaceResult | null {
 export async function searchVerifiedPlaces(
   query: string,
   destination: string,
-  limit = 10
+  limit = 10,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {}
 ): Promise<PlaceResult[]> {
   if (!API_KEY || !destination.trim()) return []
 
   try {
+    const deadlineSignal = AbortSignal.timeout(
+      options.timeoutMs ?? DEFAULT_SEARCH_TIMEOUT_MS
+    )
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, deadlineSignal])
+      : deadlineSignal
     const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
       method: "POST",
       headers: {
@@ -122,6 +130,7 @@ export async function searchVerifiedPlaces(
         pageSize: Math.max(1, Math.min(limit, 20)),
         languageCode: "en",
       }),
+      signal,
     })
 
     if (!res.ok) {

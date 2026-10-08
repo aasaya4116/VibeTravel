@@ -10,11 +10,13 @@ import { searchDestinationOptions, type DestinationOption } from "@/lib/destinat
 import { remoteImageSource } from "@/lib/media"
 import { colors, radii, typography } from "@/lib/theme"
 import { useAuth } from "@/providers/auth-provider"
+import { useDashboard } from "@/hooks/use-dashboard"
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/
 
 export default function NewTripScreen() {
   const { user, session } = useAuth()
+  const { refresh: refreshDashboard } = useDashboard()
   const [title, setTitle] = useState("")
   const [destination, setDestination] = useState("")
   const [startDate, setStartDate] = useState("")
@@ -65,6 +67,7 @@ export default function NewTripScreen() {
         start_date: startDate || null,
         end_date: endDate || null,
       })
+      void refreshDashboard()
       router.replace({ pathname: "/explore", params: { tripId: trip.id, destination: trip.destination } } as never)
     } catch (error) {
       Alert.alert("Trip not created", error instanceof Error ? error.message : "Please reconnect and try again.")

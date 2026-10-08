@@ -54,7 +54,7 @@ export default function TripsScreen() {
                 </View>
               </ImageBackground>
               <View style={styles.tripFooter}>
-                <View><Text style={styles.footerLabel}>ITINERARY</Text><Text style={styles.days}>{trip.itinerary?.length ?? 0} planned days</Text></View>
+                <View><Text style={styles.footerLabel}>TRIP PLAN</Text><Text style={styles.days}>Open to view itinerary</Text></View>
                 <Text style={styles.open}>Open trip  →</Text>
               </View>
             </Pressable>

@@ -31,7 +31,7 @@ import {
   type DestinationCard,
   type DestinationLens,
 } from "@/lib/destinations"
-import { loadTrip, saveAttractionToTrip } from "@/lib/data"
+import { generateTripItinerary, loadTrip, saveAttractionToTrip } from "@/lib/data"
 import { absoluteMediaUrl, apiUrl, remoteImageSource } from "@/lib/media"
 import { colors, radii, typography } from "@/lib/theme"
 import type { Attraction, Trip } from "@/lib/types"
@@ -39,6 +39,32 @@ import { useDashboard } from "@/hooks/use-dashboard"
 import { useAuth } from "@/providers/auth-provider"
 
 const fallbackPlaceImage = "https://images.unsplash.com/photo-1533105079780-92b9be482077?w=1200&h=800&fit=crop"
+const resultBatchSize = 4
+const itineraryUnlockCount = 3
+const buildPromptStorageKey = (tripId: string) => `vibetravel:explore-build-prompt:${tripId}`
+
+function wasBuildPromptShown(tripId: string) {
+  try {
+    return globalThis.localStorage?.getItem(buildPromptStorageKey(tripId)) === "1"
+  } catch {
+    return false
+  }
+}
+
+function rememberBuildPrompt(tripId: string) {
+  try {
+    globalThis.localStorage?.setItem(buildPromptStorageKey(tripId), "1")
+  } catch {
+    // The in-memory guard still prevents repeat prompts during this session.
+  }
+}
+
+interface SearchPlacesOptions {
+  destination?: DestinationCard
+  lens?: DestinationLens
+  query?: string
+  reveal?: boolean
+}
 
 function ResultCard({
   attraction,
@@ -89,6 +115,8 @@ export default function ExploreScreen() {
   const [lens, setLens] = useState<DestinationLens>(() => getDefaultDestinationLens(data?.familyVibe ?? null))
   const [query, setQuery] = useState("")
   const [attractions, setAttractions] = useState<Attraction[]>([])
+  const [resultsLens, setResultsLens] = useState<DestinationLens | null>(null)
+  const [resultsDestinationName, setResultsDestinationName] = useState("")
   const [summary, setSummary] = useState("")
   const [searchError, setSearchError] = useState("")
   const [searching, setSearching] = useState(false)
@@ -105,8 +133,17 @@ export default function ExploreScreen() {
   const [lastSavedTripTitle, setLastSavedTripTitle] = useState("")
   const [hasSearched, setHasSearched] = useState(false)
   const [revealResults, setRevealResults] = useState(false)
+  const [visibleResultCount, setVisibleResultCount] = useState(resultBatchSize)
+  const [buildPromptOpen, setBuildPromptOpen] = useState(false)
+  const [buildingItinerary, setBuildingItinerary] = useState(false)
+  const [buildError, setBuildError] = useState("")
   const screenRef = useRef<ScrollView>(null)
   const autoSearchKey = useRef("")
+  const searchRequestId = useRef(0)
+  const searchAbortController = useRef<AbortController | null>(null)
+  const savedAttractionNamesRef = useRef<Set<string>>(new Set())
+  const promptedTripId = useRef("")
+  const buildInFlight = useRef(false)
 
   const visibleDestinations = useMemo(() => {
     return rankDestinationsForVibe(data?.familyVibe ?? null, lens)
@@ -134,19 +171,52 @@ export default function ExploreScreen() {
   }, [lens, selected.tags])
 
   const vibeDescription = describeVibeMatch(data?.familyVibe ?? null)
+  const savedCount = savedAttractionNames.size
+  const hasItinerary = Boolean(scopedTrip?.itinerary?.some((day) => day.items.length))
+  const itineraryAttractionNames = useMemo(() => new Set(
+    (scopedTrip?.itinerary ?? []).flatMap((day) => (
+      day.items.map((item) => item.attraction_name.trim().toLowerCase())
+    )),
+  ), [scopedTrip?.itinerary])
+  const pendingSavedCount = useMemo(() => (
+    [...savedAttractionNames].filter((name) => !itineraryAttractionNames.has(name)).length
+  ), [itineraryAttractionNames, savedAttractionNames])
+  const canBuildItinerary = Boolean(scopedTrip && (
+    hasItinerary ? pendingSavedCount > 0 : savedCount >= itineraryUnlockCount
+  ))
+  const buildCtaLabel = hasItinerary
+    ? `Update itinerary · ${pendingSavedCount} new place${pendingSavedCount === 1 ? "" : "s"}`
+    : `Build itinerary · ${savedCount} place${savedCount === 1 ? "" : "s"}`
+
+  useEffect(() => {
+    savedAttractionNamesRef.current = savedAttractionNames
+  }, [savedAttractionNames])
+
+  useEffect(() => () => searchAbortController.current?.abort(), [])
 
   useEffect(() => {
     if (!user || !params.tripId) {
       setScopedTrip(null)
       setSavedAttractionNames(new Set())
+      savedAttractionNamesRef.current = new Set()
       return
     }
+    const emptyNames = new Set<string>()
+    savedAttractionNamesRef.current = emptyNames
+    setSavedAttractionNames(emptyNames)
+    setBuildPromptOpen(false)
+    setBuildError("")
     let active = true
     loadTrip(user.id, params.tripId)
       .then((result) => {
         if (!active) return
+        const names = new Set(result.savedAttractions.map((saved) => saved.attraction_name.trim().toLowerCase()))
         setScopedTrip(result.trip)
-        setSavedAttractionNames(new Set(result.savedAttractions.map((saved) => saved.attraction_name.trim().toLowerCase())))
+        savedAttractionNamesRef.current = names
+        setSavedAttractionNames(names)
+        promptedTripId.current = wasBuildPromptShown(result.trip.id)
+          ? result.trip.id
+          : ""
       })
       .catch(() => {
         if (!active) return
@@ -161,9 +231,12 @@ export default function ExploreScreen() {
     setSelected(destination)
     setQuery("")
     setAttractions([])
+    setResultsLens(null)
+    setResultsDestinationName("")
     setSummary("")
     setSearchError("")
     setHasSearched(false)
+    setVisibleResultCount(resultBatchSize)
   }, [params.destination])
 
   useEffect(() => {
@@ -179,49 +252,62 @@ export default function ExploreScreen() {
 
   function chooseDestination(destination: DestinationCard) {
     Keyboard.dismiss()
+    searchAbortController.current?.abort()
+    searchRequestId.current += 1
     setSelected(destination)
     setQuery("")
     setAttractions([])
+    setResultsLens(null)
+    setResultsDestinationName("")
     setSummary("")
     setSearchError("")
     setHasSearched(false)
+    setVisibleResultCount(resultBatchSize)
     setBrowseOpen(false)
     setBrowseQuery("")
   }
 
   function chooseLens(nextLens: DestinationLens) {
+    if (nextLens === lens) return
+    Keyboard.dismiss()
+    const nextDestination = params.tripId
+      ? selected
+      : rankDestinationsForVibe(data?.familyVibe ?? null, nextLens)[0] ?? selected
     setLens(nextLens)
     setLensTouched(true)
-    setAttractions([])
-    setSummary("")
-    setSearchError("")
-    setHasSearched(false)
+    setSelected(nextDestination)
     setQuery("")
-    if (params.destination) return
-    const ranked = rankDestinationsForVibe(data?.familyVibe ?? null, nextLens)
-    if (ranked[0]) chooseDestination(ranked[0])
+    void searchPlaces({ destination: nextDestination, lens: nextLens, query: "", reveal: false })
   }
 
-  async function searchPlaces() {
+  async function searchPlaces(options: SearchPlacesOptions = {}) {
+    const destination = options.destination ?? selected
+    const searchLens = options.lens ?? lens
+    const searchQuery = options.query !== undefined ? options.query.trim() : query.trim()
+    const requestId = searchRequestId.current + 1
+    searchRequestId.current = requestId
+    searchAbortController.current?.abort()
+    const controller = new AbortController()
+    searchAbortController.current = controller
     Keyboard.dismiss()
     setSearching(true)
     setHasSearched(true)
-    setAttractions([])
-    setSummary("")
     setSearchError("")
     try {
       const response = await fetch(`${apiUrl}/api/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
-          destination: selected.destination,
-          query: query.trim() || getDestinationQueryForLens(selected, lens),
+          destination: destination.destination,
+          query: searchQuery || getDestinationQueryForLens(destination, searchLens),
           ownerName: data?.profile?.display_name,
           familyVibe: data?.familyVibe,
           filters: {},
         }),
       })
       const text = await response.text()
+      if (requestId !== searchRequestId.current) return
       if (!response.ok) {
         const parsed = (() => {
           try { return JSON.parse(text || "{}") } catch { return {} }
@@ -244,14 +330,29 @@ export default function ExploreScreen() {
           // Ignore malformed stream fragments and keep any valid verified results.
         }
       })
-      setAttractions(found)
-      setRevealResults(true)
-      setSummary(resultSummary || (found.length ? `${found.length} verified place${found.length === 1 ? "" : "s"} in ${selected.name}.` : ""))
-      if (!found.length) setSearchError(`No verified matches appeared for ${selected.name}. Try “food”, “museums”, or another broader idea.`)
+      if (found.length) {
+        setAttractions(found)
+        setResultsLens(searchLens)
+        setResultsDestinationName(destination.name)
+        setVisibleResultCount(resultBatchSize)
+        setRevealResults(options.reveal !== false)
+        setSummary(resultSummary || `${found.length} verified place${found.length === 1 ? "" : "s"} in ${destination.name}.`)
+      } else {
+        setSearchError(attractions.length
+          ? `No new ${searchLens.toLowerCase()} matches appeared. Your current places are still here—try a broader search.`
+          : `No verified matches appeared for ${destination.name}. Try “food”, “museums”, or another broader idea.`)
+      }
     } catch (error) {
-      setSearchError(error instanceof Error ? error.message : "Search is temporarily unavailable. Please try again shortly.")
+      if (requestId !== searchRequestId.current || (error instanceof Error && error.name === "AbortError")) return
+      const message = attractions.length
+        ? "We couldn’t refresh these matches. Your current places are still here—try again."
+        : "Search is temporarily unavailable. Try again in a moment."
+      setSearchError(message)
     } finally {
-      setSearching(false)
+      if (requestId === searchRequestId.current) {
+        searchAbortController.current = null
+        setSearching(false)
+      }
     }
   }
 
@@ -288,20 +389,71 @@ export default function ExploreScreen() {
   async function saveToTripWithAttraction(trip: Trip, attraction: Attraction) {
     if (!user) return
     const normalizedName = attraction.name.trim().toLowerCase()
+    if (savedAttractionNamesRef.current.has(normalizedName)) return
     setSavingName(normalizedName)
     try {
       await saveAttractionToTrip(user.id, trip.id, {
         ...attraction,
         imageUrl: absoluteMediaUrl(attraction.imageUrl),
       })
-      setSavedAttractionNames((current) => new Set([...current, normalizedName]))
+      const previousCount = savedAttractionNamesRef.current.size
+      const nextNames = new Set([...savedAttractionNamesRef.current, normalizedName])
+      savedAttractionNamesRef.current = nextNames
+      setSavedAttractionNames(nextNames)
       setLastSavedName(attraction.name)
       setLastSavedTripTitle(trip.title)
       setPendingAttraction(null)
+      if (
+        previousCount < itineraryUnlockCount
+        && nextNames.size >= itineraryUnlockCount
+        && promptedTripId.current !== trip.id
+      ) {
+        promptedTripId.current = trip.id
+        rememberBuildPrompt(trip.id)
+        setBuildError("")
+        setBuildPromptOpen(true)
+      }
     } catch (error) {
       Alert.alert("Place not saved", error instanceof Error ? error.message : "Please try again.")
     } finally {
       setSavingName("")
+    }
+  }
+
+  async function buildItinerary() {
+    if (buildInFlight.current || !scopedTrip) return
+    if (!session?.access_token) {
+      setBuildError("Your session needs a quick refresh. Sign in again, and your saved places will still be here.")
+      setBuildPromptOpen(true)
+      return
+    }
+
+    buildInFlight.current = true
+    setBuildingItinerary(true)
+    setBuildError("")
+    try {
+      // fastDraft gives the traveler a complete, deterministic first pass immediately.
+      // The trip screen can then enrich or rebuild individual days without losing picks.
+      const options = hasItinerary
+        ? {
+            fastDraft: true,
+            instruction: "Add every saved place to the itinerary. Preserve all existing traveler picks and manual edits; adjust only suggestions as needed.",
+          }
+        : { fastDraft: true }
+      const result = await generateTripItinerary(session.access_token, scopedTrip.id, options)
+      if (result.inclusion && result.inclusion.includedCount < result.inclusion.savedCount) {
+        throw new Error(`Only ${result.inclusion.includedCount} of ${result.inclusion.savedCount} saved places were included. Please try again.`)
+      }
+      setScopedTrip((current) => current ? { ...current, itinerary: result.itinerary } : current)
+      setBuildPromptOpen(false)
+      router.push({ pathname: "/trips/[id]", params: { id: scopedTrip.id } })
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "Please try again."
+      setBuildError(`We couldn’t finish the itinerary. Your ${savedCount} saved place${savedCount === 1 ? " is" : "s are"} safe. ${detail}`)
+      setBuildPromptOpen(true)
+    } finally {
+      buildInFlight.current = false
+      setBuildingItinerary(false)
     }
   }
 
@@ -317,17 +469,18 @@ export default function ExploreScreen() {
 
   function revealSearchResults(event: LayoutChangeEvent) {
     if (!revealResults) return
+    const resultsY = event.nativeEvent.layout.y
     setRevealResults(false)
     requestAnimationFrame(() => {
-      screenRef.current?.scrollTo({ y: Math.max(0, event.nativeEvent.layout.y - 18), animated: true })
+      screenRef.current?.scrollTo({ y: Math.max(0, resultsY - 18), animated: true })
     })
   }
 
   if (loading && !data) return <LoadingScreen label="Finding places that fit…" />
 
   return (
-    <>
-      <Screen scrollRef={screenRef} contentStyle={styles.page}>
+    <View style={styles.root}>
+      <Screen scrollRef={screenRef} contentStyle={[styles.page, canBuildItinerary && styles.pageWithSticky]}>
         <View style={styles.header}>
           <View>
             <Eyebrow>Explore by feeling</Eyebrow>
@@ -342,7 +495,14 @@ export default function ExploreScreen() {
             <View style={styles.tripContextCopy}>
               <Text style={styles.tripContextLabel}>ADDING PLACES TO</Text>
               <Text style={styles.tripContextTitle}>{scopedTrip.title}</Text>
-              <Text style={styles.tripContextMeta}>{savedAttractionNames.size} saved · Results are scoped to {scopedTrip.destination}</Text>
+              <Text style={styles.tripContextMeta} accessibilityLiveRegion="polite">
+                {savedCount >= itineraryUnlockCount
+                  ? `${savedCount} saved · Ready to build`
+                  : `${savedCount} of ${itineraryUnlockCount} saved · ${itineraryUnlockCount - savedCount} more to build`}
+              </Text>
+              <View style={styles.tripProgressTrack}>
+                <View style={[styles.tripProgressFill, { width: `${Math.min((savedCount / itineraryUnlockCount) * 100, 100)}%` }]} />
+              </View>
             </View>
             <View style={styles.tripContextAction}><Text style={styles.tripContextActionText}>VIEW TRIP</Text><Ionicons name="arrow-forward" size={17} color={colors.primary} /></View>
           </Pressable>
@@ -364,7 +524,9 @@ export default function ExploreScreen() {
 
         <View style={styles.lensHeading}>
           <Eyebrow>Explore by feeling</Eyebrow>
-          <Text style={styles.lensHint}>The featured city and recommendations change with each choice.</Text>
+          <Text style={styles.lensHint}>{scopedTrip
+            ? `Recommendations refresh within ${selected.name}; your saved places stay put.`
+            : "The featured city and recommendations change with each choice."}</Text>
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.lenses}>
@@ -382,7 +544,7 @@ export default function ExploreScreen() {
           ))}
         </ScrollView>
 
-        <DiscoveryCanvas destination={selected} lens={lens} searching={searching} onExplore={searchPlaces} accessToken={session?.access_token} />
+        <DiscoveryCanvas destination={selected} lens={lens} searching={searching} onExplore={() => void searchPlaces()} accessToken={session?.access_token} />
 
         <View style={styles.fitCard}>
           <Text style={styles.fitLabel}>WHY IT FITS YOUR FAMILY</Text>
@@ -403,7 +565,7 @@ export default function ExploreScreen() {
               returnKeyType="search"
               clearButtonMode="while-editing"
               blurOnSubmit
-              onSubmitEditing={searchPlaces}
+              onSubmitEditing={() => void searchPlaces()}
             />
             {query ? (
               <Pressable accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setQuery("")} style={styles.clearSearch}>
@@ -419,23 +581,42 @@ export default function ExploreScreen() {
               </Pressable>
             ))}
           </View>
-          <Button variant="secondary" onPress={searchPlaces} loading={searching} style={styles.searchButton}>Find matching places</Button>
+          <Button variant="secondary" onPress={() => void searchPlaces()} loading={searching} style={styles.searchButton}>Find matching places</Button>
           {searchError ? (
             <View style={styles.searchError}>
               <Ionicons name="information-circle-outline" size={18} color="#F1C6B5" />
-              <Text style={styles.searchErrorText}>{searchError}</Text>
+              <View style={styles.searchErrorCopy}>
+                <Text style={styles.searchErrorText}>{searchError}</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Try this place search again"
+                  disabled={searching}
+                  onPress={() => void searchPlaces({ reveal: false })}
+                  style={styles.retrySearch}
+                >
+                  <Text style={styles.retrySearchText}>TRY AGAIN</Text>
+                  <Ionicons name="arrow-forward" size={14} color="#F0F0F2" />
+                </Pressable>
+              </View>
             </View>
           ) : null}
         </View>
 
-        {searching ? (
+        {searching && !attractions.length ? (
           <View style={styles.loadingResults}><ActivityIndicator color={colors.primary} /><Text style={styles.loadingResultsText}>Finding verified places in {selected.name} for your family…</Text></View>
+        ) : null}
+
+        {searching && attractions.length ? (
+          <View style={styles.refreshingResults} accessibilityLiveRegion="polite">
+            <ActivityIndicator size="small" color={colors.primary} />
+            <Text style={styles.refreshingResultsText}>Updating for {lens}. Your current places will stay visible until the new matches arrive.</Text>
+          </View>
         ) : null}
 
         {attractions.length ? (
           <View style={styles.results} onLayout={revealSearchResults}>
             <View style={styles.sectionHeading}>
-              <View><Eyebrow>Matched to your vibe</Eyebrow><Text style={styles.sectionTitle}>Places in {selected.name}</Text></View>
+              <View><Eyebrow>{resultsLens ? `${resultsLens} matches` : "Matched to your vibe"}</Eyebrow><Text style={styles.sectionTitle}>Places in {resultsDestinationName || selected.name}</Text></View>
               <Text style={styles.sectionCount}>{attractions.length}</Text>
             </View>
             {lastSavedName && (scopedTrip || lastSavedTripTitle) ? (
@@ -445,7 +626,7 @@ export default function ExploreScreen() {
               </View>
             ) : null}
             {summary ? <Text style={styles.summary}>{summary}</Text> : null}
-            {attractions.map((attraction) => {
+            {attractions.slice(0, visibleResultCount).map((attraction) => {
               const normalizedName = attraction.name.trim().toLowerCase()
               return (
                 <ResultCard
@@ -457,6 +638,22 @@ export default function ExploreScreen() {
                 />
               )
             })}
+            {visibleResultCount < attractions.length ? (
+              <View style={styles.moreResults}>
+                <Text style={styles.moreResultsStatus} accessibilityLiveRegion="polite">
+                  Showing {Math.min(visibleResultCount, attractions.length)} of {attractions.length} places
+                </Text>
+                <Button
+                  variant="secondary"
+                  onPress={() => setVisibleResultCount((current) => Math.min(current + resultBatchSize, attractions.length))}
+                  accessibilityLabel={`Show ${Math.min(resultBatchSize, attractions.length - visibleResultCount)} more places`}
+                  accessibilityHint="Loads the next group of matching places"
+                  style={styles.moreResultsButton}
+                >
+                  Show {Math.min(resultBatchSize, attractions.length - visibleResultCount)} more
+                </Button>
+              </View>
+            ) : null}
           </View>
         ) : null}
 
@@ -489,6 +686,29 @@ export default function ExploreScreen() {
           </>
         ) : null}
       </Screen>
+
+      {canBuildItinerary ? (
+        <SafeAreaView pointerEvents="box-none" edges={["bottom"]} style={styles.stickyBuildSafe}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={buildCtaLabel}
+            accessibilityHint={hasItinerary
+              ? "Adds your new saved places without removing the itinerary you already planned"
+              : "Builds a first itinerary with every saved place and opens your trip"}
+            disabled={buildingItinerary}
+            onPress={() => void buildItinerary()}
+            style={({ pressed }) => [styles.stickyBuild, pressed && styles.stickyBuildPressed, buildingItinerary && styles.stickyBuildDisabled]}
+          >
+            <View style={styles.stickyBuildCopy}>
+              <Text style={styles.stickyBuildEyebrow}>{hasItinerary ? "NEW PICKS READY" : "ENOUGH TO START"}</Text>
+              <Text style={styles.stickyBuildLabel}>{buildCtaLabel}</Text>
+            </View>
+            {buildingItinerary
+              ? <ActivityIndicator color="#F0F0F2" />
+              : <Ionicons name="arrow-forward" size={20} color="#F0F0F2" />}
+          </Pressable>
+        </SafeAreaView>
+      ) : null}
 
       <Modal visible={browseOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setBrowseOpen(false)}>
         <SafeAreaView style={styles.browserSafe}>
@@ -560,12 +780,50 @@ export default function ExploreScreen() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
-    </>
+
+      <Modal
+        visible={buildPromptOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { if (!buildingItinerary) setBuildPromptOpen(false) }}
+      >
+        <View style={styles.buildPromptOverlay}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Keep exploring"
+            disabled={buildingItinerary}
+            onPress={() => setBuildPromptOpen(false)}
+            style={StyleSheet.absoluteFill}
+          />
+          <SafeAreaView edges={["bottom"]} style={styles.buildPromptSafe}>
+            <View style={styles.buildPromptSheet}>
+              <View style={styles.buildPromptHandle} />
+              <View style={styles.buildPromptIcon}><Ionicons name="sparkles" size={20} color={colors.primary} /></View>
+              <Text style={styles.buildPromptEyebrow}>YOUR TRIP HAS A POINT OF VIEW</Text>
+              <Text style={styles.buildPromptTitle}>You have enough to build.</Text>
+              <Text style={styles.buildPromptBody}>We’ll organize all {savedCount} saved places into a practical first itinerary. You can keep exploring or refine every day afterward.</Text>
+              {buildError ? (
+                <View style={styles.buildPromptError}>
+                  <Ionicons name="alert-circle-outline" size={18} color={colors.danger} />
+                  <Text style={styles.buildPromptErrorText}>{buildError}</Text>
+                </View>
+              ) : null}
+              <Button onPress={() => void buildItinerary()} loading={buildingItinerary} style={styles.buildPromptPrimary}>
+                {hasItinerary ? "Update my itinerary" : "Build my itinerary"}
+              </Button>
+              <Button variant="ghost" disabled={buildingItinerary} onPress={() => setBuildPromptOpen(false)} style={styles.buildPromptSecondary}>Keep exploring</Button>
+            </View>
+          </SafeAreaView>
+        </View>
+      </Modal>
+    </View>
   )
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
   page: { paddingTop: 8, paddingHorizontal: 0, gap: 20 },
+  pageWithSticky: { paddingBottom: 132 },
   header: { paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   title: { color: colors.text, fontSize: 34, lineHeight: 39, fontFamily: typography.serif, fontWeight: "700", marginTop: 4 },
   sparkle: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
@@ -575,6 +833,8 @@ const styles = StyleSheet.create({
   tripContextLabel: { color: colors.primary, fontSize: 8, fontWeight: "900", letterSpacing: 1.2 },
   tripContextTitle: { color: colors.text, fontSize: 18, fontFamily: typography.serif, fontWeight: "700", marginTop: 2 },
   tripContextMeta: { color: colors.textMuted, fontSize: 10, lineHeight: 15, marginTop: 2 },
+  tripProgressTrack: { height: 3, marginTop: 9, borderRadius: 99, overflow: "hidden", backgroundColor: colors.surfaceMuted },
+  tripProgressFill: { height: "100%", borderRadius: 99, backgroundColor: colors.primary },
   tripContextAction: { alignItems: "flex-end", gap: 3 },
   tripContextActionText: { color: colors.primary, fontSize: 8, fontWeight: "900", letterSpacing: 1 },
   destinationPicker: { marginHorizontal: 18, minHeight: 68, paddingHorizontal: 14, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border, flexDirection: "row", alignItems: "center", gap: 12 },
@@ -585,10 +845,10 @@ const styles = StyleSheet.create({
   lensHeading: { paddingHorizontal: 18, gap: 4 },
   lensHint: { color: colors.textMuted, fontSize: 11, lineHeight: 16 },
   lenses: { paddingHorizontal: 18, gap: 8 },
-  lens: { minHeight: 38, paddingHorizontal: 15, borderRadius: 99, backgroundColor: "transparent", borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
-  lensActive: { backgroundColor: colors.dark, borderColor: colors.dark },
+  lens: { minHeight: 44, paddingHorizontal: 16, borderRadius: 99, backgroundColor: "transparent", borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  lensActive: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
   lensText: { color: colors.textMuted, fontSize: 12, fontWeight: "700" },
-  lensTextActive: { color: "#FFFFFF" },
+  lensTextActive: { color: colors.primaryDark },
   fitCard: { marginHorizontal: 18, paddingVertical: 18, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   fitLabel: { color: colors.primary, fontSize: 9, fontWeight: "800", letterSpacing: 1.4 },
   fitReason: { color: colors.text, fontSize: 17, lineHeight: 24, fontFamily: typography.serif, marginTop: 7 },
@@ -605,7 +865,10 @@ const styles = StyleSheet.create({
   searchSuggestionText: { color: "rgba(255,255,255,0.82)", fontSize: 10, fontWeight: "700" },
   searchButton: { backgroundColor: colors.surface, borderColor: colors.surface },
   searchError: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "rgba(255,255,255,0.2)", paddingTop: 12 },
+  searchErrorCopy: { flex: 1, gap: 9 },
   searchErrorText: { flex: 1, color: "rgba(255,255,255,0.78)", fontSize: 11, lineHeight: 17 },
+  retrySearch: { minHeight: 44, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6, paddingRight: 8 },
+  retrySearchText: { color: "#F0F0F2", fontSize: 9, fontWeight: "900", letterSpacing: 1.2 },
   sectionHeading: { paddingHorizontal: 18, flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between" },
   sectionHeadingCopy: { flex: 1, paddingRight: 12 },
   sectionTitle: { color: colors.text, fontSize: 25, fontFamily: typography.serif, fontWeight: "700", marginTop: 3 },
@@ -621,6 +884,8 @@ const styles = StyleSheet.create({
   destinationSub: { color: "rgba(255,255,255,0.7)", fontSize: 11, marginTop: 2 },
   loadingResults: { marginHorizontal: 18, paddingVertical: 28, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border, alignItems: "center", gap: 12 },
   loadingResultsText: { color: colors.textMuted, fontSize: 13 },
+  refreshingResults: { marginHorizontal: 18, minHeight: 52, paddingHorizontal: 14, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: radii.medium, backgroundColor: colors.primarySoft, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.primary },
+  refreshingResultsText: { flex: 1, color: colors.primaryDark, fontSize: 11, lineHeight: 16, fontWeight: "700" },
   results: { gap: 14, paddingBottom: 10 },
   savedConfirmation: { marginHorizontal: 18, flexDirection: "row", alignItems: "flex-start", gap: 9, backgroundColor: colors.successSoft, borderRadius: radii.small, padding: 13 },
   savedConfirmationText: { flex: 1, color: colors.success, fontSize: 11, lineHeight: 17, fontWeight: "700" },
@@ -628,6 +893,9 @@ const styles = StyleSheet.create({
   resultCard: { marginHorizontal: 18, paddingBottom: 17, overflow: "hidden", backgroundColor: "transparent", borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   resultImage: { width: "100%", height: 205, backgroundColor: colors.surfaceMuted },
   resultContent: { paddingTop: 15 },
+  moreResults: { marginHorizontal: 18, alignItems: "center", gap: 9, paddingTop: 2, paddingBottom: 8 },
+  moreResultsStatus: { color: colors.textMuted, fontSize: 11, fontWeight: "700" },
+  moreResultsButton: { alignSelf: "stretch" },
   resultTopline: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   resultCategory: { color: colors.primary, fontSize: 9, fontWeight: "800", letterSpacing: 1.3 },
   rating: { color: colors.text, fontSize: 11, fontWeight: "800" },
@@ -676,4 +944,23 @@ const styles = StyleSheet.create({
   customDestinationIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
   customDestinationLabel: { color: "rgba(255,255,255,0.46)", fontSize: 8, fontWeight: "900", letterSpacing: 1.2 },
   customDestinationTitle: { color: "#FFFFFF", fontSize: 20, fontFamily: typography.serif, fontWeight: "700", marginTop: 4 },
+  stickyBuildSafe: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 14, paddingTop: 8, backgroundColor: "rgba(243,239,231,0.96)" },
+  stickyBuild: { minHeight: 68, paddingHorizontal: 18, borderRadius: radii.large, backgroundColor: colors.dark, flexDirection: "row", alignItems: "center", justifyContent: "space-between", shadowColor: "#000000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.18, shadowRadius: 24, elevation: 8 },
+  stickyBuildPressed: { opacity: 0.9, transform: [{ translateY: 1 }] },
+  stickyBuildDisabled: { opacity: 0.68 },
+  stickyBuildCopy: { flex: 1, paddingRight: 12 },
+  stickyBuildEyebrow: { color: "#C8A96E", fontSize: 8, fontWeight: "900", letterSpacing: 1.35 },
+  stickyBuildLabel: { color: "#F0F0F2", fontSize: 15, lineHeight: 20, fontWeight: "800", marginTop: 3 },
+  buildPromptOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.62)" },
+  buildPromptSafe: { backgroundColor: colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  buildPromptSheet: { backgroundColor: colors.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: 22, paddingTop: 10, paddingBottom: 12, borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  buildPromptHandle: { width: 38, height: 4, borderRadius: 99, backgroundColor: colors.border, alignSelf: "center", marginBottom: 20 },
+  buildPromptIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: colors.primarySoft, marginBottom: 14 },
+  buildPromptEyebrow: { color: colors.primary, fontSize: 9, fontWeight: "900", letterSpacing: 1.45 },
+  buildPromptTitle: { color: colors.text, fontSize: 29, lineHeight: 34, fontFamily: typography.serif, fontWeight: "700", marginTop: 7 },
+  buildPromptBody: { color: colors.textMuted, fontSize: 13, lineHeight: 20, marginTop: 10, marginBottom: 18 },
+  buildPromptError: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: radii.medium, backgroundColor: colors.dangerSoft, marginBottom: 14 },
+  buildPromptErrorText: { flex: 1, color: colors.danger, fontSize: 11, lineHeight: 17, fontWeight: "700" },
+  buildPromptPrimary: { backgroundColor: colors.dark },
+  buildPromptSecondary: { marginTop: 2, minHeight: 44 },
 })

@@ -1,6 +1,6 @@
 # VibeTravel UAT Feedback Tracker
 
-Last updated: 2026-09-30
+Last updated: 2026-10-07
 
 ## Test execution
 
@@ -55,6 +55,59 @@ Last updated: 2026-09-30
 | UAT-017 | P1 | VT-021 | Passed production retest | Itinerary deletion and readiness storage reconcile correctly, but the readiness UI previously retained the old itinerary until the page was refreshed. Saved itinerary changes now update Trip Readiness, the Departure Center, and offline-pack data immediately in the current session. |
 | UAT-018 | P1 | VT-006, VT-024 | Refresh retest passed; direct action open | Targeted Refresh day now receives every saved place assigned to that date and deterministically adds any assigned place omitted by the planner, without replacing unrelated days. Existing itineraries still need a clearer direct Add stop action. |
 | UAT-019 | P1 | Long-trip production retest | Implemented — retest | The Leaflet trip map rendered above the long-trip planner dialog and its dark overlay, obscuring the date list and modal actions. The map now establishes an isolated page-level stacking context so Leaflet's internal panes remain below every dialog and overlay. |
+| UAT-020 | P0 | Mobile performance | Partially implemented — retest | **Mobile latency fast path.** Mobile now hydrates one shared cached dashboard before a single background refresh, deduplicates trip loads, omits itinerary JSON from summary queries, removes public discovery/media routes from the auth middleware, and returns verified Explore results without waiting for AI or Wikipedia. Google and weather calls now have hard deadlines. Image pipeline work and production performance tracing remain open. |
+| UAT-021 | P0 | Itinerary generation | Fast draft implemented — retest | **Progressive itinerary generation.** Trip-scoped Explore can now build and persist an immediate saved-picks-only draft without weather or AI; every selected place is enforced exactly once. Existing itineraries reconcile new saves without replacing manual edits, statuses, or suggestions. Full asynchronous AI enrichment remains a later improvement; normal detailed generation still runs on demand. |
+| UAT-022 | P0 | Explore conversion | Implemented — retest | **Explore-to-itinerary completion path.** At three saved places, Explore now shows a one-time, safely persisted bottom sheet with “Build my itinerary” and “Keep exploring,” plus a persistent sticky Build/Update action. It prevents double submission, keeps every saved place on failure, and opens the finished trip on success. |
+| UAT-023 | P0 | Explore discovery | Implemented — retest | **Predictable Explore lenses.** Lenses are now functional single-select controls that automatically run the new search, keep existing cards visible while loading, cancel stale requests, preserve saved markers and trip context, and retain prior results with Retry when a provider returns zero or fails. General Explore still changes the featured destination; trip-scoped Explore keeps the destination locked. |
+| UAT-024 | P1 | New trip | Backlog — planned | **Date-range calendar.** Replace manual start/end date entry with one accessible calendar range picker that shows the selected range and trip length, prevents an end date before the start date, and never opens the keyboard for date selection. |
+| UAT-025 | P1 | Onboarding | Backlog — planned | **Modern personalized onboarding.** Add a short, skippable first-run flow that collects only useful inputs: preferred name, home city or airport, travel party, interests, pace, optional budget band, and optional dietary/accessibility needs. Save progress after each step and keep every answer editable in Profile/Family Vibe. |
+
+## Acceptance criteria for UAT-020 through UAT-025
+
+### UAT-020 — Mobile latency fast path
+
+- Warm screens render cached content immediately and refresh in the background without blanking the page.
+- Dashboard data is loaded once through a shared store instead of independently from every tab; trip lists do not download full itinerary JSON.
+- Explore shows the first verified place cards before optional AI rationale finishes, with request cancellation and deterministic fallback if a provider is slow.
+- Image requests use appropriately sized, disk-cached assets; maps and other heavy content load only when needed.
+- No loader can run indefinitely. Target first verified Explore results at p75 within 2 seconds and p95 within 4 seconds, with crash-free sessions at or above 99.8%.
+
+### UAT-021 — Progressive itinerary generation
+
+- Every saved place is placed exactly once in the first usable schedule, and a retry cannot duplicate or drop selections.
+- The UI reports real phases such as “Organizing your picks,” “Building days,” and “Finalizing,” while the existing itinerary remains visible during an update.
+- Weather is skipped when dates fall outside the available forecast window, and optional AI prose never blocks the base schedule.
+- Timeouts preserve all saved places and present a useful Retry action; the first usable itinerary structure should target p75 within 2 seconds.
+
+### UAT-022 — Explore-to-itinerary completion path
+
+- Trip-scoped Explore always shows a live “X of 3 places saved” milestone.
+- Saving the third place opens a one-time bottom sheet for that trip with “Build my itinerary” and “Keep exploring”; it does not interrupt later saves.
+- After dismissal, a persistent sticky CTA remains available and updates its count immediately. If an itinerary already exists, the copy becomes “Update itinerary with X places.”
+- Building cannot double-submit, retains all selections on failure, and lands on the generated itinerary on success.
+
+### UAT-023 — Predictable Explore lenses
+
+- Selecting a lens automatically refreshes the same destination; the user does not need to press Find matches again.
+- Existing cards remain visible with a subtle loading state until replacements arrive, and stale responses cannot overwrite the most recently selected lens.
+- Saved places remain visibly marked and cannot be added twice across lenses.
+- A zero-result or provider failure keeps the prior results and offers a clear explanation, Retry, and Show all option instead of an empty screen.
+- If a lens cannot reliably change ranking or results, hide it until it can rather than shipping an inert control.
+
+### UAT-024 — Date-range calendar
+
+- Tapping either date opens the same native calendar; the first selection sets the start and the second sets the end.
+- The end date cannot precede the start date, and changing the start safely adjusts or clears an invalid end date.
+- The chosen range and trip length are visible, survive Back and validation errors, and persist exactly after creation and reload.
+- Clear/change controls and VoiceOver labels are provided, with locale- and timezone-safe display.
+
+### UAT-025 — Modern personalized onboarding
+
+- The flow is limited to three or four concise screens: welcome/value, about you and travel party, interests and pace, and optional planning needs.
+- Every screen supports Back and Skip for now; partial progress survives relaunch, and existing users receive an optional invitation rather than a blocking gate.
+- Travel-party choices support self, partner/spouse, children with optional age bands, and extended family without requesting legal birth dates.
+- The app does not request passport data, exact home addresses, or precise location. It briefly explains how each answer improves recommendations.
+- Completion leads to a clear “Explore destinations” or “Plan a trip” action, and all collected data can later be edited or deleted from Profile/Family Vibe.
 
 ## VT-007 test directions
 
