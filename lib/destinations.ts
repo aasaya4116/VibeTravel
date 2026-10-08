@@ -104,6 +104,7 @@ export const destinations = [
   "Dakar, Senegal",
   "Addis Ababa, Ethiopia",
   "Lagos, Nigeria",
+  "Abuja, Nigeria",
   "Tunis, Tunisia",
   "Mauritius",
   "Seychelles",

@@ -1,6 +1,12 @@
 import type { User } from "@supabase/supabase-js"
 import { supabase } from "./supabase"
 import { DASHBOARD_TRIP_SELECT } from "./dashboard-data"
+import {
+  isVerifiedDestinationOption,
+  normalizeDestinationOption,
+  type DestinationOption,
+  type DestinationOptionPayload,
+} from "./destination-options"
 import type {
   Attraction,
   DashboardData,
@@ -40,6 +46,19 @@ function writeCache(key: string, value: unknown) {
   } catch {
     // A failed cache write should never block live trip data.
   }
+}
+
+function tripDestinationCacheKey(userId: string, tripId: string) {
+  return `trip-destination:${userId}:${tripId}`
+}
+
+export function readTripDestinationOption(userId: string, tripId: string) {
+  const cached = readCache<DestinationOptionPayload>(tripDestinationCacheKey(userId, tripId))
+  return cached ? normalizeDestinationOption(cached) : null
+}
+
+function writeTripDestinationOption(userId: string, tripId: string, option?: DestinationOption | null) {
+  if (isVerifiedDestinationOption(option)) writeCache(tripDestinationCacheKey(userId, tripId), option)
 }
 
 function withoutDashboardItineraries(data: DashboardData): DashboardData {
@@ -341,16 +360,63 @@ export async function saveItinerary(userId: string, trip: Trip, itinerary: Itine
   return data as Trip
 }
 
+export async function updateTripDestination(
+  userId: string,
+  tripId: string,
+  option: DestinationOption,
+) {
+  const destination = option.canonicalLabel.trim() || option.label.trim()
+  if (!destination || !option.resolved) {
+    throw new Error("Choose a verified destination before continuing.")
+  }
+
+  const { data, error } = await supabase
+    .from("trips")
+    .update({ destination, updated_at: new Date().toISOString() })
+    .eq("id", tripId)
+    .eq("user_id", userId)
+    .select("*")
+    .single()
+  if (error) throw error
+
+  const updatedTrip = data as Trip
+  const cacheKey = `trip:${userId}:${tripId}`
+  const cached = readCache<{ trip: Trip; savedAttractions: SavedAttraction[] } | Trip>(cacheKey)
+  writeCache(cacheKey, {
+    trip: updatedTrip,
+    savedAttractions: cached && "trip" in cached ? cached.savedAttractions : [],
+  })
+  writeTripDestinationOption(userId, tripId, option)
+
+  const dashboard = readDashboardCache(userId)
+  if (dashboard) {
+    writeDashboardCache(userId, {
+      ...dashboard,
+      trips: dashboard.trips.map((trip) => trip.id === tripId
+        ? { ...trip, destination, updated_at: updatedTrip.updated_at }
+        : trip),
+    })
+  }
+  return updatedTrip
+}
+
+export interface CreateTripInput extends Pick<Trip, "title" | "destination" | "start_date" | "end_date"> {
+  destinationOption?: DestinationOption
+}
+
 export async function createTrip(
   userId: string,
-  input: Pick<Trip, "title" | "destination" | "start_date" | "end_date">
+  input: CreateTripInput,
 ) {
+  const destination = input.destinationOption?.canonicalLabel.trim()
+    || input.destinationOption?.label.trim()
+    || input.destination.trim()
   const { data, error } = await supabase
     .from("trips")
     .insert({
       user_id: userId,
       title: input.title,
-      destination: input.destination,
+      destination,
       start_date: input.start_date,
       end_date: input.end_date,
       status: "planning",
@@ -367,5 +433,6 @@ export async function createTrip(
     })
   }
   writeCache(`trip:${userId}:${data.id}`, { trip: data as Trip, savedAttractions: [] })
+  writeTripDestinationOption(userId, data.id, input.destinationOption)
   return data as Trip
 }

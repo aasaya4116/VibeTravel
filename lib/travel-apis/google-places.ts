@@ -1,14 +1,38 @@
 const API_KEY = process.env.GOOGLE_PLACES_API_KEY
 const DEFAULT_SEARCH_TIMEOUT_MS = 6_000
+const DEFAULT_DESTINATION_TIMEOUT_MS = 4_000
+const DESTINATION_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1_000
+const EMPTY_DESTINATION_CACHE_TTL_MS = 5 * 60 * 1_000
+const DESTINATION_CACHE_LIMIT = 250
+const GOOGLE_LOCATION_BIAS_RADIUS_METERS = 50_000
 
 export function isConfigured() {
   return !!API_KEY
+}
+
+export interface DestinationAnchor {
+  label: string
+  canonicalLabel: string
+  city: string
+  region: string
+  country: string
+  placeId: string
+  latitude: number
+  longitude: number
+  resolved: true
+  recognized: true
+  primaryType: string | null
+  types: string[]
+  /** Maximum distance used for our strict result post-filter. */
+  radiusMeters: number
 }
 
 export interface PlaceResult {
   id: string
   name: string
   address: string
+  latitude: number | null
+  longitude: number | null
   rating: number | null
   userRatingCount: number | null
   priceLevel: string | null // "PRICE_LEVEL_FREE" | "PRICE_LEVEL_INEXPENSIVE" | etc.
@@ -36,6 +60,12 @@ type GooglePlace = {
   id?: string
   displayName?: { text?: string }
   formattedAddress?: string
+  addressComponents?: Array<{
+    longText?: string
+    shortText?: string
+    types?: string[]
+  }>
+  location?: { latitude?: number; longitude?: number }
   rating?: number
   userRatingCount?: number
   priceLevel?: string
@@ -51,6 +81,302 @@ type GooglePlace = {
   types?: string[]
 }
 
+type GoogleAutocompletePrediction = {
+  placeId?: string
+  text?: { text?: string }
+  structuredFormat?: {
+    mainText?: { text?: string }
+    secondaryText?: { text?: string }
+  }
+  types?: string[]
+}
+
+type DestinationCacheEntry = {
+  expiresAt: number
+  values: DestinationAnchor[]
+}
+
+const destinationCache = new Map<string, DestinationCacheEntry>()
+
+const CITY_TYPES = new Set([
+  "locality",
+  "postal_town",
+  "sublocality",
+  "administrative_area_level_3",
+])
+
+const REGION_TYPES = new Set([
+  "administrative_area_level_1",
+  "administrative_area_level_2",
+  "country",
+  "natural_feature",
+  "national_park",
+  "park",
+])
+
+function normalize(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+}
+
+function requestSignal(signal: AbortSignal | undefined, timeoutMs: number) {
+  const deadline = AbortSignal.timeout(timeoutMs)
+  return signal ? AbortSignal.any([signal, deadline]) : deadline
+}
+
+function cacheDestinationResults(key: string, values: DestinationAnchor[]) {
+  if (destinationCache.size >= DESTINATION_CACHE_LIMIT) {
+    const oldest = destinationCache.keys().next().value
+    if (oldest) destinationCache.delete(oldest)
+  }
+  destinationCache.set(key, {
+    expiresAt:
+      Date.now() +
+      (values.length > 0
+        ? DESTINATION_CACHE_TTL_MS
+        : EMPTY_DESTINATION_CACHE_TTL_MS),
+    values,
+  })
+}
+
+function cachedDestinationResults(key: string) {
+  const cached = destinationCache.get(key)
+  if (!cached) return null
+  if (cached.expiresAt <= Date.now()) {
+    destinationCache.delete(key)
+    return null
+  }
+  return cached.values
+}
+
+function addressPart(place: GooglePlace, type: string) {
+  return place.addressComponents?.find((component) =>
+    component.types?.includes(type)
+  )?.longText?.trim() ?? ""
+}
+
+function destinationRadius(types: string[]) {
+  if (types.some((type) => CITY_TYPES.has(type))) return 75_000
+  if (types.includes("country")) return 1_000_000
+  if (types.some((type) => REGION_TYPES.has(type))) return 250_000
+  return 100_000
+}
+
+function toDestinationAnchor(
+  prediction: GoogleAutocompletePrediction,
+  place: GooglePlace
+): DestinationAnchor | null {
+  const placeId = place.id?.trim() || prediction.placeId?.trim()
+  const latitude = place.location?.latitude
+  const longitude = place.location?.longitude
+  if (
+    !placeId ||
+    typeof latitude !== "number" ||
+    typeof longitude !== "number" ||
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude)
+  ) {
+    return null
+  }
+
+  const types = Array.from(new Set([...(place.types ?? []), ...(prediction.types ?? [])]))
+  if (!types.some((type) => CITY_TYPES.has(type) || REGION_TYPES.has(type))) {
+    return null
+  }
+
+  const city =
+    addressPart(place, "locality") ||
+    addressPart(place, "postal_town") ||
+    addressPart(place, "administrative_area_level_3") ||
+    prediction.structuredFormat?.mainText?.text?.trim() ||
+    place.displayName?.text?.trim() ||
+    ""
+  const region =
+    addressPart(place, "administrative_area_level_1") ||
+    addressPart(place, "administrative_area_level_2")
+  const country = addressPart(place, "country")
+  const label =
+    prediction.text?.text?.trim() ||
+    place.formattedAddress?.trim() ||
+    [city, region, country].filter(Boolean).join(", ")
+  if (!label || !city) return null
+
+  return {
+    label,
+    canonicalLabel: label,
+    city,
+    region,
+    country,
+    placeId,
+    latitude,
+    longitude,
+    resolved: true,
+    recognized: true,
+    primaryType: place.primaryType ?? null,
+    types,
+    radiusMeters: destinationRadius(types),
+  }
+}
+
+async function getPlaceDetails(
+  prediction: GoogleAutocompletePrediction,
+  signal: AbortSignal
+): Promise<DestinationAnchor | null> {
+  const placeId = prediction.placeId?.trim()
+  if (!API_KEY || !placeId) return null
+
+  const res = await fetch(
+    `https://places.googleapis.com/v1/places/${encodeURIComponent(placeId)}`,
+    {
+      headers: {
+        "X-Goog-Api-Key": API_KEY,
+        "X-Goog-FieldMask": [
+          "id",
+          "displayName",
+          "formattedAddress",
+          "addressComponents",
+          "location",
+          "primaryType",
+          "types",
+        ].join(","),
+      },
+      signal,
+    }
+  )
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "")
+    console.error(
+      `[google-places] Destination details failed (${res.status}):`,
+      detail.slice(0, 300)
+    )
+    throw new Error(`Google destination details failed with status ${res.status}`)
+  }
+
+  return toDestinationAnchor(prediction, (await res.json()) as GooglePlace)
+}
+
+/**
+ * Worldwide destination autocomplete backed by Google Places. Predictions are
+ * hydrated with Place Details before they are returned, so callers never have
+ * to treat raw typed text as a verified destination.
+ */
+export async function autocompleteDestinations(
+  input: string,
+  limit = 6,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {}
+): Promise<DestinationAnchor[]> {
+  const query = input.trim().slice(0, 100)
+  if (!API_KEY || query.length < 2) return []
+
+  const cacheKey = normalize(query)
+  const cached = cachedDestinationResults(cacheKey)
+  if (cached) return cached.slice(0, limit)
+
+  const signal = requestSignal(
+    options.signal,
+    options.timeoutMs ?? DEFAULT_DESTINATION_TIMEOUT_MS
+  )
+  const res = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Goog-Api-Key": API_KEY,
+      "X-Goog-FieldMask": [
+        "suggestions.placePrediction.placeId",
+        "suggestions.placePrediction.text",
+        "suggestions.placePrediction.structuredFormat",
+        "suggestions.placePrediction.types",
+      ].join(","),
+    },
+    body: JSON.stringify({
+      input: query,
+      includeQueryPredictions: false,
+      includedPrimaryTypes: ["(regions)"],
+      languageCode: "en",
+    }),
+    signal,
+  })
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "")
+    console.error(
+      `[google-places] Destination autocomplete failed (${res.status}):`,
+      detail.slice(0, 300)
+    )
+    throw new Error(`Google destination autocomplete failed with status ${res.status}`)
+  }
+
+  const payload = (await res.json()) as {
+    suggestions?: Array<{ placePrediction?: GoogleAutocompletePrediction }>
+  }
+  const predictions = (payload.suggestions ?? [])
+    .map((suggestion) => suggestion.placePrediction)
+    .filter((prediction): prediction is GoogleAutocompletePrediction =>
+      Boolean(prediction?.placeId)
+    )
+    .slice(0, Math.max(1, Math.min(limit, 8)))
+
+  const hydrated = await Promise.all(
+    predictions.map((prediction) => getPlaceDetails(prediction, signal))
+  )
+  const seen = new Set<string>()
+  const destinations = hydrated.filter((destination): destination is DestinationAnchor => {
+    if (!destination || seen.has(destination.placeId)) return false
+    seen.add(destination.placeId)
+    return true
+  })
+  cacheDestinationResults(cacheKey, destinations)
+  return destinations
+}
+
+/**
+ * Resolve the exact Google place selected by the traveler. The provider place
+ * ID is authoritative; client-supplied coordinates are never trusted.
+ */
+export async function resolveDestinationPlaceId(
+  placeId: string,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {}
+): Promise<DestinationAnchor | null> {
+  const id = placeId.trim().slice(0, 300)
+  if (!API_KEY || !id || id.startsWith("curated:")) return null
+
+  const cacheKey = `place:${id}`
+  const cached = cachedDestinationResults(cacheKey)
+  if (cached) return cached[0] ?? null
+
+  const signal = requestSignal(
+    options.signal,
+    options.timeoutMs ?? DEFAULT_DESTINATION_TIMEOUT_MS
+  )
+  const destination = await getPlaceDetails({ placeId: id }, signal)
+  if (destination) cacheDestinationResults(cacheKey, [destination])
+  return destination
+}
+
+/** Resolve a stored canonical string (or repair legacy partial text) to a geo anchor. */
+export async function resolveDestination(
+  destination: string,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {}
+): Promise<DestinationAnchor | null> {
+  const input = destination.trim().slice(0, 200)
+  if (!input) return null
+  const matches = await autocompleteDestinations(input, 6, options)
+  if (matches.length === 0) return null
+
+  const target = normalize(input)
+  return (
+    matches.find(
+      (match) =>
+        normalize(match.label) === target || normalize(match.city) === target
+    ) ?? matches[0]
+  )
+}
+
 function toPlaceResult(place: GooglePlace): PlaceResult | null {
   const id = place.id?.trim()
   const name = place.displayName?.text?.trim()
@@ -62,6 +388,14 @@ function toPlaceResult(place: GooglePlace): PlaceResult | null {
     id,
     name,
     address: place.formattedAddress ?? "",
+    latitude:
+      typeof place.location?.latitude === "number"
+        ? place.location.latitude
+        : null,
+    longitude:
+      typeof place.location?.longitude === "number"
+        ? place.location.longitude
+        : null,
     rating: place.rating ?? null,
     userRatingCount: place.userRatingCount ?? null,
     priceLevel: place.priceLevel ? (PRICE_MAP[place.priceLevel] ?? null) : null,
@@ -81,6 +415,22 @@ function toPlaceResult(place: GooglePlace): PlaceResult | null {
   }
 }
 
+function distanceMeters(
+  left: { latitude: number; longitude: number },
+  right: { latitude: number; longitude: number }
+) {
+  const radians = (degrees: number) => (degrees * Math.PI) / 180
+  const earthRadiusMeters = 6_371_000
+  const latitudeDelta = radians(right.latitude - left.latitude)
+  const longitudeDelta = radians(right.longitude - left.longitude)
+  const a =
+    Math.sin(latitudeDelta / 2) ** 2 +
+    Math.cos(radians(left.latitude)) *
+      Math.cos(radians(right.latitude)) *
+      Math.sin(longitudeDelta / 2) ** 2
+  return 2 * earthRadiusMeters * Math.asin(Math.sqrt(a))
+}
+
 /**
  * Returns Google Places candidates for a destination search. Google owns every
  * identity and factual field in this result; callers may rank or summarize the
@@ -90,17 +440,25 @@ export async function searchVerifiedPlaces(
   query: string,
   destination: string,
   limit = 10,
-  options: { signal?: AbortSignal; timeoutMs?: number } = {}
+  options: {
+    signal?: AbortSignal
+    timeoutMs?: number
+    destinationAnchor?: DestinationAnchor | null
+  } = {}
 ): Promise<PlaceResult[]> {
   if (!API_KEY || !destination.trim()) return []
 
   try {
-    const deadlineSignal = AbortSignal.timeout(
+    // One deadline covers both destination resolution and venue search.
+    const signal = requestSignal(
+      options.signal,
       options.timeoutMs ?? DEFAULT_SEARCH_TIMEOUT_MS
     )
-    const signal = options.signal
-      ? AbortSignal.any([options.signal, deadlineSignal])
-      : deadlineSignal
+    const anchor =
+      options.destinationAnchor === undefined
+        ? await resolveDestination(destination, { signal })
+        : options.destinationAnchor
+    const canonicalDestination = anchor?.canonicalLabel || destination.trim()
     const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
       method: "POST",
       headers: {
@@ -110,6 +468,7 @@ export async function searchVerifiedPlaces(
           "places.id",
           "places.displayName",
           "places.formattedAddress",
+          "places.location",
           "places.rating",
           "places.userRatingCount",
           "places.priceLevel",
@@ -126,9 +485,22 @@ export async function searchVerifiedPlaces(
         ].join(","),
       },
       body: JSON.stringify({
-        textQuery: `${query || "family-friendly attractions"} in ${destination}`,
+        textQuery: `${query || "family-friendly attractions"} in ${canonicalDestination}`,
         pageSize: Math.max(1, Math.min(limit, 20)),
         languageCode: "en",
+        ...(anchor
+          ? {
+              locationBias: {
+                circle: {
+                  center: {
+                    latitude: anchor.latitude,
+                    longitude: anchor.longitude,
+                  },
+                  radius: GOOGLE_LOCATION_BIAS_RADIUS_METERS,
+                },
+              },
+            }
+          : {}),
       }),
       signal,
     })
@@ -140,12 +512,27 @@ export async function searchVerifiedPlaces(
     }
 
     const data = await res.json()
-    return ((data.places ?? []) as GooglePlace[])
+    const places = ((data.places ?? []) as GooglePlace[])
       .map(toPlaceResult)
       .filter((place): place is PlaceResult => {
         if (!place) return false
         return place.businessStatus !== "CLOSED_PERMANENTLY" && place.businessStatus !== "FUTURE_OPENING"
       })
+
+    if (!anchor) return places
+
+    // Text Search locationBias influences ranking but is not a hard boundary.
+    // Reject anything beyond the destination's metro/region radius so an
+    // ambiguous legacy value can never leak results from another state/country.
+    return places.filter((place) => {
+      if (place.latitude === null || place.longitude === null) return false
+      return (
+        distanceMeters(anchor, {
+          latitude: place.latitude,
+          longitude: place.longitude,
+        }) <= anchor.radiusMeters
+      )
+    })
   } catch (error) {
     console.error("[google-places] Search error:", error)
     throw error
