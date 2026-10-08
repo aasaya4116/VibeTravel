@@ -1,8 +1,9 @@
 import { useState } from "react"
 import { Link } from "expo-router"
-import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native"
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Button } from "@/components/ui"
+import { Text, TextInput } from "@/components/typography"
 import { colors, radii, typography } from "@/lib/theme"
 import { hasSupabaseConfiguration, supabase } from "@/lib/supabase"
 

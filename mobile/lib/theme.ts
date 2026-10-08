@@ -26,8 +26,14 @@ export const radii = {
 } as const
 
 export const typography = {
-  serif: "Georgia",
-  sans: undefined,
+  sans: "DMSans_400Regular",
+  sansRegular: "DMSans_400Regular",
+  sansMedium: "DMSans_500Medium",
+  sansSemiBold: "DMSans_600SemiBold",
+  sansBold: "DMSans_700Bold",
+  sansExtraBold: "DMSans_800ExtraBold",
+  sansBlack: "DMSans_900Black",
+  serif: "DMSerifDisplay_400Regular",
 } as const
 
 export const shadows = {

@@ -1,8 +1,9 @@
 import { useMemo } from "react"
-import { Image, ImageBackground, Pressable, StyleSheet, Text, View } from "react-native"
+import { Image, ImageBackground, Pressable, StyleSheet, View } from "react-native"
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen } from "@/components/ui"
+import { Text } from "@/components/typography"
 import { formatTripDates, getDaysUntil } from "@/lib/format"
 import { getReadinessPercent } from "@/lib/data"
 import { destinationCards, getTripImage } from "@/lib/destinations"
@@ -71,7 +72,7 @@ export default function TodayScreen() {
   return (
     <Screen refreshing={refreshing} onRefresh={() => refresh(true)} contentStyle={styles.page}>
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerCopy}>
           <Eyebrow>Your travel world</Eyebrow>
           <Text style={styles.title}>Where to next, {firstName}?</Text>
         </View>
@@ -195,7 +196,8 @@ export default function TodayScreen() {
 
 const styles = StyleSheet.create({
   page: { paddingTop: 10, gap: 20 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14, marginBottom: 4 },
+  headerCopy: { flex: 1, minWidth: 0 },
   title: { color: colors.text, fontSize: 34, lineHeight: 38, fontFamily: typography.serif, fontWeight: "700", marginTop: 5 },
   avatar: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
   avatarText: { color: colors.text, fontSize: 12, fontWeight: "800" },

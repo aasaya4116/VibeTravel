@@ -6,13 +6,13 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  Text,
   View,
   type PressableProps,
   type StyleProp,
   type ViewStyle,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
+import { Text } from "@/components/typography"
 import { colors, radii, shadows, typography } from "@/lib/theme"
 
 export function Screen({

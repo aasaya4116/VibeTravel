@@ -6,13 +6,12 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { StatusBar } from "expo-status-bar"
 import { Button } from "@/components/ui"
+import { Text, TextInput } from "@/components/typography"
 import { colors, radii, shadows, typography } from "@/lib/theme"
 import { hasSupabaseConfiguration, supabase } from "@/lib/supabase"
 

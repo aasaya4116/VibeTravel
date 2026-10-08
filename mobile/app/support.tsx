@@ -1,5 +1,6 @@
-import { Linking, StyleSheet, Text } from "react-native"
+import { Linking, StyleSheet } from "react-native"
 import { Button, Card, Eyebrow, Screen } from "@/components/ui"
+import { Text } from "@/components/typography"
 import { colors } from "@/lib/theme"
 
 const siteUrl = process.env.EXPO_PUBLIC_SITE_URL ?? "https://vibe-travel-six.vercel.app"

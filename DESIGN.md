@@ -30,8 +30,8 @@ Large orange or copper-filled panels are not part of this system. Use copper for
 
 ## Typography
 
-- Display and destination titles: DM Serif Display on web; Georgia fallback on native.
-- UI and body: DM Sans on web; the system sans on native.
+- Display and destination titles: bundled DM Serif Display on web and native.
+- UI and body: bundled DM Sans on web and native, including inputs, navigation labels, and buttons.
 - Headlines should be confident and spacious. Avoid excessive bold UI labels.
 - Uppercase labels are short, small, and widely tracked.
 

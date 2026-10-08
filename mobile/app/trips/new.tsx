@@ -1,18 +1,26 @@
 import { useEffect, useRef, useState } from "react"
-import { ActivityIndicator, Alert, Image, ImageBackground, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native"
+import { ActivityIndicator, Alert, Image, ImageBackground, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native"
 import { router } from "expo-router"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons"
+import { DateRangePicker } from "@/components/date-range-picker"
 import { Button, Eyebrow } from "@/components/ui"
+import { Text, TextInput } from "@/components/typography"
 import { createTrip } from "@/lib/data"
 import { destinationCards } from "@/lib/destinations"
 import { searchDestinationOptions, type DestinationOption } from "@/lib/destination-options"
 import { remoteImageSource } from "@/lib/media"
 import { colors, radii, typography } from "@/lib/theme"
+import { inclusiveTripDayCount, isValidIsoDate, localTodayIso, MAX_TRIP_DAYS, tripLengthLabel } from "@/lib/trip-dates"
 import { useAuth } from "@/providers/auth-provider"
 import { useDashboard } from "@/hooks/use-dashboard"
 
-const datePattern = /^\d{4}-\d{2}-\d{2}$/
+const tripDateFormatter = new Intl.DateTimeFormat(undefined, { calendar: "gregory", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })
+
+function formatTripDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number)
+  return tripDateFormatter.format(new Date(Date.UTC(year, month - 1, day)))
+}
 
 export default function NewTripScreen() {
   const { user, session } = useAuth()
@@ -23,6 +31,8 @@ export default function NewTripScreen() {
   const [suggestedTitle, setSuggestedTitle] = useState("")
   const [startDate, setStartDate] = useState("")
   const [endDate, setEndDate] = useState("")
+  const [datePickerVisible, setDatePickerVisible] = useState(false)
+  const [datePickerSelection, setDatePickerSelection] = useState<"start" | "end">("start")
   const [loading, setLoading] = useState(false)
   const [destinationFocused, setDestinationFocused] = useState(false)
   const [destinationOptions, setDestinationOptions] = useState<DestinationOption[]>([])
@@ -107,14 +117,37 @@ export default function NewTripScreen() {
     setDestinationFocused(true)
   }
 
+  function openDatePicker(selection: "start" | "end") {
+    Keyboard.dismiss()
+    setDatePickerSelection(selection === "end" && startDate ? "end" : "start")
+    setDatePickerVisible(true)
+  }
+
   async function save() {
     if (!user) return
     if (!selectedDestination?.resolved) {
       Alert.alert("Choose a verified destination", "Select a city from the suggestions before creating your trip.")
       return
     }
-    if ((startDate && !datePattern.test(startDate)) || (endDate && !datePattern.test(endDate))) {
-      Alert.alert("Check the dates", "Use YYYY-MM-DD, for example 2027-03-15.")
+    if ((startDate && !isValidIsoDate(startDate)) || (endDate && !isValidIsoDate(endDate))) {
+      Alert.alert("Check the dates", "Choose your travel dates again from the calendar.")
+      return
+    }
+    if (Boolean(startDate) !== Boolean(endDate)) {
+      Alert.alert("Finish choosing dates", "Choose both a start and end date, or clear the dates to plan them later.")
+      return
+    }
+    if (startDate && startDate < localTodayIso()) {
+      Alert.alert("Choose future dates", "Your trip start date can’t be in the past.")
+      return
+    }
+    if (startDate && endDate && endDate < startDate) {
+      Alert.alert("Check the date range", "Your end date must be on or after your start date.")
+      return
+    }
+    const tripDays = startDate && endDate ? inclusiveTripDayCount(startDate, endDate) : null
+    if (tripDays !== null && tripDays > MAX_TRIP_DAYS) {
+      Alert.alert("Choose a shorter trip", `VibeTravel can plan up to ${MAX_TRIP_DAYS} days in one trip.`)
       return
     }
     setLoading(true)
@@ -283,13 +316,53 @@ export default function NewTripScreen() {
 
             <Text style={styles.label}>Trip name</Text>
             <TextInput value={title} onChangeText={setTitle} placeholder="Spring break in Lisbon" placeholderTextColor={colors.textMuted} style={styles.input} returnKeyType="done" />
-            <Text style={styles.label}>Start date</Text>
-            <TextInput value={startDate} onChangeText={setStartDate} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" placeholderTextColor={colors.textMuted} style={styles.input} returnKeyType="next" />
-            <Text style={styles.label}>End date</Text>
-            <TextInput value={endDate} onChangeText={setEndDate} placeholder="YYYY-MM-DD" keyboardType="numbers-and-punctuation" placeholderTextColor={colors.textMuted} style={styles.input} returnKeyType="done" onSubmitEditing={Keyboard.dismiss} />
+            <View style={styles.dateLabelRow}>
+              <Text style={styles.label}>Trip dates</Text>
+              <Text style={styles.optionalLabel}>OPTIONAL</Text>
+            </View>
+            <View style={styles.dateRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={startDate ? `Start date ${formatTripDate(startDate)}` : "Choose trip start date"}
+                accessibilityHint="Opens the date range calendar"
+                onPress={() => openDatePicker("start")}
+                style={({ pressed }) => [styles.dateField, startDate && styles.dateFieldSelected, pressed && styles.pressed]}
+              >
+                <View style={styles.dateFieldTopline}>
+                  <Text style={styles.dateFieldLabel}>START</Text>
+                  <Ionicons name="calendar-outline" size={17} color={startDate ? colors.primary : colors.textMuted} />
+                </View>
+                <Text style={[styles.dateFieldValue, !startDate && styles.dateFieldPlaceholder]}>{startDate ? formatTripDate(startDate) : "Select date"}</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={endDate ? `End date ${formatTripDate(endDate)}` : startDate ? "Choose trip end date" : "Choose trip dates, starting with the start date"}
+                accessibilityHint="Opens the date range calendar"
+                onPress={() => openDatePicker("end")}
+                style={({ pressed }) => [styles.dateField, endDate && styles.dateFieldSelected, pressed && styles.pressed]}
+              >
+                <View style={styles.dateFieldTopline}>
+                  <Text style={styles.dateFieldLabel}>END</Text>
+                  <Ionicons name="calendar-outline" size={17} color={endDate ? colors.primary : colors.textMuted} />
+                </View>
+                <Text style={[styles.dateFieldValue, !endDate && styles.dateFieldPlaceholder]}>{endDate ? formatTripDate(endDate) : "Select date"}</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.dateHint}>{startDate && endDate ? `${formatTripDate(startDate)} – ${formatTripDate(endDate)} · ${tripLengthLabel(startDate, endDate)}` : "Tap either date to choose your range. You can also plan dates later."}</Text>
           </View>
           <Button onPress={save} loading={loading} disabled={!title.trim() || !selectedDestination?.resolved} style={styles.submit}>Create trip and find places</Button>
         </ScrollView>
+        <DateRangePicker
+          visible={datePickerVisible}
+          startDate={startDate}
+          endDate={endDate}
+          initialSelection={datePickerSelection}
+          onChange={(nextStartDate, nextEndDate) => {
+            setStartDate(nextStartDate)
+            setEndDate(nextEndDate)
+          }}
+          onClose={() => setDatePickerVisible(false)}
+        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   )
@@ -317,6 +390,16 @@ const styles = StyleSheet.create({
   form: { gap: 9, marginBottom: 22, paddingHorizontal: 22 },
   label: { color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 3 },
   input: { minHeight: 50, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radii.medium, paddingHorizontal: 15, fontSize: 16, color: colors.text },
+  dateLabelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 },
+  optionalLabel: { color: colors.textMuted, fontSize: 9, fontWeight: "800", letterSpacing: 1.2 },
+  dateRow: { flexDirection: "row", gap: 9 },
+  dateField: { minHeight: 82, flex: 1, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radii.medium, paddingHorizontal: 13, paddingVertical: 12, justifyContent: "center" },
+  dateFieldSelected: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  dateFieldTopline: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  dateFieldLabel: { color: colors.primary, fontSize: 9, fontWeight: "900", letterSpacing: 1.25 },
+  dateFieldValue: { color: colors.text, fontSize: 13, fontWeight: "800", marginTop: 8 },
+  dateFieldPlaceholder: { color: colors.textMuted, fontWeight: "600" },
+  dateHint: { color: colors.textMuted, fontSize: 10, lineHeight: 15, paddingHorizontal: 2 },
   submit: { marginHorizontal: 22 },
   destinationInputWrap: { minHeight: 54, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radii.medium, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 10 },
   destinationInputFocused: { borderColor: colors.primary },

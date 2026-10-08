@@ -1,10 +1,21 @@
 import { useEffect } from "react"
 import { Stack, useRouter, useSegments } from "expo-router"
 import { StatusBar } from "expo-status-bar"
+import * as SplashScreen from "expo-splash-screen"
+import { useFonts } from "@expo-google-fonts/dm-sans/useFonts"
+import { DMSans_400Regular } from "@expo-google-fonts/dm-sans/400Regular"
+import { DMSans_500Medium } from "@expo-google-fonts/dm-sans/500Medium"
+import { DMSans_600SemiBold } from "@expo-google-fonts/dm-sans/600SemiBold"
+import { DMSans_700Bold } from "@expo-google-fonts/dm-sans/700Bold"
+import { DMSans_800ExtraBold } from "@expo-google-fonts/dm-sans/800ExtraBold"
+import { DMSans_900Black } from "@expo-google-fonts/dm-sans/900Black"
+import { DMSerifDisplay_400Regular } from "@expo-google-fonts/dm-serif-display/400Regular"
 import { AuthProvider, useAuth } from "@/providers/auth-provider"
 import { DashboardProvider } from "@/hooks/use-dashboard"
 import { LoadingScreen } from "@/components/ui"
-import { colors } from "@/lib/theme"
+import { colors, typography } from "@/lib/theme"
+
+SplashScreen.preventAutoHideAsync().catch(() => undefined)
 
 function AppNavigator() {
   const { session, loading } = useAuth()
@@ -33,6 +44,8 @@ function AppNavigator() {
           headerShadowVisible: false,
           contentStyle: { backgroundColor: colors.background },
           headerBackButtonDisplayMode: "minimal",
+          headerTitleStyle: { fontFamily: typography.sansSemiBold },
+          headerBackTitleStyle: { fontFamily: typography.sansMedium },
         }}
       >
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
@@ -48,6 +61,23 @@ function AppNavigator() {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts({
+    DMSans_400Regular,
+    DMSans_500Medium,
+    DMSans_600SemiBold,
+    DMSans_700Bold,
+    DMSans_800ExtraBold,
+    DMSans_900Black,
+    DMSerifDisplay_400Regular,
+  })
+
+  useEffect(() => {
+    if (!fontsLoaded && !fontError) return
+    SplashScreen.hideAsync().catch(() => undefined)
+  }, [fontError, fontsLoaded])
+
+  if (!fontsLoaded && !fontError) return null
+
   return (
     <AuthProvider>
       <DashboardProvider>

@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@expo-google-fonts/dm-sans':
+        specifier: ^0.4.2
+        version: 0.4.2
+      '@expo-google-fonts/dm-serif-display':
+        specifier: ^0.4.2
+        version: 0.4.2
       '@expo/vector-icons':
         specifier: ^15.0.3
         version: 15.1.1(expo-font@57.0.4)(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.87.1(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
@@ -459,6 +465,12 @@ packages:
   '@babel/types@7.29.8':
     resolution: {integrity: sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg==}
     engines: {node: '>=6.9.0'}
+
+  '@expo-google-fonts/dm-sans@0.4.2':
+    resolution: {integrity: sha512-e/fLH5aCJzkEenz7axvEn8N7IJAKhUwNjIxS75h9j+Ip1M9S7d22M19gJN3A7QW4egVkBJRyQh1hQFhngQn9yA==}
+
+  '@expo-google-fonts/dm-serif-display@0.4.2':
+    resolution: {integrity: sha512-onlO8xAzsgMbKcwUE+fAgJ5AFHhk06VtaDN7eQOJwjV65QIciDKTiSNu1ymHc4m6g/x6D9OqPIYPXdTNIfaEaA==}
 
   '@expo-google-fonts/material-symbols@0.4.48':
     resolution: {integrity: sha512-aZztj44PyA/sj3TXSwwpLJwqMlTUJ49okbZJYURzEcuERxMQB0KbX7RrLBi8WJnuWz5HFOLlTRxORrJfNnUPNQ==}
@@ -3389,6 +3401,10 @@ snapshots:
     dependencies:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
+
+  '@expo-google-fonts/dm-sans@0.4.2': {}
+
+  '@expo-google-fonts/dm-serif-display@0.4.2': {}
 
   '@expo-google-fonts/material-symbols@0.4.48': {}
 

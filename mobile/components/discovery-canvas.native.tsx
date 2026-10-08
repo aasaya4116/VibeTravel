@@ -1,6 +1,7 @@
-import { ActivityIndicator, ImageBackground, Pressable, StyleSheet, Text, View } from "react-native"
+import { ActivityIndicator, ImageBackground, Pressable, StyleSheet, View } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import MapView, { Marker } from "react-native-maps"
+import { Text } from "@/components/typography"
 import type { DestinationCard, DestinationLens } from "@/lib/destinations"
 import { remoteImageSource } from "@/lib/media"
 import { colors, radii, shadows, typography } from "@/lib/theme"

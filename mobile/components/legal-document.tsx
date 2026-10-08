@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
-import { StyleSheet, Text, View } from "react-native"
+import { StyleSheet, View } from "react-native"
 import { Screen } from "@/components/ui"
+import { Text } from "@/components/typography"
 import { colors } from "@/lib/theme"
 
 export function LegalDocument({ title, updated, children }: { title: string; updated: string; children: ReactNode }) {

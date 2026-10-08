@@ -11,14 +11,13 @@ import {
   ScrollView,
   Share,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from "react-native"
 import { router, Stack, useFocusEffect, useLocalSearchParams } from "expo-router"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons"
 import { Button, Card, EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen } from "@/components/ui"
+import { Text, TextInput } from "@/components/typography"
 import { formatDayLabel, formatTripDates } from "@/lib/format"
 import { generateTripItinerary, loadTrip, readTripCache, saveItinerary } from "@/lib/data"
 import { getTripImage } from "@/lib/destinations"
@@ -55,6 +54,8 @@ export default function TripScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [sharing, setSharing] = useState(false)
+  const [shareDisclosureVisible, setShareDisclosureVisible] = useState(false)
+  const [shareError, setShareError] = useState("")
   const [generating, setGenerating] = useState(false)
   const [selectedDay, setSelectedDay] = useState(0)
   const [tripMode, setTripMode] = useState(false)
@@ -143,6 +144,7 @@ export default function TripScreen() {
   async function shareTrip() {
     if (!trip || !session) return
     setSharing(true)
+    setShareError("")
     try {
       const response = await fetch(`${apiUrl}/api/trips/${trip.id}/share`, {
         method: "POST",
@@ -151,12 +153,29 @@ export default function TripScreen() {
       const payload = await response.json().catch(() => ({}))
       if (!response.ok || !payload.token) throw new Error(payload.error || "Could not create the private link")
       const url = `${siteUrl}/share/${payload.token}`
-      await Share.share({ title: trip.title, message: `Take a look at our ${trip.destination} trip plan on VibeTravel.\n${url}`, url })
+      const message = `Take a look at our ${trip.destination} trip plan on VibeTravel.`
+      setShareDisclosureVisible(false)
+      await Share.share(Platform.OS === "ios"
+        ? { title: trip.title, message, url }
+        : { title: trip.title, message: `${message}\n${url}` })
     } catch (error) {
-      Alert.alert("Sharing unavailable", error instanceof Error ? error.message : "Please reconnect and try again.")
+      const message = error instanceof Error ? error.message : "We could not create the private link"
+      setShareError(`${message.replace(/[.!?]+$/, "")}. Check your connection and try again.`)
+      setShareDisclosureVisible(true)
     } finally {
       setSharing(false)
     }
+  }
+
+  function openShareDisclosure() {
+    setShareError("")
+    setShareDisclosureVisible(true)
+  }
+
+  function closeShareDisclosure() {
+    if (sharing) return
+    setShareError("")
+    setShareDisclosureVisible(false)
   }
 
   async function generateItinerary(options: { instruction?: string; dayDate?: string; dayInstruction?: string } = {}) {
@@ -286,7 +305,14 @@ export default function TripScreen() {
         <View style={styles.tripHeroShade} />
         <View style={styles.heroTopRow}>
           <View style={styles.statusPill}><Text style={styles.statusPillText}>{trip.status}</Text></View>
-          <Pressable accessibilityRole="button" accessibilityLabel="Share trip" onPress={shareTrip} disabled={sharing || offline} style={styles.shareButton}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Share trip"
+            accessibilityHint="Reviews what people with the private link can see before sharing"
+            onPress={openShareDisclosure}
+            disabled={sharing || offline}
+            style={styles.shareButton}
+          >
             <Ionicons name="share-outline" size={20} color="#FFFFFF" />
           </Pressable>
         </View>
@@ -331,10 +357,24 @@ export default function TripScreen() {
               </Button>
             </View>
           ) : null}
-          <View style={styles.planActions}>
-            <View style={styles.planAction}><Button variant={pendingSavedAttractions.length ? "secondary" : "primary"} onPress={findPlaces}>Find more places</Button></View>
-            <View style={styles.planAction}><Button variant="secondary" onPress={() => generateItinerary()} loading={generating} disabled={offline}>Rebuild plan</Button></View>
+          <View style={styles.addStopsCard}>
+            <View style={styles.addStopsHeading}>
+              <View style={styles.addStopsIcon}><Ionicons name="add" size={22} color={colors.primaryDark} /></View>
+              <View style={styles.addStopsCopy}>
+                <Text style={styles.addStopsTitle}>Add stops</Text>
+                <Text style={styles.addStopsBody}>Browse places in {trip.destination.split(",")[0]}, save your favorites in Explore, then return here to update this itinerary.</Text>
+              </View>
+            </View>
+            <Button
+              onPress={findPlaces}
+              variant={pendingSavedAttractions.length ? "secondary" : "primary"}
+              accessibilityLabel={`Add stops to the ${trip.destination} itinerary`}
+              accessibilityHint="Opens Explore with this trip and destination selected"
+            >
+              Add stops
+            </Button>
           </View>
+          <Button variant="secondary" onPress={() => generateItinerary()} loading={generating} disabled={offline}>Rebuild entire plan</Button>
           <View style={styles.dayTabs}>
             {trip.itinerary.map((itineraryDay, index) => (
               <Pressable key={`${itineraryDay.date}-${index}`} onPress={() => setSelectedDay(index)} style={[styles.dayTab, selectedDay === index && styles.dayTabActive]}>
@@ -433,6 +473,80 @@ export default function TripScreen() {
         </View>
       )}
     </Screen>
+    <Modal
+      visible={shareDisclosureVisible}
+      transparent
+      animationType="fade"
+      statusBarTranslucent
+      onRequestClose={closeShareDisclosure}
+    >
+      <View style={styles.shareModalRoot}>
+        <Pressable
+          accessible={false}
+          disabled={sharing}
+          onPress={closeShareDisclosure}
+          style={StyleSheet.absoluteFill}
+        />
+        <SafeAreaView style={styles.shareSheetSafe} edges={["bottom"]}>
+          <View style={styles.shareSheet} accessibilityViewIsModal onAccessibilityEscape={closeShareDisclosure}>
+            <ScrollView bounces={false} contentContainerStyle={styles.shareSheetContent}>
+              <View style={styles.shareSheetHandle} />
+              <View style={styles.shareSheetTopRow}>
+                <View style={styles.shareSheetIcon}><Ionicons name="link-outline" size={21} color={colors.primaryDark} /></View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel sharing"
+                  disabled={sharing}
+                  onPress={closeShareDisclosure}
+                  style={styles.shareSheetClose}
+                >
+                  <Ionicons name="close" size={21} color={colors.text} />
+                </Pressable>
+              </View>
+              <Text style={styles.shareSheetOverline}>PRIVATE LINK</Text>
+              <Text accessibilityRole="header" style={styles.shareSheetTitle}>Before you share</Text>
+              <Text style={styles.shareSheetBody}>Anyone who has this private link can open the shared trip view. Only send it to people you trust.</Text>
+
+              <View style={styles.shareVisibilityCard}>
+                <View style={[styles.shareVisibilityIcon, styles.shareVisibleIcon]}><Ionicons name="eye-outline" size={18} color={colors.primaryDark} /></View>
+                <View style={styles.shareVisibilityCopy}>
+                  <Text style={styles.shareVisibilityTitle}>Visible in the shared trip</Text>
+                  <Text style={styles.shareVisibilityBody}>Itinerary stops and notes attached to those stops.</Text>
+                </View>
+              </View>
+              <View style={styles.shareVisibilityCard}>
+                <View style={[styles.shareVisibilityIcon, styles.sharePrivateIcon]}><Ionicons name="lock-closed-outline" size={18} color={colors.success} /></View>
+                <View style={styles.shareVisibilityCopy}>
+                  <Text style={styles.shareVisibilityTitle}>Stays private</Text>
+                  <Text style={styles.shareVisibilityBody}>Readiness, costs, booking links, and confirmation codes.</Text>
+                </View>
+              </View>
+
+              {shareError ? (
+                <View accessibilityRole="alert" accessibilityLiveRegion="assertive" style={styles.shareError}>
+                  <Ionicons name="cloud-offline-outline" size={19} color={colors.danger} />
+                  <View style={styles.shareErrorCopy}>
+                    <Text style={styles.shareErrorTitle}>Sharing paused</Text>
+                    <Text style={styles.shareErrorBody}>{shareError}</Text>
+                  </View>
+                </View>
+              ) : null}
+
+              <Button
+                onPress={shareTrip}
+                loading={sharing}
+                accessibilityLabel="Continue sharing this trip"
+                accessibilityHint="Creates the private link and opens your device share options"
+                accessibilityState={{ busy: sharing }}
+              >
+                Continue sharing
+              </Button>
+              <Button variant="ghost" onPress={closeShareDisclosure} disabled={sharing}>Cancel</Button>
+            </ScrollView>
+          </View>
+        </SafeAreaView>
+      </View>
+    </Modal>
     <Modal visible={Boolean(editingStop)} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setEditingStop(null)}>
       <SafeAreaView style={styles.editorSafe}>
         <View style={styles.editorHeader}>
@@ -494,8 +608,12 @@ const styles = StyleSheet.create({
   pendingPicksCopy: { flex: 1 },
   pendingPicksTitle: { color: colors.text, fontSize: 15, fontWeight: "800" },
   pendingPicksBody: { color: colors.textMuted, fontSize: 11, lineHeight: 17, marginTop: 3 },
-  planActions: { flexDirection: "row", gap: 10 },
-  planAction: { flex: 1 },
+  addStopsCard: { gap: 14, borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, padding: 16, ...shadows.card },
+  addStopsHeading: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  addStopsIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  addStopsCopy: { flex: 1 },
+  addStopsTitle: { color: colors.text, fontSize: 18, fontFamily: typography.serif, fontWeight: "700" },
+  addStopsBody: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 3 },
   dayTabs: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   dayTab: { minWidth: 65, borderRadius: 14, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: colors.surface },
   dayTabActive: { backgroundColor: colors.dark, borderColor: colors.dark },
@@ -560,6 +678,28 @@ const styles = StyleSheet.create({
   savedImageFallback: { width: 38, height: 38, borderRadius: 11, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
   savedName: { flex: 1, color: colors.text, fontSize: 13, fontWeight: "700" },
   planningButton: { marginTop: 18, marginBottom: 10 },
+  shareModalRoot: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.62)" },
+  shareSheetSafe: { width: "100%", maxHeight: "94%" },
+  shareSheet: { maxHeight: "100%", borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: colors.background, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.24)", overflow: "hidden", ...shadows.floating },
+  shareSheetContent: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 12 },
+  shareSheetHandle: { width: 42, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center", marginBottom: 14 },
+  shareSheetTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  shareSheetIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  shareSheetClose: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
+  shareSheetOverline: { color: colors.primary, fontSize: 10, lineHeight: 15, fontWeight: "800", letterSpacing: 1.8, marginTop: 16 },
+  shareSheetTitle: { color: colors.text, fontSize: 29, lineHeight: 34, fontFamily: typography.serif, fontWeight: "700", marginTop: 3 },
+  shareSheetBody: { color: colors.textMuted, fontSize: 13, lineHeight: 20, marginTop: 8, marginBottom: 15 },
+  shareVisibilityCard: { flexDirection: "row", alignItems: "flex-start", gap: 11, minHeight: 76, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.surface, padding: 13, marginBottom: 9 },
+  shareVisibilityIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
+  shareVisibleIcon: { backgroundColor: colors.primarySoft },
+  sharePrivateIcon: { backgroundColor: colors.successSoft },
+  shareVisibilityCopy: { flex: 1 },
+  shareVisibilityTitle: { color: colors.text, fontSize: 13, fontWeight: "800" },
+  shareVisibilityBody: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 3 },
+  shareError: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderRadius: 12, backgroundColor: colors.dangerSoft, padding: 12, marginBottom: 10 },
+  shareErrorCopy: { flex: 1 },
+  shareErrorTitle: { color: colors.danger, fontSize: 12, fontWeight: "800" },
+  shareErrorBody: { color: colors.danger, fontSize: 11, lineHeight: 17, marginTop: 2 },
   editorSafe: { flex: 1, backgroundColor: colors.background },
   editorKeyboard: { flex: 1 },
   editorHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", padding: 20, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
