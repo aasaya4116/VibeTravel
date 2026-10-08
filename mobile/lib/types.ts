@@ -30,6 +30,8 @@ export interface Attraction {
   description: string
   category: string
   location: string
+  latitude?: number
+  longitude?: number
   imageUrl?: string
   googleMapsUri?: string | null
   familyFitReason?: string

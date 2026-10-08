@@ -32,4 +32,23 @@ describe("destination photo proxy", () => {
     expect(location.searchParams.get("width")).toBe("1600")
     expect(location.searchParams.get("height")).toBe("64")
   })
+
+  it("rejects unauthenticated requests inside the route", async () => {
+    const searchPlaces = vi.fn()
+    vi.doMock("@/lib/supabase/request", () => ({
+      createRequestClient: vi.fn().mockResolvedValue({ user: null }),
+    }))
+    vi.doMock("@/lib/travel-apis/google-places", () => ({
+      isConfigured: () => true,
+      searchPlaces,
+    }))
+    const { GET } = await import("./route")
+
+    const response = await GET(new NextRequest(
+      "http://localhost/api/destination-photo?destination=Tokyo"
+    ))
+
+    expect(response.status).toBe(401)
+    expect(searchPlaces).not.toHaveBeenCalled()
+  })
 })

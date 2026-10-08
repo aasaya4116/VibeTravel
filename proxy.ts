@@ -18,8 +18,8 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - images - .svg, .png, .jpg, .jpeg, .gif, .webp
-     * - public discovery/media APIs that never read the signed-in session
+     * - public discovery/media APIs, or media handlers that authenticate once themselves
      */
-    '/((?!_next/static|_next/image|favicon.ico|api/(?:search|destinations|place-photo|geocode|vlogs)(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/(?:search|destinations|destination-photo|place-photo|geocode|vlogs)(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
