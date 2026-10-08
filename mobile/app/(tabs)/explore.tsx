@@ -31,7 +31,19 @@ import {
   type DestinationCard,
   type DestinationLens,
 } from "@/lib/destinations"
-import { generateTripItinerary, loadTrip, saveAttractionToTrip } from "@/lib/data"
+import {
+  generateTripItinerary,
+  loadTrip,
+  readTripDestinationOption,
+  saveAttractionToTrip,
+  updateTripDestination,
+} from "@/lib/data"
+import {
+  isVerifiedDestinationOption,
+  needsTripDestinationConfirmation,
+  searchDestinationOptions,
+  type DestinationOption,
+} from "@/lib/destination-options"
 import { absoluteMediaUrl, apiUrl, remoteImageSource } from "@/lib/media"
 import { colors, radii, typography } from "@/lib/theme"
 import type { Attraction, Trip } from "@/lib/types"
@@ -64,6 +76,20 @@ interface SearchPlacesOptions {
   lens?: DestinationLens
   query?: string
   reveal?: boolean
+}
+
+function destinationCardFromOption(option: DestinationOption): DestinationCard {
+  const destination = resolveDestinationCard(option.canonicalLabel || option.label)
+    ?? createDestinationCard(option.canonicalLabel || option.label)
+  return {
+    ...destination,
+    name: option.city || destination.name,
+    country: option.country || option.region || destination.country,
+    destination: option.canonicalLabel || option.label,
+    imageUrl: option.imageUrl || destination.imageUrl,
+    latitude: option.latitude ?? destination.latitude,
+    longitude: option.longitude ?? destination.longitude,
+  }
 }
 
 function ResultCard({
@@ -126,6 +152,16 @@ export default function ExploreScreen() {
   const [browseQuery, setBrowseQuery] = useState("")
   const [lensTouched, setLensTouched] = useState(false)
   const [scopedTrip, setScopedTrip] = useState<Trip | null>(null)
+  const [selectedDestinationOption, setSelectedDestinationOption] = useState<DestinationOption | null>(null)
+  const [destinationNeedsConfirmation, setDestinationNeedsConfirmation] = useState(() => (
+    Boolean(params.tripId) && needsTripDestinationConfirmation(params.destination)
+  ))
+  const [destinationRepairOpen, setDestinationRepairOpen] = useState(false)
+  const [destinationRepairQuery, setDestinationRepairQuery] = useState(params.destination ?? "")
+  const [destinationRepairOptions, setDestinationRepairOptions] = useState<DestinationOption[]>([])
+  const [destinationRepairSearching, setDestinationRepairSearching] = useState(false)
+  const [destinationRepairSaving, setDestinationRepairSaving] = useState(false)
+  const [destinationRepairError, setDestinationRepairError] = useState("")
   const [savedAttractionNames, setSavedAttractionNames] = useState<Set<string>>(new Set())
   const [recentlySavedNames, setRecentlySavedNames] = useState<Set<string>>(new Set())
   const [savingName, setSavingName] = useState("")
@@ -141,6 +177,7 @@ export default function ExploreScreen() {
   const autoSearchKey = useRef("")
   const searchRequestId = useRef(0)
   const searchAbortController = useRef<AbortController | null>(null)
+  const destinationRepairAbortController = useRef<AbortController | null>(null)
   const savedAttractionNamesRef = useRef<Set<string>>(new Set())
   const promptedTripId = useRef("")
   const buildInFlight = useRef(false)
@@ -192,16 +229,25 @@ export default function ExploreScreen() {
     savedAttractionNamesRef.current = savedAttractionNames
   }, [savedAttractionNames])
 
-  useEffect(() => () => searchAbortController.current?.abort(), [])
+  useEffect(() => () => {
+    searchAbortController.current?.abort()
+    destinationRepairAbortController.current?.abort()
+  }, [])
 
   useEffect(() => {
     if (!user || !params.tripId) {
       setScopedTrip(null)
+      setSelectedDestinationOption(null)
+      setDestinationNeedsConfirmation(false)
       setSavedAttractionNames(new Set())
       savedAttractionNamesRef.current = new Set()
       return
     }
     const emptyNames = new Set<string>()
+    setScopedTrip(null)
+    setSelectedDestinationOption(null)
+    setDestinationNeedsConfirmation(true)
+    autoSearchKey.current = ""
     savedAttractionNamesRef.current = emptyNames
     setSavedAttractionNames(emptyNames)
     setBuildPromptOpen(false)
@@ -210,8 +256,24 @@ export default function ExploreScreen() {
     loadTrip(user.id, params.tripId)
       .then((result) => {
         if (!active) return
+        const cachedDestination = readTripDestinationOption(user.id, result.trip.id)
+        const cachedDestinationMatches = Boolean(
+          cachedDestination
+          && cachedDestination.label.toLocaleLowerCase() === result.trip.destination.trim().toLocaleLowerCase()
+        )
+        const activeDestinationOption = cachedDestinationMatches && isVerifiedDestinationOption(cachedDestination)
+          ? cachedDestination
+          : null
         const names = new Set(result.savedAttractions.map((saved) => saved.attraction_name.trim().toLowerCase()))
         setScopedTrip(result.trip)
+        setSelectedDestinationOption(activeDestinationOption)
+        setDestinationNeedsConfirmation(needsTripDestinationConfirmation(result.trip.destination, activeDestinationOption))
+        setDestinationRepairQuery(result.trip.destination)
+        if (activeDestinationOption && isVerifiedDestinationOption(activeDestinationOption)) {
+          setSelected(destinationCardFromOption(activeDestinationOption))
+        } else {
+          setSelected(resolveDestinationCard(result.trip.destination) ?? createDestinationCard(result.trip.destination))
+        }
         savedAttractionNamesRef.current = names
         setSavedAttractionNames(names)
         promptedTripId.current = wasBuildPromptShown(result.trip.id)
@@ -220,7 +282,14 @@ export default function ExploreScreen() {
       })
       .catch(() => {
         if (!active) return
-        setScopedTrip(data?.trips.find((trip) => trip.id === params.tripId) ?? null)
+        const fallbackTrip = data?.trips.find((trip) => trip.id === params.tripId) ?? null
+        setSelectedDestinationOption(null)
+        setScopedTrip(fallbackTrip)
+        setDestinationNeedsConfirmation(needsTripDestinationConfirmation(fallbackTrip?.destination))
+        if (fallbackTrip) {
+          setDestinationRepairQuery(fallbackTrip.destination)
+          setSelected(resolveDestinationCard(fallbackTrip.destination) ?? createDestinationCard(fallbackTrip.destination))
+        }
       })
     return () => { active = false }
   }, [data?.trips, params.tripId, user])
@@ -250,11 +319,84 @@ export default function ExploreScreen() {
     }
   }, [data?.familyVibe, lensTouched, params.destination])
 
+  useEffect(() => {
+    if (!destinationRepairOpen) return
+    const normalized = destinationRepairQuery.trim()
+    destinationRepairAbortController.current?.abort()
+    if (normalized.length < 2) {
+      setDestinationRepairOptions([])
+      setDestinationRepairSearching(false)
+      return
+    }
+
+    const controller = new AbortController()
+    destinationRepairAbortController.current = controller
+    const timer = setTimeout(async () => {
+      setDestinationRepairSearching(true)
+      setDestinationRepairError("")
+      try {
+        const options = await searchDestinationOptions(normalized, session?.access_token, controller.signal)
+        if (controller.signal.aborted) return
+        setDestinationRepairOptions(options.filter(isVerifiedDestinationOption))
+      } catch (error) {
+        if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) return
+        setDestinationRepairOptions([])
+        setDestinationRepairError("Destination lookup is temporarily unavailable. Please try again.")
+      } finally {
+        if (!controller.signal.aborted) setDestinationRepairSearching(false)
+      }
+    }, 180)
+
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [destinationRepairOpen, destinationRepairQuery, session?.access_token])
+
+  function openDestinationRepair() {
+    Keyboard.dismiss()
+    setDestinationRepairQuery(scopedTrip?.destination ?? selected.destination)
+    setDestinationRepairOptions([])
+    setDestinationRepairError("")
+    setDestinationRepairOpen(true)
+  }
+
+  async function confirmTripDestination(option: DestinationOption) {
+    if (!user || !scopedTrip || !isVerifiedDestinationOption(option)) return
+    setDestinationRepairSaving(true)
+    setDestinationRepairError("")
+    try {
+      const updatedTrip = await updateTripDestination(user.id, scopedTrip.id, option)
+      const destination = destinationCardFromOption(option)
+      searchAbortController.current?.abort()
+      searchRequestId.current += 1
+      autoSearchKey.current = ""
+      setScopedTrip(updatedTrip)
+      setSelectedDestinationOption(option)
+      setSelected(destination)
+      setDestinationNeedsConfirmation(false)
+      setDestinationRepairOpen(false)
+      setQuery("")
+      setAttractions([])
+      setResultsLens(null)
+      setResultsDestinationName("")
+      setSummary("")
+      setSearchError("")
+      setHasSearched(false)
+      setVisibleResultCount(resultBatchSize)
+    } catch (error) {
+      setDestinationRepairError(error instanceof Error ? error.message : "We couldn’t update this destination. Please try again.")
+    } finally {
+      setDestinationRepairSaving(false)
+    }
+  }
+
   function chooseDestination(destination: DestinationCard) {
     Keyboard.dismiss()
     searchAbortController.current?.abort()
     searchRequestId.current += 1
     setSelected(destination)
+    setSelectedDestinationOption(null)
     setQuery("")
     setAttractions([])
     setResultsLens(null)
@@ -281,6 +423,10 @@ export default function ExploreScreen() {
   }
 
   async function searchPlaces(options: SearchPlacesOptions = {}) {
+    if (params.tripId && destinationNeedsConfirmation) {
+      openDestinationRepair()
+      return
+    }
     const destination = options.destination ?? selected
     const searchLens = options.lens ?? lens
     const searchQuery = options.query !== undefined ? options.query.trim() : query.trim()
@@ -300,6 +446,9 @@ export default function ExploreScreen() {
         signal: controller.signal,
         body: JSON.stringify({
           destination: destination.destination,
+          destinationPlaceId: selectedDestinationOption?.placeId || undefined,
+          destinationLatitude: selectedDestinationOption?.latitude ?? destination.latitude,
+          destinationLongitude: selectedDestinationOption?.longitude ?? destination.longitude,
           query: searchQuery || getDestinationQueryForLens(destination, searchLens),
           ownerName: data?.profile?.display_name,
           familyVibe: data?.familyVibe,
@@ -458,14 +607,14 @@ export default function ExploreScreen() {
   }
 
   useEffect(() => {
-    if (!params.tripId || !params.destination || loading || !scopedTrip) return
+    if (!params.tripId || !params.destination || loading || !scopedTrip || destinationNeedsConfirmation) return
     const key = `${params.tripId}:${selected.destination}`
     if (autoSearchKey.current === key) return
     autoSearchKey.current = key
     void searchPlaces()
     // This runs once for each trip-scoped destination. Search inputs remain user-controlled afterward.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, params.destination, params.tripId, scopedTrip?.id, selected.destination])
+  }, [destinationNeedsConfirmation, loading, params.destination, params.tripId, scopedTrip?.id, selected.destination])
 
   function revealSearchResults(event: LayoutChangeEvent) {
     if (!revealResults) return
@@ -510,18 +659,51 @@ export default function ExploreScreen() {
 
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={scopedTrip ? `Trip destination ${selected.name}` : "Browse destinations"}
-          onPress={() => { if (!scopedTrip) setBrowseOpen(true) }}
-          style={({ pressed }) => [styles.destinationPicker, pressed && styles.pressed]}
+          accessibilityLabel={scopedTrip
+            ? destinationNeedsConfirmation ? `Confirm trip destination ${selected.name}` : `Trip destination ${selected.name}`
+            : "Browse destinations"}
+          disabled={Boolean(scopedTrip) && !destinationNeedsConfirmation}
+          onPress={() => { if (scopedTrip && destinationNeedsConfirmation) openDestinationRepair(); else if (!scopedTrip) setBrowseOpen(true) }}
+          style={({ pressed }) => [
+            styles.destinationPicker,
+            destinationNeedsConfirmation && styles.destinationPickerWarning,
+            pressed && styles.pressed,
+          ]}
         >
-          <View style={styles.destinationPickerIcon}><Ionicons name="location-outline" size={18} color={colors.primary} /></View>
-          <View style={styles.destinationPickerCopy}>
-            <Text style={styles.destinationPickerLabel}>{scopedTrip ? "TRIP DESTINATION" : "BROWSE DESTINATIONS"}</Text>
-            <Text style={styles.destinationPickerValue}>{selected.name}, {selected.country}</Text>
+          <View style={styles.destinationPickerIcon}>
+            <Ionicons name={destinationNeedsConfirmation ? "alert-circle-outline" : "location-outline"} size={18} color={colors.primary} />
           </View>
-          <Ionicons name={scopedTrip ? "lock-closed-outline" : "chevron-down"} size={20} color={scopedTrip ? colors.textMuted : colors.text} />
+          <View style={styles.destinationPickerCopy}>
+            <Text style={styles.destinationPickerLabel}>{scopedTrip
+              ? destinationNeedsConfirmation ? "DESTINATION NEEDS CONFIRMATION" : "TRIP DESTINATION"
+              : "BROWSE DESTINATIONS"}</Text>
+            <Text style={styles.destinationPickerValue}>{destinationNeedsConfirmation
+              ? scopedTrip?.destination
+              : `${selected.name}, ${selected.country}`}</Text>
+          </View>
+          {scopedTrip ? (
+            destinationNeedsConfirmation ? (
+              <View style={styles.destinationPickerAction}>
+                <Text style={styles.destinationPickerActionText}>FIX</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+              </View>
+            ) : <Ionicons name="lock-closed-outline" size={18} color={colors.textMuted} />
+          ) : <Ionicons name="chevron-down" size={20} color={colors.text} />}
         </Pressable>
 
+        {destinationNeedsConfirmation ? (
+          <View style={styles.destinationRepairGate} accessibilityLiveRegion="polite">
+            <View style={styles.destinationRepairGateIcon}><Ionicons name="map-outline" size={21} color={colors.primary} /></View>
+            <View style={styles.destinationRepairGateCopy}>
+              <Text style={styles.destinationRepairGateEyebrow}>ONE QUICK CHECK</Text>
+              <Text style={styles.destinationRepairGateTitle}>Confirm where this trip is going.</Text>
+              <Text style={styles.destinationRepairGateBody}>“{scopedTrip?.destination}” may be incomplete. We’ll pause place searches until you select the exact city, so another state or country never slips into your results.</Text>
+              <Button onPress={openDestinationRepair} style={styles.destinationRepairGateButton}>Confirm or change destination</Button>
+            </View>
+          </View>
+        ) : null}
+
+        {!destinationNeedsConfirmation ? <>
         <View style={styles.lensHeading}>
           <Eyebrow>Explore by feeling</Eyebrow>
           <Text style={styles.lensHint}>{scopedTrip
@@ -660,6 +842,7 @@ export default function ExploreScreen() {
         {hasSearched && !searching && !attractions.length && !searchError ? (
           <View style={styles.noResults}><Text style={styles.noResultsTitle}>No places appeared yet</Text><Text style={styles.noResultsBody}>Try a broader idea such as food, museums, parks, or family activities.</Text></View>
         ) : null}
+        </> : null}
 
         {!scopedTrip ? (
           <>
@@ -709,6 +892,91 @@ export default function ExploreScreen() {
           </Pressable>
         </SafeAreaView>
       ) : null}
+
+      <Modal
+        visible={destinationRepairOpen}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => { if (!destinationRepairSaving) setDestinationRepairOpen(false) }}
+      >
+        <SafeAreaView style={styles.destinationRepairSafe}>
+          <View style={styles.destinationRepairHeader}>
+            <View style={styles.destinationRepairHeaderCopy}>
+              <Text style={styles.destinationRepairEyebrow}>{destinationNeedsConfirmation ? "CONFIRM DESTINATION" : "CHANGE DESTINATION"}</Text>
+              <Text style={styles.destinationRepairTitle}>Choose the exact city.</Text>
+              <Text style={styles.destinationRepairSubtitle}>This keeps every Explore lens geographically anchored to one place.</Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Close destination confirmation"
+              disabled={destinationRepairSaving}
+              onPress={() => setDestinationRepairOpen(false)}
+              style={styles.destinationRepairClose}
+            >
+              <Ionicons name="close" size={22} color={colors.text} />
+            </Pressable>
+          </View>
+          <View style={styles.destinationRepairSearch}>
+            <Ionicons name="search" size={20} color={colors.textMuted} />
+            <TextInput
+              autoFocus
+              value={destinationRepairQuery}
+              onChangeText={setDestinationRepairQuery}
+              placeholder="City and country"
+              placeholderTextColor={colors.textMuted}
+              style={styles.destinationRepairInput}
+              returnKeyType="search"
+              clearButtonMode="while-editing"
+              autoCorrect={false}
+            />
+            {destinationRepairSearching ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+          </View>
+          <ScrollView
+            contentContainerStyle={styles.destinationRepairList}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
+            <Text style={styles.destinationRepairListLabel}>VERIFIED DESTINATIONS</Text>
+            {destinationRepairOptions.map((option) => (
+              <Pressable
+                key={option.placeId}
+                accessibilityRole="button"
+                accessibilityLabel={`Use ${option.label}`}
+                disabled={destinationRepairSaving}
+                onPress={() => void confirmTripDestination(option)}
+                style={({ pressed }) => [styles.destinationRepairOption, pressed && styles.pressed]}
+              >
+                {option.imageUrl ? (
+                  <Image source={remoteImageSource(option.imageUrl, session?.access_token)} style={styles.destinationRepairImage} />
+                ) : (
+                  <View style={styles.destinationRepairImageFallback}><Ionicons name="location" size={20} color={colors.primary} /></View>
+                )}
+                <View style={styles.destinationRepairOptionCopy}>
+                  <Text style={styles.destinationRepairCity}>{option.city}</Text>
+                  <Text style={styles.destinationRepairRegion}>{option.country || option.region}</Text>
+                  <View style={styles.destinationVerifiedRow}>
+                    <Ionicons name="checkmark-circle" size={13} color={colors.success} />
+                    <Text style={styles.destinationVerifiedText}>Verified destination</Text>
+                  </View>
+                </View>
+                {destinationRepairSaving
+                  ? <ActivityIndicator size="small" color={colors.primary} />
+                  : <Ionicons name="arrow-forward" size={19} color={colors.text} />}
+              </Pressable>
+            ))}
+            {destinationRepairOptions.some((option) => option.provider === "google") ? (
+              <Text accessibilityLabel="Google Maps" style={styles.googleMapsAttribution}>Google Maps</Text>
+            ) : null}
+            {!destinationRepairSearching && destinationRepairQuery.trim().length >= 2 && !destinationRepairOptions.length ? (
+              <View style={styles.destinationRepairEmpty}>
+                <Ionicons name="globe-outline" size={23} color={colors.primary} />
+                <Text style={styles.destinationRepairEmptyTitle}>No verified city yet</Text>
+                <Text style={styles.destinationRepairEmptyBody}>Add the country—for example, “Abuja, Nigeria”—or try the full city name.</Text>
+              </View>
+            ) : null}
+            {destinationRepairError ? <Text style={styles.destinationRepairError}>{destinationRepairError}</Text> : null}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
 
       <Modal visible={browseOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setBrowseOpen(false)}>
         <SafeAreaView style={styles.browserSafe}>
@@ -838,10 +1106,20 @@ const styles = StyleSheet.create({
   tripContextAction: { alignItems: "flex-end", gap: 3 },
   tripContextActionText: { color: colors.primary, fontSize: 8, fontWeight: "900", letterSpacing: 1 },
   destinationPicker: { marginHorizontal: 18, minHeight: 68, paddingHorizontal: 14, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border, flexDirection: "row", alignItems: "center", gap: 12 },
+  destinationPickerWarning: { minHeight: 78, borderColor: colors.primary, backgroundColor: colors.primarySoft },
   destinationPickerIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
   destinationPickerCopy: { flex: 1 },
   destinationPickerLabel: { color: colors.primary, fontSize: 8, fontWeight: "800", letterSpacing: 1.35 },
   destinationPickerValue: { color: colors.text, fontSize: 17, fontFamily: typography.serif, fontWeight: "700", marginTop: 3 },
+  destinationPickerAction: { flexDirection: "row", alignItems: "center", gap: 1 },
+  destinationPickerActionText: { color: colors.primary, fontSize: 8, fontWeight: "900", letterSpacing: 1.1 },
+  destinationRepairGate: { marginHorizontal: 18, padding: 18, borderRadius: radii.medium, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.primary, flexDirection: "row", alignItems: "flex-start", gap: 13 },
+  destinationRepairGateIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  destinationRepairGateCopy: { flex: 1 },
+  destinationRepairGateEyebrow: { color: colors.primary, fontSize: 8, fontWeight: "900", letterSpacing: 1.3 },
+  destinationRepairGateTitle: { color: colors.text, fontSize: 21, lineHeight: 26, fontFamily: typography.serif, fontWeight: "700", marginTop: 5 },
+  destinationRepairGateBody: { color: colors.textMuted, fontSize: 11, lineHeight: 17, marginTop: 7 },
+  destinationRepairGateButton: { marginTop: 14, minHeight: 46 },
   lensHeading: { paddingHorizontal: 18, gap: 4 },
   lensHint: { color: colors.textMuted, fontSize: 11, lineHeight: 16 },
   lenses: { paddingHorizontal: 18, gap: 8 },
@@ -911,6 +1189,30 @@ const styles = StyleSheet.create({
   noResults: { marginHorizontal: 18, paddingVertical: 20, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   noResultsTitle: { color: colors.text, fontSize: 18, fontFamily: typography.serif, fontWeight: "700" },
   noResultsBody: { color: colors.textMuted, fontSize: 11, lineHeight: 17, marginTop: 4 },
+  destinationRepairSafe: { flex: 1, backgroundColor: colors.background },
+  destinationRepairHeader: { paddingHorizontal: 22, paddingTop: 14, paddingBottom: 20, flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
+  destinationRepairHeaderCopy: { flex: 1, paddingRight: 18 },
+  destinationRepairEyebrow: { color: colors.primary, fontSize: 9, fontWeight: "900", letterSpacing: 1.45 },
+  destinationRepairTitle: { color: colors.text, fontSize: 32, lineHeight: 38, fontFamily: typography.serif, fontWeight: "700", marginTop: 7 },
+  destinationRepairSubtitle: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 7 },
+  destinationRepairClose: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
+  destinationRepairSearch: { marginHorizontal: 22, minHeight: 56, paddingHorizontal: 15, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.surface, flexDirection: "row", alignItems: "center", gap: 10 },
+  destinationRepairInput: { flex: 1, color: colors.text, fontSize: 16, paddingVertical: 12 },
+  destinationRepairList: { paddingHorizontal: 22, paddingTop: 24, paddingBottom: 48 },
+  destinationRepairListLabel: { color: colors.textMuted, fontSize: 8, fontWeight: "900", letterSpacing: 1.35, marginBottom: 7 },
+  destinationRepairOption: { minHeight: 88, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border, flexDirection: "row", alignItems: "center", gap: 13 },
+  destinationRepairImage: { width: 62, height: 62, borderRadius: radii.small, backgroundColor: colors.surfaceMuted },
+  destinationRepairImageFallback: { width: 62, height: 62, borderRadius: radii.small, backgroundColor: colors.primarySoft, alignItems: "center", justifyContent: "center" },
+  destinationRepairOptionCopy: { flex: 1 },
+  destinationRepairCity: { color: colors.text, fontSize: 20, fontFamily: typography.serif, fontWeight: "700" },
+  destinationRepairRegion: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+  destinationVerifiedRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 7 },
+  destinationVerifiedText: { color: colors.success, fontSize: 9, fontWeight: "800" },
+  googleMapsAttribution: { alignSelf: "flex-end", color: "#5E5E5E", fontSize: 12, fontWeight: "400", paddingHorizontal: 10, paddingTop: 10, paddingBottom: 5 },
+  destinationRepairEmpty: { paddingVertical: 46, alignItems: "center" },
+  destinationRepairEmptyTitle: { color: colors.text, fontSize: 19, fontFamily: typography.serif, fontWeight: "700", marginTop: 12 },
+  destinationRepairEmptyBody: { maxWidth: 290, color: colors.textMuted, fontSize: 12, lineHeight: 18, textAlign: "center", marginTop: 6 },
+  destinationRepairError: { color: colors.danger, backgroundColor: colors.dangerSoft, borderRadius: radii.small, padding: 12, fontSize: 11, lineHeight: 17, fontWeight: "700", marginTop: 14 },
   modalSafe: { flex: 1, backgroundColor: colors.background },
   modalHeader: { padding: 20, flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: colors.border },
   modalHeadingCopy: { flex: 1, paddingRight: 20 },

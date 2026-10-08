@@ -1,6 +1,8 @@
 import { getAttractionImage } from "@/lib/attraction-images"
 import {
   isConfigured as isGooglePlacesConfigured,
+  resolveDestination,
+  resolveDestinationPlaceId,
   searchVerifiedPlaces,
   type PlaceResult,
 } from "@/lib/travel-apis/google-places"
@@ -146,6 +148,7 @@ export async function POST(req: Request) {
   // Clamp user-controlled inputs on this public endpoint.
   const query = String(body?.query ?? "").trim().slice(0, 300)
   const destination = String(body?.destination ?? "").trim().slice(0, 200)
+  const destinationPlaceId = String(body?.destinationPlaceId ?? "").trim().slice(0, 300)
   const filters = body?.filters
   const familyVibe = body?.familyVibe
   const ownerName = String(body?.ownerName ?? "").trim().slice(0, 80)
@@ -188,10 +191,46 @@ export async function POST(req: Request) {
     .join(" ")
 
   let candidates: PlaceResult[]
+  let resolvedDestination = destination
   try {
-    candidates = await searchVerifiedPlaces(providerQuery, destination, 12, {
-      signal: req.signal,
+    const providerDeadline = AbortSignal.timeout(6_000)
+    const providerSignal = AbortSignal.any([req.signal, providerDeadline])
+    let destinationAnchor = destinationPlaceId
+      ? await resolveDestinationPlaceId(destinationPlaceId, {
+          signal: providerSignal,
+          timeoutMs: 6_000,
+        })
+      : await resolveDestination(destination, {
+          signal: providerSignal,
+          timeoutMs: 6_000,
+        })
+    const normalizeDestinationLabel = (value: string) => value
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
+    if (
+      destinationPlaceId
+      && destinationAnchor
+      && normalizeDestinationLabel(destinationAnchor.canonicalLabel) !== normalizeDestinationLabel(destination)
+    ) {
+      destinationAnchor = await resolveDestination(destination, {
+        signal: providerSignal,
+        timeoutMs: 6_000,
+      })
+    }
+    if (!destinationAnchor) {
+      return Response.json(
+        { error: "Confirm this destination before searching so results stay in the right place." },
+        { status: 422 }
+      )
+    }
+    resolvedDestination = destinationAnchor.canonicalLabel
+    candidates = await searchVerifiedPlaces(providerQuery, resolvedDestination, 12, {
+      signal: providerSignal,
       timeoutMs: 6_000,
+      destinationAnchor,
     })
   } catch {
     return Response.json(
@@ -260,7 +299,7 @@ export async function POST(req: Request) {
 
           enqueue(
             JSON.stringify({
-              summary: `${candidates.length} Google-verified place${candidates.length === 1 ? "" : "s"} in ${destination}, ${hasFamilyContext ? "matched using your Family Vibe" : "matched to this search"}.`,
+              summary: `${candidates.length} Google-verified place${candidates.length === 1 ? "" : "s"} in ${resolvedDestination}, ${hasFamilyContext ? "matched using your Family Vibe" : "matched to this search"}.`,
             }) + "\n"
           )
         }

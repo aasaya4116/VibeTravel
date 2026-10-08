@@ -1,6 +1,6 @@
 # VibeTravel UAT Feedback Tracker
 
-Last updated: 2026-10-07
+Last updated: 2026-10-08
 
 ## Test execution
 
@@ -61,8 +61,9 @@ Last updated: 2026-10-07
 | UAT-023 | P0 | Explore discovery | Implemented — retest | **Predictable Explore lenses.** Lenses are now functional single-select controls that automatically run the new search, keep existing cards visible while loading, cancel stale requests, preserve saved markers and trip context, and retain prior results with Retry when a provider returns zero or fails. General Explore still changes the featured destination; trip-scoped Explore keeps the destination locked. |
 | UAT-024 | P1 | New trip | Backlog — planned | **Date-range calendar.** Replace manual start/end date entry with one accessible calendar range picker that shows the selected range and trip length, prevents an end date before the start date, and never opens the keyboard for date selection. |
 | UAT-025 | P1 | Onboarding | Backlog — planned | **Modern personalized onboarding.** Add a short, skippable first-run flow that collects only useful inputs: preferred name, home city or airport, travel party, interests, pace, optional budget band, and optional dietary/accessibility needs. Save progress after each step and keep every answer editable in Profile/Family Vibe. |
+| UAT-026 | P0 | Mobile destination entry | Implemented — retest | **Verified worldwide destinations.** Worldwide city lookup now requires an explicitly selected Google-verified destination, persists its canonical name, keeps Explore lenses anchored to the exact selected place, fails closed during provider outages, and lets travelers repair malformed legacy destinations without recreating the trip. Editorial cards remain inspiration only. |
 
-## Acceptance criteria for UAT-020 through UAT-025
+## Acceptance criteria for UAT-020 through UAT-026
 
 ### UAT-020 — Mobile latency fast path
 
@@ -108,6 +109,16 @@ Last updated: 2026-10-07
 - Travel-party choices support self, partner/spouse, children with optional age bands, and extended family without requesting legal birth dates.
 - The app does not request passport data, exact home addresses, or precise location. It briefly explains how each answer improves recommendations.
 - Completion leads to a clear “Explore destinations” or “Plan a trip” action, and all collected data can later be edited or deleted from Profile/Family Vibe.
+
+### UAT-026 — Verified worldwide destinations
+
+- Typing `Nair` and selecting Nairobi persists `Nairobi, Kenya`; an unresolved partial cannot be used to create a trip.
+- Typing `Abu` returns Abuja dynamically even though it is not part of the curated inspiration collection.
+- Ambiguous place names such as Springfield require the traveler to select a specific city and region before continuing.
+- Editing a verified destination immediately clears verification and disables the primary Create action until another result is selected.
+- Explore changes only the interest lens while retaining the same canonical destination and geographic anchor; results outside the selected metro or country are rejected.
+- Existing malformed destinations such as `Nair` show a repair action before search rather than silently treating the partial as a valid city.
+- Curated destination cards remain editorial inspiration and are never the source of truth for worldwide destination recognition.
 
 ## VT-007 test directions
 
