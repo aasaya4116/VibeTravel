@@ -3,56 +3,24 @@ import { Alert, Keyboard, Linking, Modal, Pressable, ScrollView, StyleSheet, Vie
 import { SafeAreaView } from "react-native-safe-area-context"
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
-import { Button, Card, Eyebrow, LoadingScreen, Screen } from "@/components/ui"
+import { Button, Card, EmptyState, Eyebrow, LoadingScreen, Screen } from "@/components/ui"
 import { Text, TextInput } from "@/components/typography"
 import { colors, typography } from "@/lib/theme"
 import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/providers/auth-provider"
 import { useDashboard } from "@/hooks/use-dashboard"
 import { updateFamilyVibe, updateProfileDisplayName } from "@/lib/data"
-import type { FamilyVibe } from "@/lib/types"
+import {
+  budgetOptions,
+  dietaryOptions,
+  paceOptions,
+  toVibeDraft,
+  travelStyleOptions,
+  type FamilyVibeDraft,
+} from "@/lib/family-vibe-options"
 
 const siteUrl = process.env.EXPO_PUBLIC_SITE_URL ?? "https://vibe-travel-six.vercel.app"
 const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? siteUrl
-
-type FamilyVibeDraft = Omit<FamilyVibe, "id" | "user_id">
-
-const travelStyleOptions = [
-  "Cultural explorer",
-  "Nature lover",
-  "Foodie family",
-  "Urban adventurer",
-  "Beach & relaxation",
-  "Off the beaten path",
-  "History buff",
-  "Art & design",
-  "Active & outdoorsy",
-  "Slow travel",
-  "Technology & innovation",
-]
-const dietaryOptions = ["Vegetarian", "Vegan", "Gluten-free", "Dairy-free", "Nut allergy", "Halal", "Kosher"]
-const paceOptions: Array<FamilyVibeDraft["pace"]> = ["slow", "moderate", "fast"]
-const budgetOptions: Array<{ value: FamilyVibeDraft["budget_preference"]; label: string }> = [
-  { value: "free", label: "Free" },
-  { value: "$", label: "$" },
-  { value: "$$", label: "$$" },
-  { value: "$$$", label: "$$$" },
-  { value: "any", label: "Mix" },
-]
-
-function toVibeDraft(vibe: FamilyVibe | null | undefined): FamilyVibeDraft {
-  return {
-    family_name: vibe?.family_name ?? "",
-    kids: vibe?.kids ?? [],
-    travelers: vibe?.travelers ?? [],
-    travel_style: vibe?.travel_style ?? [],
-    sensory_needs: vibe?.sensory_needs ?? [],
-    mobility_notes: vibe?.mobility_notes ?? null,
-    dietary: vibe?.dietary ?? [],
-    pace: vibe?.pace ?? "moderate",
-    budget_preference: vibe?.budget_preference ?? "any",
-  }
-}
 
 function SettingRow({ icon, label, onPress, destructive = false }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; destructive?: boolean }) {
   return (
@@ -66,7 +34,7 @@ function SettingRow({ icon, label, onPress, destructive = false }: { icon: keyof
 
 export default function ProfileScreen() {
   const { session } = useAuth()
-  const { data, loading, refresh } = useDashboard()
+  const { data, loading, error: dashboardError, refresh } = useDashboard()
   const [deleting, setDeleting] = useState(false)
   const [editingOwner, setEditingOwner] = useState(false)
   const [ownerName, setOwnerName] = useState("")
@@ -81,11 +49,29 @@ export default function ProfileScreen() {
 
   if (loading && !data) return <LoadingScreen label="Loading your profile…" />
 
+  if (dashboardError && !data) {
+    return (
+      <Screen contentStyle={styles.page}>
+        <Eyebrow>Your account</Eyebrow>
+        <Text style={styles.title}>Profile</Text>
+        <EmptyState
+          title="We couldn’t load your profile."
+          body="Your Family Vibe is safe. Check your connection, then try again."
+          action={<Button onPress={() => void refresh(true)}>Try again</Button>}
+        />
+      </Screen>
+    )
+  }
+
   async function signOut() {
     await supabase.auth.signOut()
   }
 
   function openVibeEditor() {
+    if (!data) {
+      Alert.alert("Profile unavailable", "We couldn’t load your current Family Vibe. Try again before making changes.")
+      return
+    }
     setVibeDraft(toVibeDraft(data?.familyVibe))
     setEditingVibe(true)
   }
@@ -102,6 +88,10 @@ export default function ProfileScreen() {
 
   async function saveFamilyVibe() {
     if (!session?.user) return
+    if (!data) {
+      Alert.alert("Family Vibe not saved", "Reload your profile before making changes so none of your preferences are lost.")
+      return
+    }
     setSavingVibe(true)
     Keyboard.dismiss()
     try {
@@ -299,7 +289,7 @@ export default function ProfileScreen() {
               {travelStyleOptions.map((option) => {
                 const active = vibeDraft.travel_style.includes(option)
                 return (
-                  <Pressable key={option} onPress={() => toggleVibeChoice("travel_style", option)} style={[styles.vibeChoice, active && styles.vibeChoiceActive]}>
+                  <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} key={option} onPress={() => toggleVibeChoice("travel_style", option)} style={[styles.vibeChoice, active && styles.vibeChoiceActive]}>
                     <Text style={[styles.vibeChoiceText, active && styles.vibeChoiceTextActive]}>{option}</Text>
                   </Pressable>
                 )
@@ -314,7 +304,7 @@ export default function ProfileScreen() {
               {paceOptions.map((option) => {
                 const active = vibeDraft.pace === option
                 return (
-                  <Pressable key={option} onPress={() => setVibeDraft((current) => ({ ...current, pace: option }))} style={[styles.vibeChoice, active && styles.vibeChoiceActive]}>
+                  <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} key={option} onPress={() => setVibeDraft((current) => ({ ...current, pace: option }))} style={[styles.vibeChoice, active && styles.vibeChoiceActive]}>
                     <Text style={[styles.vibeChoiceText, active && styles.vibeChoiceTextActive]}>{option[0].toUpperCase() + option.slice(1)}</Text>
                   </Pressable>
                 )
@@ -328,7 +318,7 @@ export default function ProfileScreen() {
               {budgetOptions.map((option) => {
                 const active = vibeDraft.budget_preference === option.value
                 return (
-                  <Pressable key={option.value} onPress={() => setVibeDraft((current) => ({ ...current, budget_preference: option.value }))} style={[styles.vibeChoice, styles.budgetChoice, active && styles.vibeChoiceActive]}>
+                  <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} key={option.value} onPress={() => setVibeDraft((current) => ({ ...current, budget_preference: option.value }))} style={[styles.vibeChoice, styles.budgetChoice, active && styles.vibeChoiceActive]}>
                     <Text style={[styles.vibeChoiceText, active && styles.vibeChoiceTextActive]}>{option.label}</Text>
                   </Pressable>
                 )
@@ -343,7 +333,7 @@ export default function ProfileScreen() {
               {dietaryOptions.map((option) => {
                 const active = vibeDraft.dietary.includes(option)
                 return (
-                  <Pressable key={option} onPress={() => toggleVibeChoice("dietary", option)} style={[styles.vibeChoice, active && styles.vibeChoiceActive]}>
+                  <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} key={option} onPress={() => toggleVibeChoice("dietary", option)} style={[styles.vibeChoice, active && styles.vibeChoiceActive]}>
                     <Text style={[styles.vibeChoiceText, active && styles.vibeChoiceTextActive]}>{option}</Text>
                   </Pressable>
                 )
@@ -410,7 +400,7 @@ const styles = StyleSheet.create({
   vibeSectionHint: { color: colors.textMuted, fontSize: 12, lineHeight: 18, marginTop: 6 },
   vibeNameInput: { minHeight: 52, borderBottomWidth: 1, borderBottomColor: colors.text, color: colors.text, fontSize: 17, fontWeight: "700", paddingHorizontal: 1, marginTop: 8 },
   vibeChoices: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 14 },
-  vibeChoice: { minHeight: 40, borderWidth: 1, borderColor: colors.border, borderRadius: 99, paddingHorizontal: 13, alignItems: "center", justifyContent: "center", backgroundColor: "transparent" },
+  vibeChoice: { minHeight: 44, borderWidth: 1, borderColor: colors.border, borderRadius: 99, paddingHorizontal: 13, alignItems: "center", justifyContent: "center", backgroundColor: "transparent" },
   vibeChoiceActive: { borderColor: colors.dark, backgroundColor: colors.dark },
   vibeChoiceText: { color: colors.text, fontSize: 11, fontWeight: "700" },
   vibeChoiceTextActive: { color: "#FFFFFF" },

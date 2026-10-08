@@ -16,6 +16,7 @@ import { DashboardProvider } from "@/hooks/use-dashboard"
 import { LoadingScreen } from "@/components/ui"
 import { colors, typography } from "@/lib/theme"
 import { initializeObservability } from "@/lib/observability"
+import { getMobileRootNavigationTarget } from "@/lib/onboarding"
 
 initializeObservability()
 SplashScreen.preventAutoHideAsync().catch(() => undefined)
@@ -26,13 +27,13 @@ function AppNavigator() {
   const router = useRouter()
 
   useEffect(() => {
-    if (loading) return
-    const root = segments[0]
-    const inAuth = root === "(auth)"
-    const publicRoute = root === "privacy" || root === "terms" || root === "support"
-
-    if (!session && !inAuth && !publicRoute) router.replace("/(auth)/sign-in")
-    if (session && (inAuth || !root)) router.replace("/(tabs)")
+    const target = getMobileRootNavigationTarget({
+      loading,
+      hasSession: Boolean(session),
+      rootSegment: segments[0],
+      userMetadata: session?.user.user_metadata,
+    })
+    if (target) router.replace(target)
   }, [loading, router, segments, session])
 
   if (loading) return <LoadingScreen />
@@ -53,6 +54,7 @@ function AppNavigator() {
       >
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="onboarding" options={{ headerShown: false }} />
         <Stack.Screen name="trips/[id]" options={{ title: "Trip", headerBackTitle: "Trips" }} />
         <Stack.Screen name="trips/new" options={{ title: "New trip", presentation: "modal" }} />
         <Stack.Screen name="privacy" options={{ title: "Privacy Policy" }} />
