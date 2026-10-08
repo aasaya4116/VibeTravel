@@ -1,8 +1,9 @@
-import { ActivityIndicator, ImageBackground, Pressable, StyleSheet, Text, View } from "react-native"
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native"
 import { Ionicons } from "@expo/vector-icons"
 import MapView, { Marker } from "react-native-maps"
+import { Text } from "@/components/typography"
+import { RemoteImageBackground } from "@/components/remote-image"
 import type { DestinationCard, DestinationLens } from "@/lib/destinations"
-import { remoteImageSource } from "@/lib/media"
 import { colors, radii, shadows, typography } from "@/lib/theme"
 
 interface DiscoveryCanvasProps {
@@ -41,9 +42,9 @@ export default function DiscoveryCanvas({ destination, lens, searching, onExplor
           />
         </MapView>
       ) : (
-        <ImageBackground source={remoteImageSource(destination.imageUrl, accessToken)} style={StyleSheet.absoluteFill}>
+        <RemoteImageBackground uri={destination.imageUrl} accessToken={accessToken} preset="hero" style={StyleSheet.absoluteFill}>
           <View style={styles.fallbackShade} />
-        </ImageBackground>
+        </RemoteImageBackground>
       )}
 
       <View pointerEvents="none" style={styles.mapLabel}>
@@ -51,7 +52,7 @@ export default function DiscoveryCanvas({ destination, lens, searching, onExplor
         <Text style={styles.mapLabelText}>{hasCoordinates ? `${lens.toUpperCase()} MAP` : "DESTINATION PREVIEW"}</Text>
       </View>
 
-      <ImageBackground source={remoteImageSource(destination.imageUrl, accessToken)} style={styles.story} imageStyle={styles.storyImage}>
+      <RemoteImageBackground uri={destination.imageUrl} accessToken={accessToken} preset="landscape" style={styles.story} imageStyle={styles.storyImage}>
         <View style={styles.storyShade} />
         <View style={styles.storyCopy}>
           <Text style={styles.country}>{destination.country.toUpperCase()}</Text>
@@ -72,7 +73,7 @@ export default function DiscoveryCanvas({ destination, lens, searching, onExplor
             )}
           </Pressable>
         </View>
-      </ImageBackground>
+      </RemoteImageBackground>
     </View>
   )
 }

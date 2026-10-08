@@ -132,6 +132,8 @@ export interface Attraction {
   estimatedDuration: string
   priceRange: string | null
   location: string
+  latitude?: number
+  longitude?: number
   imageUrl?: string
   rating?: number
   userRatingCount?: number | null

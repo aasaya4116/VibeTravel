@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto"
+
 const API_KEY = process.env.GOOGLE_PLACES_API_KEY
 const DEFAULT_SEARCH_TIMEOUT_MS = 6_000
 const DEFAULT_DESTINATION_TIMEOUT_MS = 4_000
@@ -5,6 +7,9 @@ const DESTINATION_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1_000
 const EMPTY_DESTINATION_CACHE_TTL_MS = 5 * 60 * 1_000
 const DESTINATION_CACHE_LIMIT = 250
 const GOOGLE_LOCATION_BIAS_RADIUS_METERS = 50_000
+const TEXT_SEARCH_CACHE_TTL_MS = 10 * 60 * 1_000
+const EMPTY_TEXT_SEARCH_CACHE_TTL_MS = 30 * 1_000
+const TEXT_SEARCH_CACHE_LIMIT = 200
 
 export function isConfigured() {
   return !!API_KEY
@@ -98,6 +103,15 @@ type DestinationCacheEntry = {
 
 const destinationCache = new Map<string, DestinationCacheEntry>()
 
+type TextSearchCacheEntry = {
+  expiresAt: number
+  values: PlaceResult[]
+}
+
+// Keys are irreversible digests, so raw traveler searches never remain in the
+// long-lived process map. Values are Google's factual candidates only.
+const textSearchCache = new Map<string, TextSearchCacheEntry>()
+
 const CITY_TYPES = new Set([
   "locality",
   "postal_town",
@@ -123,9 +137,82 @@ function normalize(value: string) {
     .trim()
 }
 
+function clonePlaceResult(place: PlaceResult): PlaceResult {
+  return {
+    ...place,
+    weekdayHours: place.weekdayHours ? [...place.weekdayHours] : null,
+    types: [...place.types],
+  }
+}
+
+function textSearchCacheKey(
+  query: string,
+  canonicalDestination: string,
+  limit: number,
+  anchor: DestinationAnchor | null
+) {
+  const normalizedAnchor = anchor
+    ? [
+        normalize(anchor.canonicalLabel),
+        normalize(anchor.placeId),
+        anchor.latitude.toFixed(5),
+        anchor.longitude.toFixed(5),
+        String(anchor.radiusMeters),
+      ].join("|")
+    : normalize(canonicalDestination)
+  const material = JSON.stringify([
+    normalizedAnchor,
+    normalize(query || "family-friendly attractions"),
+    limit,
+  ])
+  return createHash("sha256").update(material).digest("hex")
+}
+
+function cacheTextSearchResults(key: string, values: PlaceResult[]) {
+  const now = Date.now()
+  for (const [candidateKey, entry] of textSearchCache) {
+    if (entry.expiresAt <= now) textSearchCache.delete(candidateKey)
+  }
+
+  if (textSearchCache.has(key)) textSearchCache.delete(key)
+  while (textSearchCache.size >= TEXT_SEARCH_CACHE_LIMIT) {
+    const oldest = textSearchCache.keys().next().value
+    if (!oldest) break
+    textSearchCache.delete(oldest)
+  }
+  textSearchCache.set(key, {
+    expiresAt:
+      now +
+      (values.length > 0
+        ? TEXT_SEARCH_CACHE_TTL_MS
+        : EMPTY_TEXT_SEARCH_CACHE_TTL_MS),
+    values: values.map(clonePlaceResult),
+  })
+}
+
+function cachedTextSearchResults(key: string) {
+  const cached = textSearchCache.get(key)
+  if (!cached) return null
+  if (cached.expiresAt <= Date.now()) {
+    textSearchCache.delete(key)
+    return null
+  }
+
+  // Refresh insertion order for a small LRU-style bound without extending TTL.
+  textSearchCache.delete(key)
+  textSearchCache.set(key, cached)
+  return cached.values.map(clonePlaceResult)
+}
+
 function requestSignal(signal: AbortSignal | undefined, timeoutMs: number) {
   const deadline = AbortSignal.timeout(timeoutMs)
   return signal ? AbortSignal.any([signal, deadline]) : deadline
+}
+
+function throwIfAborted(signal: AbortSignal) {
+  if (signal.aborted) {
+    throw signal.reason ?? new DOMException("Aborted", "AbortError")
+  }
 }
 
 function cacheDestinationResults(key: string, values: DestinationAnchor[]) {
@@ -458,83 +545,99 @@ export async function searchVerifiedPlaces(
       options.destinationAnchor === undefined
         ? await resolveDestination(destination, { signal })
         : options.destinationAnchor
+    throwIfAborted(signal)
     const canonicalDestination = anchor?.canonicalLabel || destination.trim()
-    const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": API_KEY,
-        "X-Goog-FieldMask": [
-          "places.id",
-          "places.displayName",
-          "places.formattedAddress",
-          "places.location",
-          "places.rating",
-          "places.userRatingCount",
-          "places.priceLevel",
-          "places.businessStatus",
-          "places.currentOpeningHours",
-          "places.regularOpeningHours",
-          "places.photos",
-          "places.accessibilityOptions",
-          "places.googleMapsUri",
-          "places.websiteUri",
-          "places.primaryType",
-          "places.primaryTypeDisplayName",
-          "places.types",
-        ].join(","),
-      },
-      body: JSON.stringify({
-        textQuery: `${query || "family-friendly attractions"} in ${canonicalDestination}`,
-        pageSize: Math.max(1, Math.min(limit, 20)),
-        languageCode: "en",
-        ...(anchor
-          ? {
-              locationBias: {
-                circle: {
-                  center: {
-                    latitude: anchor.latitude,
-                    longitude: anchor.longitude,
+    const pageSize = Math.max(1, Math.min(limit, 20))
+    const cacheKey = textSearchCacheKey(
+      query,
+      canonicalDestination,
+      pageSize,
+      anchor
+    )
+    let places = cachedTextSearchResults(cacheKey)
+
+    if (!places) {
+      const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": API_KEY,
+          "X-Goog-FieldMask": [
+            "places.id",
+            "places.displayName",
+            "places.formattedAddress",
+            "places.location",
+            "places.rating",
+            "places.userRatingCount",
+            "places.priceLevel",
+            "places.businessStatus",
+            "places.currentOpeningHours",
+            "places.regularOpeningHours",
+            "places.photos",
+            "places.accessibilityOptions",
+            "places.googleMapsUri",
+            "places.websiteUri",
+            "places.primaryType",
+            "places.primaryTypeDisplayName",
+            "places.types",
+          ].join(","),
+        },
+        body: JSON.stringify({
+          textQuery: `${query || "family-friendly attractions"} in ${canonicalDestination}`,
+          pageSize,
+          languageCode: "en",
+          ...(anchor
+            ? {
+                locationBias: {
+                  circle: {
+                    center: {
+                      latitude: anchor.latitude,
+                      longitude: anchor.longitude,
+                    },
+                    radius: GOOGLE_LOCATION_BIAS_RADIUS_METERS,
                   },
-                  radius: GOOGLE_LOCATION_BIAS_RADIUS_METERS,
                 },
-              },
-            }
-          : {}),
-      }),
-      signal,
-    })
-
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "")
-      console.error(`[google-places] Search failed (${res.status}):`, detail.slice(0, 300))
-      throw new Error(`Google Places search failed with status ${res.status}`)
-    }
-
-    const data = await res.json()
-    const places = ((data.places ?? []) as GooglePlace[])
-      .map(toPlaceResult)
-      .filter((place): place is PlaceResult => {
-        if (!place) return false
-        return place.businessStatus !== "CLOSED_PERMANENTLY" && place.businessStatus !== "FUTURE_OPENING"
+              }
+            : {}),
+        }),
+        signal,
       })
 
-    if (!anchor) return places
+      if (!res.ok) {
+        await res.text().catch(() => "")
+        console.error(`[google-places] Search failed (${res.status})`)
+        throw new Error(`Google Places search failed with status ${res.status}`)
+      }
 
-    // Text Search locationBias influences ranking but is not a hard boundary.
-    // Reject anything beyond the destination's metro/region radius so an
-    // ambiguous legacy value can never leak results from another state/country.
-    return places.filter((place) => {
-      if (place.latitude === null || place.longitude === null) return false
-      return (
-        distanceMeters(anchor, {
-          latitude: place.latitude,
-          longitude: place.longitude,
-        }) <= anchor.radiusMeters
-      )
-    })
+      const data = await res.json()
+      throwIfAborted(signal)
+      const providerPlaces = ((data.places ?? []) as GooglePlace[])
+        .map(toPlaceResult)
+        .filter((place): place is PlaceResult => {
+          if (!place) return false
+          return place.businessStatus !== "CLOSED_PERMANENTLY" && place.businessStatus !== "FUTURE_OPENING"
+        })
+      // Text Search locationBias influences ranking but is not a hard boundary.
+      // Cache only destination-scoped results so an all-out-of-area response
+      // receives the intentionally brief empty-result TTL.
+      places = anchor
+        ? providerPlaces.filter((place) => {
+            if (place.latitude === null || place.longitude === null) return false
+            return distanceMeters(anchor, {
+              latitude: place.latitude,
+              longitude: place.longitude,
+            }) <= anchor.radiusMeters
+          })
+        : providerPlaces
+      cacheTextSearchResults(cacheKey, places)
+    }
+
+    return places.map(clonePlaceResult)
   } catch (error) {
-    console.error("[google-places] Search error:", error)
+    const errorName = error instanceof Error ? error.name : "UnknownError"
+    if (errorName !== "AbortError") {
+      console.error(`[google-places] Search error (${errorName})`)
+    }
     throw error
   }
 }

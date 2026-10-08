@@ -2,21 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Alert,
-  Image,
   Keyboard,
   Modal,
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
   type LayoutChangeEvent,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { router, useLocalSearchParams } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
+import { fetch } from "expo/fetch"
 import { Button, Eyebrow, LoadingScreen, Screen } from "@/components/ui"
+import { Text, TextInput } from "@/components/typography"
+import { RemoteImage } from "@/components/remote-image"
 import DiscoveryCanvas from "@/components/discovery-canvas"
 import {
   destinationCards,
@@ -44,7 +44,9 @@ import {
   searchDestinationOptions,
   type DestinationOption,
 } from "@/lib/destination-options"
-import { absoluteMediaUrl, apiUrl, remoteImageSource } from "@/lib/media"
+import { absoluteMediaUrl, apiUrl } from "@/lib/media"
+import { consumeNdjson } from "@/lib/ndjson-stream"
+import { startOperationTiming } from "@/lib/observability"
 import { colors, radii, typography } from "@/lib/theme"
 import type { Attraction, Trip } from "@/lib/types"
 import { useDashboard } from "@/hooks/use-dashboard"
@@ -92,6 +94,25 @@ function destinationCardFromOption(option: DestinationOption): DestinationCard {
   }
 }
 
+function normalizedPlaceText(value: string | null | undefined) {
+  return value?.trim().toLocaleLowerCase().replace(/\s+/g, " ") ?? ""
+}
+
+function appendUniqueAttraction(
+  attraction: Attraction,
+  found: Attraction[],
+  googlePlaceIds: Set<string>,
+  nameLocations: Set<string>
+) {
+  const googlePlaceId = normalizedPlaceText(attraction.googlePlaceId)
+  const nameLocation = `${normalizedPlaceText(attraction.name)}|${normalizedPlaceText(attraction.location)}`
+  if ((googlePlaceId && googlePlaceIds.has(googlePlaceId)) || nameLocations.has(nameLocation)) return false
+  if (googlePlaceId) googlePlaceIds.add(googlePlaceId)
+  nameLocations.add(nameLocation)
+  found.push(attraction)
+  return true
+}
+
 function ResultCard({
   attraction,
   onSave,
@@ -107,7 +128,7 @@ function ResultCard({
   const [imageUrl, setImageUrl] = useState(attraction.imageUrl || fallbackPlaceImage)
   return (
     <View style={styles.resultCard}>
-      <Image source={remoteImageSource(imageUrl)} onError={() => setImageUrl(fallbackPlaceImage)} style={styles.resultImage} />
+      <RemoteImage uri={imageUrl} preset="landscape" onError={() => setImageUrl(fallbackPlaceImage)} style={styles.resultImage} />
       <View style={styles.resultContent}>
         <View style={styles.resultTopline}>
           <Text style={styles.resultCategory}>{attraction.category || "PLACE"}</Text>
@@ -168,6 +189,7 @@ export default function ExploreScreen() {
   const [lastSavedName, setLastSavedName] = useState("")
   const [lastSavedTripTitle, setLastSavedTripTitle] = useState("")
   const [hasSearched, setHasSearched] = useState(false)
+  const [incomingResultCount, setIncomingResultCount] = useState(0)
   const [revealResults, setRevealResults] = useState(false)
   const [visibleResultCount, setVisibleResultCount] = useState(resultBatchSize)
   const [buildPromptOpen, setBuildPromptOpen] = useState(false)
@@ -177,10 +199,20 @@ export default function ExploreScreen() {
   const autoSearchKey = useRef("")
   const searchRequestId = useRef(0)
   const searchAbortController = useRef<AbortController | null>(null)
+  const tripSearchScopeKey = useRef("")
   const destinationRepairAbortController = useRef<AbortController | null>(null)
   const savedAttractionNamesRef = useRef<Set<string>>(new Set())
   const promptedTripId = useRef("")
   const buildInFlight = useRef(false)
+  const resultsLayoutY = useRef<number | null>(null)
+  const revealUsingExistingLayout = useRef(false)
+
+  function invalidateSearchRequest() {
+    searchRequestId.current += 1
+    const activeController = searchAbortController.current
+    searchAbortController.current = null
+    activeController?.abort()
+  }
 
   const visibleDestinations = useMemo(() => {
     return rankDestinationsForVibe(data?.familyVibe ?? null, lens)
@@ -230,11 +262,29 @@ export default function ExploreScreen() {
   }, [savedAttractionNames])
 
   useEffect(() => () => {
-    searchAbortController.current?.abort()
+    invalidateSearchRequest()
     destinationRepairAbortController.current?.abort()
+    // Refs are intentionally invalidated without setting state during unmount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
+    const nextScopeKey = `${user?.id ?? "guest"}:${params.tripId ?? "browse"}`
+    if (tripSearchScopeKey.current !== nextScopeKey) {
+      tripSearchScopeKey.current = nextScopeKey
+      invalidateSearchRequest()
+      autoSearchKey.current = ""
+      setSearching(false)
+      setIncomingResultCount(0)
+      setAttractions([])
+      setResultsLens(null)
+      setResultsDestinationName("")
+      setSummary("")
+      setSearchError("")
+      setHasSearched(false)
+      setVisibleResultCount(resultBatchSize)
+      setRevealResults(false)
+    }
     if (!user || !params.tripId) {
       setScopedTrip(null)
       setSelectedDestinationOption(null)
@@ -297,6 +347,9 @@ export default function ExploreScreen() {
   useEffect(() => {
     const destination = resolveDestinationCard(params.destination)
     if (!destination) return
+    invalidateSearchRequest()
+    setSearching(false)
+    setIncomingResultCount(0)
     setSelected(destination)
     setQuery("")
     setAttractions([])
@@ -306,6 +359,7 @@ export default function ExploreScreen() {
     setSearchError("")
     setHasSearched(false)
     setVisibleResultCount(resultBatchSize)
+    setRevealResults(false)
   }, [params.destination])
 
   useEffect(() => {
@@ -314,8 +368,19 @@ export default function ExploreScreen() {
     const ranked = rankDestinationsForVibe(data.familyVibe, defaultLens)
     setLens(defaultLens)
     if (ranked[0]) {
+      invalidateSearchRequest()
+      setSearching(false)
+      setIncomingResultCount(0)
       setSelected(ranked[0])
       setQuery("")
+      setAttractions([])
+      setResultsLens(null)
+      setResultsDestinationName("")
+      setSummary("")
+      setSearchError("")
+      setHasSearched(false)
+      setVisibleResultCount(resultBatchSize)
+      setRevealResults(false)
     }
   }, [data?.familyVibe, lensTouched, params.destination])
 
@@ -368,9 +433,10 @@ export default function ExploreScreen() {
     try {
       const updatedTrip = await updateTripDestination(user.id, scopedTrip.id, option)
       const destination = destinationCardFromOption(option)
-      searchAbortController.current?.abort()
-      searchRequestId.current += 1
+      invalidateSearchRequest()
       autoSearchKey.current = ""
+      setSearching(false)
+      setIncomingResultCount(0)
       setScopedTrip(updatedTrip)
       setSelectedDestinationOption(option)
       setSelected(destination)
@@ -384,6 +450,7 @@ export default function ExploreScreen() {
       setSearchError("")
       setHasSearched(false)
       setVisibleResultCount(resultBatchSize)
+      setRevealResults(false)
     } catch (error) {
       setDestinationRepairError(error instanceof Error ? error.message : "We couldn’t update this destination. Please try again.")
     } finally {
@@ -393,8 +460,9 @@ export default function ExploreScreen() {
 
   function chooseDestination(destination: DestinationCard) {
     Keyboard.dismiss()
-    searchAbortController.current?.abort()
-    searchRequestId.current += 1
+    invalidateSearchRequest()
+    setSearching(false)
+    setIncomingResultCount(0)
     setSelected(destination)
     setSelectedDestinationOption(null)
     setQuery("")
@@ -405,6 +473,7 @@ export default function ExploreScreen() {
     setSearchError("")
     setHasSearched(false)
     setVisibleResultCount(resultBatchSize)
+    setRevealResults(false)
     setBrowseOpen(false)
     setBrowseQuery("")
   }
@@ -435,10 +504,26 @@ export default function ExploreScreen() {
     searchAbortController.current?.abort()
     const controller = new AbortController()
     searchAbortController.current = controller
+    const isCurrentSearch = () => (
+      requestId === searchRequestId.current
+      && searchAbortController.current === controller
+      && !controller.signal.aborted
+    )
     Keyboard.dismiss()
+    if (!isCurrentSearch()) return
     setSearching(true)
     setHasSearched(true)
     setSearchError("")
+    setIncomingResultCount(0)
+    const previousResults = attractions
+    revealUsingExistingLayout.current = previousResults.length > 0
+    const baseTimingAttributes = { had_results: previousResults.length > 0 }
+    const timing = startOperationTiming("search.places", baseTimingAttributes)
+    let httpStatus = 0
+    const found: Attraction[] = []
+    const googlePlaceIds = new Set<string>()
+    const nameLocations = new Set<string>()
+    let resultSummary = ""
     try {
       const response = await fetch(`${apiUrl}/api/search`, {
         method: "POST",
@@ -455,50 +540,84 @@ export default function ExploreScreen() {
           filters: {},
         }),
       })
-      const text = await response.text()
-      if (requestId !== searchRequestId.current) return
+      httpStatus = response.status
+      if (!isCurrentSearch()) {
+        timing.finish({ ...baseTimingAttributes, aborted: true, http_status: httpStatus })
+        return
+      }
       if (!response.ok) {
+        const text = await response.text()
+        if (!isCurrentSearch()) {
+          timing.finish({ ...baseTimingAttributes, aborted: true, http_status: httpStatus })
+          return
+        }
         const parsed = (() => {
           try { return JSON.parse(text || "{}") } catch { return {} }
         })()
         throw new Error(parsed.error || "We couldn't find verified places right now.")
       }
-      const found: Attraction[] = []
-      let resultSummary = ""
-      text.split(/\r?\n/).forEach((line) => {
-        const normalizedLine = line.trim().replace(/^data:\s*/, "")
-        if (!normalizedLine || normalizedLine === "[DONE]") return
-        try {
-          const item = JSON.parse(normalizedLine)
-          if (item.name) found.push({
-            ...(item as Attraction),
-            imageUrl: absoluteMediaUrl(item.imageUrl),
-          })
-          if (item.summary) resultSummary = item.summary
-        } catch {
-          // Ignore malformed stream fragments and keep any valid verified results.
-        }
+
+      await consumeNdjson<Record<string, unknown>>(response, {
+        signal: controller.signal,
+        onValue: (item) => {
+          if (!isCurrentSearch()) return
+
+          if (typeof item.summary === "string" && item.summary.trim()) {
+            resultSummary = item.summary.trim()
+            if (found.length && isCurrentSearch()) setSummary(resultSummary)
+          }
+
+          if (typeof item.name !== "string" || !item.name.trim()) return
+          const attraction = {
+            ...(item as unknown as Attraction),
+            imageUrl: absoluteMediaUrl(typeof item.imageUrl === "string" ? item.imageUrl : undefined),
+          }
+          if (!appendUniqueAttraction(attraction, found, googlePlaceIds, nameLocations)) return
+          if (!isCurrentSearch()) return
+
+          const isFirstFreshResult = found.length === 1
+          setAttractions([...found])
+          setIncomingResultCount(found.length)
+          setSummary(resultSummary || `${found.length} verified place${found.length === 1 ? "" : "s"} found so far in ${destination.name}.`)
+          if (isFirstFreshResult) {
+            setResultsLens(searchLens)
+            setResultsDestinationName(destination.name)
+            setVisibleResultCount(resultBatchSize)
+            setRevealResults(options.reveal !== false)
+          }
+        },
       })
+
+      if (!isCurrentSearch()) {
+        timing.finish({ ...baseTimingAttributes, aborted: true, http_status: httpStatus })
+        return
+      }
       if (found.length) {
-        setAttractions(found)
-        setResultsLens(searchLens)
-        setResultsDestinationName(destination.name)
-        setVisibleResultCount(resultBatchSize)
-        setRevealResults(options.reveal !== false)
         setSummary(resultSummary || `${found.length} verified place${found.length === 1 ? "" : "s"} in ${destination.name}.`)
       } else {
-        setSearchError(attractions.length
+        setSearchError(previousResults.length
           ? `No new ${searchLens.toLowerCase()} matches appeared. Your current places are still here—try a broader search.`
           : `No verified matches appeared for ${destination.name}. Try “food”, “museums”, or another broader idea.`)
       }
+      timing.finish({
+        had_results: found.length > 0,
+        http_status: httpStatus,
+        result_count: found.length,
+      })
     } catch (error) {
-      if (requestId !== searchRequestId.current || (error instanceof Error && error.name === "AbortError")) return
-      const message = attractions.length
-        ? "We couldn’t refresh these matches. Your current places are still here—try again."
-        : "Search is temporarily unavailable. Try again in a moment."
-      setSearchError(message)
+      if (!isCurrentSearch() || (error instanceof Error && error.name === "AbortError")) {
+        timing.finish({ ...baseTimingAttributes, aborted: true, http_status: httpStatus })
+        return
+      }
+      timing.fail(error, { ...baseTimingAttributes, http_status: httpStatus, result_count: found.length })
+      const message = found.length
+        ? `We found ${found.length} place${found.length === 1 ? "" : "s"} before the connection paused. Those results are still here—try again for more.`
+        : previousResults.length
+          ? "We couldn’t refresh these matches. Your current places are still here—try again."
+          : "Search is temporarily unavailable. Try again in a moment."
+      if (isCurrentSearch()) setSearchError(message)
     } finally {
-      if (requestId === searchRequestId.current) {
+      if (isCurrentSearch()) {
         searchAbortController.current = null
         setSearching(false)
       }
@@ -616,9 +735,23 @@ export default function ExploreScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [destinationNeedsConfirmation, loading, params.destination, params.tripId, scopedTrip?.id, selected.destination])
 
+  useEffect(() => {
+    if (!revealResults || incomingResultCount === 0 || !revealUsingExistingLayout.current) return
+    const resultsY = resultsLayoutY.current
+    if (resultsY === null) return
+    revealUsingExistingLayout.current = false
+    setRevealResults(false)
+    const frame = requestAnimationFrame(() => {
+      screenRef.current?.scrollTo({ y: Math.max(0, resultsY - 18), animated: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [incomingResultCount, revealResults])
+
   function revealSearchResults(event: LayoutChangeEvent) {
-    if (!revealResults) return
     const resultsY = event.nativeEvent.layout.y
+    resultsLayoutY.current = resultsY
+    if (!revealResults) return
+    revealUsingExistingLayout.current = false
     setRevealResults(false)
     requestAnimationFrame(() => {
       screenRef.current?.scrollTo({ y: Math.max(0, resultsY - 18), animated: true })
@@ -791,7 +924,9 @@ export default function ExploreScreen() {
         {searching && attractions.length ? (
           <View style={styles.refreshingResults} accessibilityLiveRegion="polite">
             <ActivityIndicator size="small" color={colors.primary} />
-            <Text style={styles.refreshingResultsText}>Updating for {lens}. Your current places will stay visible until the new matches arrive.</Text>
+            <Text style={styles.refreshingResultsText}>{incomingResultCount > 0
+              ? `${incomingResultCount} new match${incomingResultCount === 1 ? "" : "es"} found so far. More may still appear.`
+              : `Updating for ${lens}. Your current places will stay visible until the new matches arrive.`}</Text>
           </View>
         ) : null}
 
@@ -799,7 +934,7 @@ export default function ExploreScreen() {
           <View style={styles.results} onLayout={revealSearchResults}>
             <View style={styles.sectionHeading}>
               <View><Eyebrow>{resultsLens ? `${resultsLens} matches` : "Matched to your vibe"}</Eyebrow><Text style={styles.sectionTitle}>Places in {resultsDestinationName || selected.name}</Text></View>
-              <Text style={styles.sectionCount}>{attractions.length}</Text>
+              <Text style={styles.sectionCount}>{searching && incomingResultCount > 0 ? `${attractions.length} so far` : attractions.length}</Text>
             </View>
             {lastSavedName && (scopedTrip || lastSavedTripTitle) ? (
               <View style={styles.savedConfirmation}>
@@ -857,7 +992,7 @@ export default function ExploreScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.destinationRail}>
               {visibleDestinations.map((destination) => (
                 <Pressable key={destination.slug} onPress={() => chooseDestination(destination)} style={[styles.destinationCard, selected.slug === destination.slug && styles.destinationCardActive]}>
-                  <Image source={remoteImageSource(destination.imageUrl, session?.access_token)} style={styles.destinationImage} />
+                  <RemoteImage uri={destination.imageUrl} accessToken={session?.access_token} preset="portraitCard" style={styles.destinationImage} />
                   <View style={styles.destinationShade} />
                   <View style={styles.destinationCopy}>
                     <Text style={styles.destinationName}>{destination.name}</Text>
@@ -946,7 +1081,7 @@ export default function ExploreScreen() {
                 style={({ pressed }) => [styles.destinationRepairOption, pressed && styles.pressed]}
               >
                 {option.imageUrl ? (
-                  <Image source={remoteImageSource(option.imageUrl, session?.access_token)} style={styles.destinationRepairImage} />
+                  <RemoteImage uri={option.imageUrl} accessToken={session?.access_token} preset="thumbnail" style={styles.destinationRepairImage} />
                 ) : (
                   <View style={styles.destinationRepairImageFallback}><Ionicons name="location" size={20} color={colors.primary} /></View>
                 )}
@@ -1022,7 +1157,7 @@ export default function ExploreScreen() {
                   <Text style={styles.browserCountry}>{destination.country} · {destination.region}</Text>
                   <Text style={styles.browserReason} numberOfLines={1}>{destination.headline}</Text>
                 </View>
-                <Image source={remoteImageSource(destination.imageUrl, session?.access_token)} style={styles.browserImage} />
+                <RemoteImage uri={destination.imageUrl} accessToken={session?.access_token} preset="thumbnail" style={styles.browserImage} />
                 <View style={styles.browserArrow}><Ionicons name="arrow-forward" size={17} color="#FFFFFF" /></View>
               </Pressable>
             ))}

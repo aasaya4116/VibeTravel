@@ -47,7 +47,12 @@ export default async function DashboardPage() {
   if (!user) redirect("/auth/login?next=/dashboard")
 
   // First-time users: no vibe and no trips → guide through onboarding
-  if (!familyVibe && trips.length === 0) {
+  const mobileOnboardingOutcome = user.user_metadata?.vibetravel_mobile_onboarding_outcome
+  const mobileOnboardingResolved = (
+    user.user_metadata?.vibetravel_mobile_onboarding_pending === false
+    && (mobileOnboardingOutcome === "completed" || mobileOnboardingOutcome === "skipped")
+  )
+  if (!familyVibe && trips.length === 0 && !mobileOnboardingResolved) {
     redirect("/profile/vibe?onboarding=true")
   }
 

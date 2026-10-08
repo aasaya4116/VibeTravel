@@ -1,12 +1,13 @@
 import { useMemo } from "react"
-import { Image, ImageBackground, Pressable, StyleSheet, Text, View } from "react-native"
+import { Pressable, StyleSheet, View } from "react-native"
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen } from "@/components/ui"
+import { Text } from "@/components/typography"
+import { RemoteImage, RemoteImageBackground } from "@/components/remote-image"
 import { formatTripDates, getDaysUntil } from "@/lib/format"
 import { getReadinessPercent } from "@/lib/data"
 import { destinationCards, getTripImage } from "@/lib/destinations"
-import { remoteImageSource } from "@/lib/media"
 import { colors, radii, shadows, typography } from "@/lib/theme"
 import type { Trip } from "@/lib/types"
 import { useDashboard } from "@/hooks/use-dashboard"
@@ -25,7 +26,7 @@ function HowItWorksHero({ accessToken }: { accessToken?: string | null }) {
   const image = destinationCards.find((destination) => destination.slug === "lisbon")?.imageUrl
 
   return (
-    <ImageBackground source={remoteImageSource(image, accessToken)} style={styles.howHero} imageStyle={styles.howHeroImage}>
+    <RemoteImageBackground uri={image} accessToken={accessToken} preset="portraitCard" style={styles.howHero} imageStyle={styles.howHeroImage}>
       <View style={styles.howHeroShade} />
       <View style={styles.howHeroCopy}>
         <Text style={styles.howEyebrow}>HOW VIBETRAVEL WORKS</Text>
@@ -53,7 +54,7 @@ function HowItWorksHero({ accessToken }: { accessToken?: string | null }) {
           <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
         </Pressable>
       </View>
-    </ImageBackground>
+    </RemoteImageBackground>
   )
 }
 
@@ -71,7 +72,7 @@ export default function TodayScreen() {
   return (
     <Screen refreshing={refreshing} onRefresh={() => refresh(true)} contentStyle={styles.page}>
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerCopy}>
           <Eyebrow>Your travel world</Eyebrow>
           <Text style={styles.title}>Where to next, {firstName}?</Text>
         </View>
@@ -101,7 +102,7 @@ export default function TodayScreen() {
           onPress={() => router.push({ pathname: "/trips/[id]", params: { id: nextTrip.id } })}
           style={({ pressed }) => [styles.heroShell, pressed && styles.pressed]}
         >
-          <ImageBackground source={remoteImageSource(getTripImage(nextTrip.destination), session?.access_token)} style={styles.hero} imageStyle={styles.heroImage}>
+          <RemoteImageBackground uri={getTripImage(nextTrip.destination)} accessToken={session?.access_token} preset="hero" style={styles.hero} imageStyle={styles.heroImage}>
             <View style={styles.heroShade} />
             <View style={styles.heroTop}>
               <View style={styles.statusBadge}>
@@ -127,7 +128,7 @@ export default function TodayScreen() {
                 <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
               </View>
             </View>
-          </ImageBackground>
+          </RemoteImageBackground>
         </Pressable>
       ) : (
         <EmptyState
@@ -148,7 +149,7 @@ export default function TodayScreen() {
             onPress={() => router.push({ pathname: "/explore", params: { destination: destination.destination } } as never)}
             style={({ pressed }) => [styles.destinationRow, pressed && styles.pressed]}
           >
-            <Image source={remoteImageSource(destination.imageUrl, session?.access_token)} style={styles.destinationImage} />
+            <RemoteImage uri={destination.imageUrl} accessToken={session?.access_token} preset="thumbnail" style={styles.destinationImage} />
             <View style={styles.destinationCopy}>
               <Text style={styles.destinationName}>{destination.name}</Text>
               <Text style={styles.destinationReason} numberOfLines={1}>{destination.headline}</Text>
@@ -195,7 +196,8 @@ export default function TodayScreen() {
 
 const styles = StyleSheet.create({
   page: { paddingTop: 10, gap: 20 },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 14, marginBottom: 4 },
+  headerCopy: { flex: 1, minWidth: 0 },
   title: { color: colors.text, fontSize: 34, lineHeight: 38, fontFamily: typography.serif, fontWeight: "700", marginTop: 5 },
   avatar: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" },
   avatarText: { color: colors.text, fontSize: 12, fontWeight: "800" },

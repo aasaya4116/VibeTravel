@@ -117,6 +117,8 @@ function toAttraction(
     estimatedDuration: recommendation.estimatedDuration,
     priceRange: place.priceLevel,
     location: place.address,
+    ...(place.latitude !== null ? { latitude: place.latitude } : {}),
+    ...(place.longitude !== null ? { longitude: place.longitude } : {}),
     imageUrl:
       place.photoUrl ||
       getAttractionImage(category, place.name),
@@ -297,12 +299,14 @@ export async function POST(req: Request) {
             }
           }
 
-          enqueue(
-            JSON.stringify({
-              summary: `${candidates.length} Google-verified place${candidates.length === 1 ? "" : "s"} in ${resolvedDestination}, ${hasFamilyContext ? "matched using your Family Vibe" : "matched to this search"}.`,
-            }) + "\n"
-          )
         }
+        // A successful NDJSON stream always terminates with exactly one
+        // summary record, including a successful zero-result search.
+        enqueue(
+          JSON.stringify({
+            summary: `${candidates.length} Google-verified place${candidates.length === 1 ? "" : "s"} in ${resolvedDestination}, ${hasFamilyContext ? "matched using your Family Vibe" : "matched to this search"}.`,
+          }) + "\n"
+        )
       } catch (error) {
         if (!streamCancelled) console.error("[search] stream error:", error)
       } finally {

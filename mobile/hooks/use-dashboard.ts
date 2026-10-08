@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react"
 import { loadDashboard, readDashboardCache } from "@/lib/data"
+import { startOperationTiming } from "@/lib/observability"
 import type { DashboardData } from "@/lib/types"
 import { useAuth } from "@/providers/auth-provider"
 
@@ -106,14 +107,29 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
     setError(null)
     revalidatedUserIdRef.current = userId
     const requestVersion = requestVersionRef.current
+    const timing = startOperationTiming("dashboard.load", {
+      cache_hit: Boolean(cached),
+      offline: false,
+      pull_to_refresh: pullToRefresh,
+    })
 
     const request = (async () => {
       try {
         const next = await loadDashboard(user)
+        timing.finish({
+          cache_hit: Boolean(cached),
+          offline: next.offline,
+          pull_to_refresh: pullToRefresh,
+        })
         if (requestVersionRef.current !== requestVersion || activeUserIdRef.current !== userId) return
         replaceData(next)
         if (next.offline) revalidatedUserIdRef.current = null
       } catch (caught) {
+        timing.fail(caught, {
+          cache_hit: Boolean(cached),
+          offline: false,
+          pull_to_refresh: pullToRefresh,
+        })
         if (requestVersionRef.current !== requestVersion || activeUserIdRef.current !== userId) return
         setError(caught instanceof Error ? caught.message : "Could not load your trips")
         // A failed attempt may be retried when another screen asks for data.

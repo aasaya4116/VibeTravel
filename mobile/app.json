@@ -30,6 +30,7 @@
     "plugins": [
       "expo-router",
       "expo-sqlite",
+      "@sentry/react-native/expo",
       [
         "expo-splash-screen",
         {

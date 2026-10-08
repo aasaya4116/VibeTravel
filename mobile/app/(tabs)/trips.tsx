@@ -1,10 +1,11 @@
-import { ImageBackground, Pressable, StyleSheet, Text, View } from "react-native"
+import { Pressable, StyleSheet, View } from "react-native"
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen } from "@/components/ui"
+import { Text } from "@/components/typography"
+import { RemoteImageBackground } from "@/components/remote-image"
 import { formatTripDates } from "@/lib/format"
 import { getTripImage } from "@/lib/destinations"
-import { remoteImageSource } from "@/lib/media"
 import { colors, shadows, typography } from "@/lib/theme"
 import { useDashboard } from "@/hooks/use-dashboard"
 import { useAuth } from "@/providers/auth-provider"
@@ -39,7 +40,7 @@ export default function TripsScreen() {
               onPress={() => router.push({ pathname: "/trips/[id]", params: { id: trip.id } })}
               style={({ pressed }) => [styles.trip, pressed && styles.pressed]}
             >
-              <ImageBackground source={remoteImageSource(getTripImage(trip.destination), session?.access_token)} style={styles.tripImage} imageStyle={styles.tripImageRadius}>
+              <RemoteImageBackground uri={getTripImage(trip.destination)} accessToken={session?.access_token} preset="hero" style={styles.tripImage} imageStyle={styles.tripImageRadius}>
                 <View style={styles.tripShade} />
                 <View style={styles.tripTop}>
                   <View style={[styles.badge, trip.status === "active" && styles.badgeActive]}>
@@ -52,7 +53,7 @@ export default function TripsScreen() {
                   <Text style={styles.destination}>{trip.destination}</Text>
                   <Text style={styles.dates}>{formatTripDates(trip.start_date, trip.end_date)}</Text>
                 </View>
-              </ImageBackground>
+              </RemoteImageBackground>
               <View style={styles.tripFooter}>
                 <View><Text style={styles.footerLabel}>TRIP PLAN</Text><Text style={styles.days}>Open to view itinerary</Text></View>
                 <Text style={styles.open}>Open trip  →</Text>

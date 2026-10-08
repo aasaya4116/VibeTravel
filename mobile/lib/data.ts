@@ -1,6 +1,7 @@
 import type { User } from "@supabase/supabase-js"
 import { supabase } from "./supabase"
 import { DASHBOARD_TRIP_SELECT } from "./dashboard-data"
+import { startOperationTiming } from "./observability"
 import {
   isVerifiedDestinationOption,
   normalizeDestinationOption,
@@ -326,19 +327,47 @@ export async function generateTripItinerary(
   options: GenerateItineraryOptions = {}
 ): Promise<GenerateItineraryResult> {
   const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? process.env.EXPO_PUBLIC_SITE_URL ?? "https://vibe-travel-six.vercel.app"
-  const response = await fetch(`${apiUrl}/api/trips/${tripId}/itinerary`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(options),
-  })
-  const body = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(body.error || "We couldn't build this itinerary right now.")
-  return {
-    itinerary: body.itinerary as ItineraryDay[],
-    inclusion: body.inclusion,
+  const baseAttributes = {
+    fast_draft: Boolean(options.fastDraft),
+    date_count: options.dates?.length ?? (options.dayDate ? 1 : 0),
+    refinement: Boolean(options.instruction?.trim() || options.dayInstruction?.trim()),
+    single_day: Boolean(options.dayDate),
+  }
+  const timing = startOperationTiming("itinerary.generate", baseAttributes)
+  let httpStatus = 0
+
+  try {
+    const response = await fetch(`${apiUrl}/api/trips/${tripId}/itinerary`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(options),
+    })
+    httpStatus = response.status
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(body.error || "We couldn't build this itinerary right now.")
+
+    const itinerary = body.itinerary as ItineraryDay[]
+    timing.finish({
+      ...baseAttributes,
+      http_status: httpStatus,
+      result_day_count: itinerary.length,
+      result_stop_count: itinerary.reduce((count, day) => count + day.items.length, 0),
+      saved_count: typeof body.inclusion?.savedCount === "number" ? body.inclusion.savedCount : undefined,
+      included_count: typeof body.inclusion?.includedCount === "number" ? body.inclusion.includedCount : undefined,
+    })
+    return {
+      itinerary,
+      inclusion: body.inclusion,
+    }
+  } catch (error) {
+    timing.fail(error, {
+      ...baseAttributes,
+      http_status: httpStatus,
+    })
+    throw error
   }
 }
 
