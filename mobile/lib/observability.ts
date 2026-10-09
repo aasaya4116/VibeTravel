@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/react-native"
-import type { Event, ReactNativeOptions, Span, TransactionEvent } from "@sentry/react-native"
+import type { ErrorEvent, Event, ReactNativeOptions, Span, TransactionEvent } from "@sentry/react-native"
 
 type IntegrationFactory = Extract<
   NonNullable<ReactNativeOptions["integrations"]>,
@@ -7,6 +7,9 @@ type IntegrationFactory = Extract<
 >
 type DefaultIntegrations = Parameters<IntegrationFactory>[0]
 type SendableSpan = Parameters<NonNullable<ReactNativeOptions["beforeSendSpan"]>>[0]
+type EventWithStacktrace = Event & {
+  stacktrace?: { frames?: Array<Record<string, unknown>> }
+}
 
 const UUID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/gi
 const URL_WITH_QUERY_PATTERN = /([a-z][a-z0-9+.-]*:\/\/[^\s?#]+)\?[^\s#]*/gi
@@ -146,7 +149,7 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
     exception.value = "[redacted error message]"
     scrubStacktrace(exception.stacktrace as { frames?: Array<Record<string, unknown>> } | undefined)
   })
-  scrubStacktrace(event.stacktrace as { frames?: Array<Record<string, unknown>> } | undefined)
+  scrubStacktrace((event as EventWithStacktrace).stacktrace)
 
   if (event.transaction) event.transaction = scrubObservabilityText(event.transaction)
   if (event.extra) event.extra = scrubUnknown(event.extra) as Event["extra"]
@@ -262,7 +265,7 @@ export function initializeObservability() {
     integrations(defaultIntegrations: DefaultIntegrations) {
       return defaultIntegrations.filter((integration: DefaultIntegrations[number]) => !/(replay|profil)/i.test(integration.name))
     },
-    beforeSend(event: Event) {
+    beforeSend(event: ErrorEvent) {
       return scrubSentryEvent(event)
     },
     beforeSendTransaction(event: TransactionEvent) {
