@@ -13,7 +13,10 @@
     },
     "production": {
       "pnpm": "9.15.9",
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+      }
     }
   },
   "submit": {
