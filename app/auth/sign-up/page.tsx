@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import Link from "next/link"
+import { BrandMark } from "@/components/brand-mark"
 import { useRouter } from "next/navigation"
 
 export default function SignUpPage() {
@@ -49,8 +50,9 @@ export default function SignUpPage() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <Link href="/" className="inline-block">
-            <h1 className="font-serif text-3xl text-primary">VibeTravel</h1>
+          <Link href="/" className="inline-flex items-center gap-3" aria-label="VibeTravel home">
+            <BrandMark className="h-10 w-10 shrink-0" />
+            <h1 className="font-serif text-3xl text-foreground">VibeTravel</h1>
           </Link>
           <p className="mt-2 text-muted-foreground">
             Create your family{"'"}s travel profile.

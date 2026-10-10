@@ -198,9 +198,7 @@ export function AttractionCard({
         <div className="mb-4 rounded-xl border border-primary/15 bg-primary/5 px-3.5 py-3.5">
           <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
             <Sparkles className="h-3 w-3" />
-            {attraction.personalizedForFamily
-              ? "Why this fits your family"
-              : "Why it matched"}
+            Why this matched
           </p>
           {attraction.familyFitSignals && attraction.familyFitSignals.length > 0 && (
             <div className="mt-2.5 flex flex-wrap items-center gap-1.5">

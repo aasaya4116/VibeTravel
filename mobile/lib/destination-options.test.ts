@@ -1,13 +1,18 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   destinationOptionFromCard,
   isVerifiedDestinationOption,
   needsTripDestinationConfirmation,
   normalizeDestinationOption,
+  searchDestinationOptions,
 } from "./destination-options"
 import { findDestinationCard } from "./destinations"
 
 describe("mobile destination resolution", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it("normalizes the worldwide resolver contract", () => {
     const option = normalizeDestinationOption({
       label: "Nairobi, Kenya",
@@ -90,5 +95,34 @@ describe("mobile destination resolution", () => {
     expect(option.placeId).toBe("curated:lagos")
     expect(option.resolved).toBe(false)
     expect(isVerifiedDestinationOption(option)).toBe(false)
+  })
+
+  it("returns a verified worldwide destination that is not in the curated list", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      options: [{
+        label: "Annapolis, MD, USA",
+        canonicalLabel: "Annapolis, MD, USA",
+        city: "Annapolis",
+        region: "Maryland",
+        country: "United States",
+        placeId: "google:annapolis",
+        latitude: 38.9784,
+        longitude: -76.4922,
+        provider: "google",
+        resolved: true,
+        recognized: true,
+        recommended: false,
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } })))
+
+    const options = await searchDestinationOptions("Annapolis")
+
+    expect(options).toHaveLength(1)
+    expect(options[0]).toMatchObject({
+      canonicalLabel: "Annapolis, MD, USA",
+      provider: "google",
+      resolved: true,
+    })
+    expect(isVerifiedDestinationOption(options[0])).toBe(true)
   })
 })

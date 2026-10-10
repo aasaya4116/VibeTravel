@@ -76,7 +76,15 @@ export default function TodayScreen() {
           <Eyebrow>Your travel world</Eyebrow>
           <Text style={styles.title}>Where to next, {firstName}?</Text>
         </View>
-        <View style={styles.avatar}><Text style={styles.avatarText}>{firstName[0]?.toUpperCase()}</Text></View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open profile"
+          hitSlop={10}
+          onPress={() => router.push("/profile")}
+          style={({ pressed }) => [styles.avatar, pressed && styles.pressed]}
+        >
+          <Text style={styles.avatarText}>{firstName[0]?.toUpperCase()}</Text>
+        </Pressable>
       </View>
 
       {data?.offline ? <OfflineBanner /> : null}
@@ -180,7 +188,15 @@ export default function TodayScreen() {
               <Eyebrow>Your family vibe</Eyebrow>
               <Text style={styles.cardTitle}>{data.familyVibe.family_name || "Personalized for your crew"}</Text>
             </View>
-            <Text style={styles.editLink}>Profile →</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open profile and edit Family Vibe"
+              hitSlop={8}
+              onPress={() => router.push("/profile")}
+              style={({ pressed }) => pressed && styles.pressed}
+            >
+              <Text style={styles.editLink}>Profile →</Text>
+            </Pressable>
           </View>
           <View style={styles.chips}>
             {data.familyVibe.travel_style.slice(0, 4).map((style) => (

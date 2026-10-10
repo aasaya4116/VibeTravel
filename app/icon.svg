@@ -1,7 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28">
-  <rect width="28" height="28" rx="7" fill="#d4652a"/>
-  <g transform="translate(2 2)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="m22 2-7 20-4-9-9-4Z"/>
-    <path d="M22 2 11 13"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">VibeTravel</title>
+  <desc id="desc">An open arch with a copper path leading toward a point of discovery.</desc>
+  <rect width="512" height="512" fill="#171512"/>
+  <path d="M142 374V242c0-78 51-132 114-132s114 54 114 132v132" fill="none" stroke="#F3EFE7" stroke-width="30" stroke-linecap="round"/>
+  <path d="M191 375c0-66 23-94 61-126 35-30 58-56 72-98" fill="none" stroke="#A65636" stroke-width="24" stroke-linecap="round"/>
+  <circle cx="327" cy="141" r="18" fill="#C8A96E"/>
 </svg>

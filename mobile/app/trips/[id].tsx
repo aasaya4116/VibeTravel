@@ -18,7 +18,7 @@ import { Button, Card, EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen
 import { Text, TextInput } from "@/components/typography"
 import { RemoteImage, RemoteImageBackground } from "@/components/remote-image"
 import { formatDayLabel, formatTripDates } from "@/lib/format"
-import { generateTripItinerary, loadTrip, readTripCache, saveItinerary } from "@/lib/data"
+import { deleteTrip, generateTripItinerary, loadTrip, readTripCache, saveItinerary } from "@/lib/data"
 import { getTripImage } from "@/lib/destinations"
 import { absoluteMediaUrl } from "@/lib/media"
 import { moveItineraryItem, removeItineraryItem, reorderItineraryItem, updateItineraryItem } from "@/lib/itinerary-editing"
@@ -26,6 +26,7 @@ import { colors, shadows, typography } from "@/lib/theme"
 import type { ItineraryItem, SavedAttraction, Trip } from "@/lib/types"
 import { useAuth } from "@/providers/auth-provider"
 import { useFamilyPace } from "@/hooks/use-family-pace"
+import { useDashboard } from "@/hooks/use-dashboard"
 
 const siteUrl = process.env.EXPO_PUBLIC_SITE_URL ?? "https://vibe-travel-six.vercel.app"
 const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? siteUrl
@@ -45,6 +46,7 @@ function itemStatus(item: ItineraryItem) {
 export default function TripScreen() {
   const { id } = useLocalSearchParams<{ id: string }>()
   const { user, session } = useAuth()
+  const { refresh: refreshDashboard } = useDashboard()
   const pace = useFamilyPace()
   const [trip, setTrip] = useState<Trip | null>(null)
   const [savedAttractions, setSavedAttractions] = useState<SavedAttraction[]>([])
@@ -55,6 +57,7 @@ export default function TripScreen() {
   const [sharing, setSharing] = useState(false)
   const [shareDisclosureVisible, setShareDisclosureVisible] = useState(false)
   const [shareError, setShareError] = useState("")
+  const [deletingTrip, setDeletingTrip] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [selectedDay, setSelectedDay] = useState(0)
   const [tripMode, setTripMode] = useState(false)
@@ -255,6 +258,35 @@ export default function TripScreen() {
     router.push({ pathname: "/explore", params: { tripId: trip.id, destination: trip.destination } } as never)
   }
 
+  async function removeTrip() {
+    if (!trip || !user) return
+    setDeletingTrip(true)
+    try {
+      await deleteTrip(user.id, trip.id)
+      await refreshDashboard(true)
+      router.replace("/trips")
+    } catch (error) {
+      Alert.alert("Trip not deleted", error instanceof Error ? error.message : "Check your connection and try again.")
+    } finally {
+      setDeletingTrip(false)
+    }
+  }
+
+  function confirmDeleteTrip() {
+    if (offline) {
+      Alert.alert("Reconnect to delete", "Deleting a trip requires an internet connection. Your trip is still available offline.")
+      return
+    }
+    Alert.alert(
+      `Delete ${trip?.title ?? "this trip"}?`,
+      "This permanently removes the itinerary, readiness details, and private share link. Your saved places are not deleted. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete trip", style: "destructive", onPress: () => void removeTrip() },
+      ]
+    )
+  }
+
   function getItemImage(item: ItineraryItem) {
     return absoluteMediaUrl(item.attraction_data?.imageUrl ?? savedAttractions.find(
       (saved) => saved.attraction_name.toLowerCase() === item.attraction_name.toLowerCase()
@@ -304,16 +336,30 @@ export default function TripScreen() {
         <View style={styles.tripHeroShade} />
         <View style={styles.heroTopRow}>
           <View style={styles.statusPill}><Text style={styles.statusPillText}>{trip.status}</Text></View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Share trip"
-            accessibilityHint="Reviews what people with the private link can see before sharing"
-            onPress={openShareDisclosure}
-            disabled={sharing || offline}
-            style={styles.shareButton}
-          >
-            <Ionicons name="share-outline" size={20} color="#FFFFFF" />
-          </Pressable>
+          <View style={styles.heroActions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Delete trip"
+              accessibilityHint="Opens a confirmation before permanently deleting this trip"
+              accessibilityState={{ busy: deletingTrip, disabled: deletingTrip }}
+              onPress={confirmDeleteTrip}
+              disabled={deletingTrip}
+              style={({ pressed }) => [styles.deleteTripButton, pressed && styles.heroActionPressed, deletingTrip && styles.heroActionDisabled]}
+            >
+              <Ionicons name={deletingTrip ? "hourglass-outline" : "trash-outline"} size={19} color="#FFFFFF" />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Share trip"
+              accessibilityHint="Reviews what people with the private link can see before sharing"
+              accessibilityState={{ busy: sharing, disabled: sharing || offline || deletingTrip }}
+              onPress={openShareDisclosure}
+              disabled={sharing || offline || deletingTrip}
+              style={({ pressed }) => [styles.shareButton, pressed && styles.heroActionPressed, (sharing || deletingTrip) && styles.heroActionDisabled]}
+            >
+              <Ionicons name="share-outline" size={20} color="#FFFFFF" />
+            </Pressable>
+          </View>
         </View>
         <View style={styles.heroCopy}>
           <Text style={styles.heroOverline}>YOUR FAMILY ADVENTURE</Text>
@@ -584,6 +630,7 @@ const styles = StyleSheet.create({
   tripHeroImage: { borderRadius: 28 },
   tripHeroShade: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.42)" },
   heroTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  heroActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   statusPill: { backgroundColor: "rgba(255,255,255,0.9)", borderRadius: 99, paddingHorizontal: 11, paddingVertical: 7 },
   statusPillText: { color: colors.primaryDark, fontSize: 9, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
   heroCopy: { paddingTop: 80 },
@@ -592,6 +639,9 @@ const styles = StyleSheet.create({
   destination: { color: "rgba(255,255,255,0.86)", fontSize: 15, fontWeight: "800", marginTop: 7 },
   dates: { color: "rgba(255,255,255,0.66)", fontSize: 13, marginTop: 4 },
   shareButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(0,0,0,0.28)", borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", alignItems: "center", justifyContent: "center" },
+  deleteTripButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(103,20,20,0.52)", borderWidth: 1, borderColor: "rgba(255,255,255,0.3)", alignItems: "center", justifyContent: "center" },
+  heroActionPressed: { opacity: 0.72, transform: [{ scale: 0.96 }] },
+  heroActionDisabled: { opacity: 0.55 },
   startMode: { marginTop: 2 },
   generationSuccess: { flexDirection: "row", alignItems: "flex-start", gap: 9, padding: 13, backgroundColor: colors.successSoft, borderRadius: 12 },
   generationSuccessText: { flex: 1, color: colors.success, fontSize: 11, lineHeight: 17, fontWeight: "700" },

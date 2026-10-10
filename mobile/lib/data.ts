@@ -49,6 +49,14 @@ function writeCache(key: string, value: unknown) {
   }
 }
 
+function removeCache(key: string) {
+  try {
+    globalThis.localStorage?.removeItem(`${CACHE_PREFIX}:${key}`)
+  } catch {
+    // A failed cache cleanup should never turn a successful deletion into an error.
+  }
+}
+
 function tripDestinationCacheKey(userId: string, tripId: string) {
   return `trip-destination:${userId}:${tripId}`
 }
@@ -464,4 +472,34 @@ export async function createTrip(
   writeCache(`trip:${userId}:${data.id}`, { trip: data as Trip, savedAttractions: [] })
   writeTripDestinationOption(userId, data.id, input.destinationOption)
   return data as Trip
+}
+
+export async function deleteTrip(userId: string, tripId: string) {
+  const { data, error } = await supabase
+    .from("trips")
+    .delete()
+    .eq("id", tripId)
+    .eq("user_id", userId)
+    .select("id")
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data) throw new Error("This trip is no longer available or belongs to another account.")
+
+  tripRequests.delete(`${userId}:${tripId}`)
+  removeCache(`trip:${userId}:${tripId}`)
+  removeCache(tripDestinationCacheKey(userId, tripId))
+
+  const cached = readDashboardCache(userId)
+  if (cached) {
+    const readinessByTrip = { ...cached.readinessByTrip }
+    delete readinessByTrip[tripId]
+    writeDashboardCache(userId, {
+      ...cached,
+      trips: cached.trips.filter((trip) => trip.id !== tripId),
+      readinessByTrip,
+    })
+  }
+
+  return data.id as string
 }

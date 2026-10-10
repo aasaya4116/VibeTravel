@@ -6,8 +6,11 @@ import {
   searchVerifiedPlaces,
   type PlaceResult,
 } from "@/lib/travel-apis/google-places"
-import type { Attraction } from "@/lib/types"
-import { getVibeDiscoveryQuery } from "@/lib/recommendation-personalization"
+import type { Attraction, FamilyVibe } from "@/lib/types"
+import {
+  buildFamilyMatchExplanation,
+  getVibeDiscoveryQuery,
+} from "@/lib/recommendation-personalization"
 
 // Google returns a relevance-ranked, closed candidate set. Stream those
 // verified results directly so model latency never blocks discovery.
@@ -20,6 +23,7 @@ type Recommendation = {
   sensoryNotes: string | null
   estimatedDuration: string
   tips: string[]
+  personalized: boolean
   familyFitReason: string
   familyFitSignals: Array<{
     type: "age" | "sensory" | "pace" | "style" | "budget" | "dietary" | "general"
@@ -57,38 +61,32 @@ function categoryForPlace(place: PlaceResult): string {
 function fallbackRecommendation(
   place: PlaceResult,
   familyVibe: Record<string, unknown> | null | undefined,
-  effectiveQuery: string
+  _effectiveQuery: string
 ): Recommendation {
   const styles = Array.isArray(familyVibe?.travel_style)
     ? familyVibe.travel_style.filter((style): style is string => typeof style === "string")
     : []
-  const pace = typeof familyVibe?.pace === "string" ? familyVibe.pace : null
-  const strongestStyle = styles[0]
   const category = categoryForPlace(place)
-  const queryLabel = effectiveQuery
-    .split(",")[0]
-    .trim()
-    .slice(0, 40)
-  const signals: Recommendation["familyFitSignals"] = []
-  if (strongestStyle) {
-    signals.push({ type: "style", label: strongestStyle.slice(0, 40) })
-  }
-  if (pace) {
-    signals.push({ type: "pace", label: `${pace} pace`.slice(0, 40) })
-  }
-  signals.push({ type: "general", label: `${category} match`.slice(0, 40) })
+  const match = buildFamilyMatchExplanation(
+    {
+      name: place.name,
+      category,
+      priceRange: place.priceLevel,
+      accessibleEntrance: place.accessibleEntrance,
+    },
+    familyVibe as Partial<FamilyVibe> | null | undefined
+  )
 
   return {
     placeId: place.id,
-    vibes: [...styles.slice(0, 2), "verified place"],
+    vibes: [...styles.slice(0, 2), category],
     ageRange: "Check venue guidance",
-    sensoryNotes: null,
+    sensoryNotes: match.sensoryNotes,
     estimatedDuration: "Plan 1–3 hours",
-    tips: ["Confirm current hours and ticket requirements before visiting."],
-    familyFitReason: strongestStyle
-      ? `${place.name} is a Google-verified ${category.toLowerCase()} matching your ${strongestStyle.toLowerCase()} interests and this ${queryLabel || "family"} search.`
-      : `${place.name} is a Google-verified ${category.toLowerCase()} matching this ${queryLabel || "family"} search.`,
-    familyFitSignals: signals.slice(0, 3),
+    tips: match.tips,
+    personalized: match.personalized,
+    familyFitReason: match.reason,
+    familyFitSignals: match.signals,
   }
 }
 
@@ -106,7 +104,7 @@ function toAttraction(
   return {
     googlePlaceId: place.id,
     name: place.name,
-    description: `${place.name} is a Google-verified ${place.primaryTypeLabel?.toLowerCase() || "attraction"}${place.address ? ` at ${place.address}` : ""}.`,
+    description: `${place.primaryTypeLabel || category}${place.address ? ` · ${place.address}` : ""}`,
     category,
     vibes: recommendation.vibes,
     ageRange: recommendation.ageRange,
@@ -153,16 +151,13 @@ export async function POST(req: Request) {
   const destinationPlaceId = String(body?.destinationPlaceId ?? "").trim().slice(0, 300)
   const filters = body?.filters
   const familyVibe = body?.familyVibe
-  const ownerName = String(body?.ownerName ?? "").trim().slice(0, 80)
   const hasFamilyContext = Boolean(
-    ownerName ||
-    (familyVibe &&
-      ((Array.isArray(familyVibe.kids) && familyVibe.kids.length > 0) ||
-        (Array.isArray(familyVibe.travelers) && familyVibe.travelers.length > 0) ||
-        (Array.isArray(familyVibe.travel_style) && familyVibe.travel_style.length > 0) ||
+    familyVibe &&
+      ((Array.isArray(familyVibe.travel_style) && familyVibe.travel_style.length > 0) ||
         (Array.isArray(familyVibe.sensory_needs) && familyVibe.sensory_needs.length > 0) ||
+        (Array.isArray(familyVibe.dietary) && familyVibe.dietary.length > 0) ||
         familyVibe.pace ||
-        familyVibe.budget_preference))
+        familyVibe.budget_preference)
   )
   if (!destination) {
     return Response.json(
@@ -291,11 +286,12 @@ export async function POST(req: Request) {
           for (const place of candidates) {
             if (streamCancelled) break
             if (!emittedIds.has(place.id)) {
-              await emit(
+              const recommendation = fallbackRecommendation(
                 place,
-                fallbackRecommendation(place, familyVibe, effectiveQuery),
-                hasFamilyContext
+                familyVibe,
+                effectiveQuery
               )
+              await emit(place, recommendation, recommendation.personalized)
             }
           }
 

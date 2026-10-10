@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createRequestClient } from "@/lib/supabase/request"
-import { isConfigured, searchPlaces } from "@/lib/travel-apis/google-places"
+import { isConfigured, searchVerifiedPlaces } from "@/lib/travel-apis/google-places"
 
 export const maxDuration = 15
 
@@ -32,7 +32,12 @@ export async function GET(req: NextRequest) {
     return new Response("Photo service unavailable", { status: 503 })
   }
 
-  const place = await searchPlaces("iconic landmark", destination)
+  const candidates = await searchVerifiedPlaces(
+    "iconic skyline landmark scenic viewpoint",
+    destination,
+    6
+  ).catch(() => [])
+  const place = candidates.find((candidate) => Boolean(candidate.photoUrl))
   if (!place?.photoUrl) {
     return new Response("Photo unavailable", { status: 404 })
   }

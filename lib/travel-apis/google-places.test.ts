@@ -317,6 +317,60 @@ describe("Google Places geographic search", () => {
     expect(providerSignal.aborted).toBe(true)
   })
 
+  it("uses the first provider-ranked photo that is genuinely high-resolution and landscape", async () => {
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key")
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({
+      places: [{
+        id: "nairobi-gallery",
+        displayName: { text: "Nairobi Gallery" },
+        formattedAddress: "Kenyatta Avenue, Nairobi, Kenya",
+        location: { latitude: -1.2865, longitude: 36.8172 },
+        businessStatus: "OPERATIONAL",
+        types: ["museum"],
+        photos: [
+          { name: "places/nairobi-gallery/photos/small", widthPx: 640, heightPx: 480 },
+          { name: "places/nairobi-gallery/photos/portrait", widthPx: 1800, heightPx: 2400 },
+          { name: "places/nairobi-gallery/photos/hero", widthPx: 2400, heightPx: 1600 },
+          { name: "places/nairobi-gallery/photos/later", widthPx: 3200, heightPx: 1800 },
+        ],
+      }],
+    })))
+
+    const { searchVerifiedPlaces } = await import("./google-places")
+    const [result] = await searchVerifiedPlaces("art museums", "Nairobi", 10, {
+      destinationAnchor: nairobiAnchor(),
+    })
+
+    expect(result.photoUrl).toBe(
+      "/api/place-photo?ref=places%2Fnairobi-gallery%2Fphotos%2Fhero"
+    )
+  })
+
+  it("does not upscale a low-resolution or portrait provider photo", async () => {
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key")
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({
+      places: [{
+        id: "nairobi-market",
+        displayName: { text: "Nairobi Market" },
+        formattedAddress: "Nairobi, Kenya",
+        location: { latitude: -1.2865, longitude: 36.8172 },
+        businessStatus: "OPERATIONAL",
+        types: ["market"],
+        photos: [
+          { name: "places/nairobi-market/photos/small", widthPx: 800, heightPx: 600 },
+          { name: "places/nairobi-market/photos/portrait", widthPx: 1600, heightPx: 2200 },
+        ],
+      }],
+    })))
+
+    const { searchVerifiedPlaces } = await import("./google-places")
+    const [result] = await searchVerifiedPlaces("food markets", "Nairobi", 10, {
+      destinationAnchor: nairobiAnchor(),
+    })
+
+    expect(result.photoUrl).toBeNull()
+  })
+
   it("reuses successful text-search candidates and returns defensive copies", async () => {
     vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key")
     const fetchMock = vi.fn().mockImplementation(() => json(nairobiSearchPayload()))
