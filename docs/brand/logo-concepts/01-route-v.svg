@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">VibeTravel Route V brand mark</title>
+  <desc id="desc">A warm ivory V-shaped route converges on a gold destination point on a near-black rounded square.</desc>
+  <rect width="512" height="512" rx="112" fill="#171512"/>
+  <path
+    d="M122 137 246 365c4 8 16 8 20 0l124-228"
+    fill="none"
+    stroke="#F3EFE7"
+    stroke-width="38"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M166 185c23 39 48 76 73 111"
+    fill="none"
+    stroke="#C8A96E"
+    stroke-width="15"
+    stroke-linecap="round"
+  />
+  <circle cx="256" cy="347" r="24" fill="#C8A96E"/>
+  <circle cx="256" cy="347" r="9" fill="#171512"/>
+</svg>

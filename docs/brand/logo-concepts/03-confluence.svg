@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">VibeTravel Confluence brand mark</title>
+  <desc id="desc">Three flowing routes converge on a shared gold destination, expressing a trip shaped around everyone traveling.</desc>
+  <rect width="512" height="512" rx="112" fill="#171512"/>
+  <path
+    d="M132 136c20 74 65 153 124 223M380 136c-20 74-65 153-124 223"
+    fill="none"
+    stroke="#F3EFE7"
+    stroke-width="31"
+    stroke-linecap="round"
+  />
+  <path
+    d="M256 112c-17 72-17 154 0 235"
+    fill="none"
+    stroke="#A65636"
+    stroke-width="25"
+    stroke-linecap="round"
+  />
+  <circle cx="256" cy="359" r="25" fill="#C8A96E"/>
+  <circle cx="256" cy="359" r="9" fill="#171512"/>
+</svg>

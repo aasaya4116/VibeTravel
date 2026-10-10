@@ -15,9 +15,10 @@ describe("destination photo proxy", () => {
     }))
     vi.doMock("@/lib/travel-apis/google-places", () => ({
       isConfigured: () => true,
-      searchPlaces: vi.fn().mockResolvedValue({
-        photoUrl: "/api/place-photo?ref=places%2Fabc%2Fphotos%2F123",
-      }),
+      searchVerifiedPlaces: vi.fn().mockResolvedValue([
+        { photoUrl: null },
+        { photoUrl: "/api/place-photo?ref=places%2Fabc%2Fphotos%2F123" },
+      ]),
     }))
     const { GET } = await import("./route")
 
@@ -34,13 +35,13 @@ describe("destination photo proxy", () => {
   })
 
   it("rejects unauthenticated requests inside the route", async () => {
-    const searchPlaces = vi.fn()
+    const searchVerifiedPlaces = vi.fn()
     vi.doMock("@/lib/supabase/request", () => ({
       createRequestClient: vi.fn().mockResolvedValue({ user: null }),
     }))
     vi.doMock("@/lib/travel-apis/google-places", () => ({
       isConfigured: () => true,
-      searchPlaces,
+      searchVerifiedPlaces,
     }))
     const { GET } = await import("./route")
 
@@ -49,6 +50,6 @@ describe("destination photo proxy", () => {
     ))
 
     expect(response.status).toBe(401)
-    expect(searchPlaces).not.toHaveBeenCalled()
+    expect(searchVerifiedPlaces).not.toHaveBeenCalled()
   })
 })

@@ -20,6 +20,13 @@ vi.mock("@/lib/attraction-images", () => ({
 
 vi.mock("@/lib/recommendation-personalization", () => ({
   getVibeDiscoveryQuery: () => "family culture",
+  buildFamilyMatchExplanation: () => ({
+    reason: "This matched your search. It adds a clear museum stop to the trip.",
+    signals: [{ type: "general", label: "Museum match" }],
+    tips: ["Confirm current hours and ticket requirements before visiting."],
+    sensoryNotes: null,
+    personalized: false,
+  }),
 }))
 
 const anchor: DestinationAnchor = {

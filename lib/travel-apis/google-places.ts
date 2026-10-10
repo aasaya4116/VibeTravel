@@ -77,13 +77,49 @@ type GooglePlace = {
   businessStatus?: PlaceResult["businessStatus"]
   currentOpeningHours?: { openNow?: boolean }
   regularOpeningHours?: { weekdayDescriptions?: string[] }
-  photos?: { name?: string }[]
+  photos?: GooglePlacePhoto[]
   accessibilityOptions?: { wheelchairAccessibleEntrance?: boolean }
   googleMapsUri?: string
   websiteUri?: string
   primaryType?: string
   primaryTypeDisplayName?: { text?: string }
   types?: string[]
+}
+
+type GooglePlacePhoto = {
+  name?: string
+  widthPx?: number
+  heightPx?: number
+}
+
+// Cards render as landscape imagery. Requesting a larger rendition cannot make
+// a small provider original sharper, so only accept photos that can cover both
+// web and high-density mobile cards without upscaling.
+const MIN_PLACE_PHOTO_WIDTH = 1_200
+const MIN_PLACE_PHOTO_HEIGHT = 800
+const MIN_PLACE_PHOTO_ASPECT_RATIO = 1.1
+const MAX_PLACE_PHOTO_ASPECT_RATIO = 2.4
+
+function highResolutionLandscapePhoto(photos: GooglePlacePhoto[] | undefined) {
+  return photos?.find((photo) => {
+    const width = photo.widthPx
+    const height = photo.heightPx
+    if (
+      !photo.name ||
+      typeof width !== "number" ||
+      typeof height !== "number" ||
+      width < MIN_PLACE_PHOTO_WIDTH ||
+      height < MIN_PLACE_PHOTO_HEIGHT
+    ) {
+      return false
+    }
+
+    const aspectRatio = width / height
+    return (
+      aspectRatio >= MIN_PLACE_PHOTO_ASPECT_RATIO &&
+      aspectRatio <= MAX_PLACE_PHOTO_ASPECT_RATIO
+    )
+  })
 }
 
 type GoogleAutocompletePrediction = {
@@ -469,7 +505,9 @@ function toPlaceResult(place: GooglePlace): PlaceResult | null {
   const name = place.displayName?.text?.trim()
   if (!id || !name) return null
 
-  const photoRef = place.photos?.[0]?.name
+  // Preserve Google's relevance ordering while skipping originals that would
+  // look soft or crop poorly in the landscape result cards.
+  const photoRef = highResolutionLandscapePhoto(place.photos)?.name
 
   return {
     id,

@@ -75,6 +75,7 @@ function rememberBuildPrompt(tripId: string) {
 
 interface SearchPlacesOptions {
   destination?: DestinationCard
+  destinationOption?: DestinationOption | null
   lens?: DestinationLens
   query?: string
   reveal?: boolean
@@ -138,7 +139,7 @@ function ResultCard({
         <Text style={styles.resultLocation} numberOfLines={1}>{attraction.location}</Text>
         {attraction.familyFitReason ? (
           <View style={styles.whyBox}>
-            <Text style={styles.whyLabel}>WHY IT FITS YOUR FAMILY</Text>
+            <Text style={styles.whyLabel}>WHY THIS MATCHED</Text>
             <Text style={styles.whyText}>{attraction.familyFitReason}</Text>
           </View>
         ) : null}
@@ -171,6 +172,9 @@ export default function ExploreScreen() {
   const [saving, setSaving] = useState(false)
   const [browseOpen, setBrowseOpen] = useState(false)
   const [browseQuery, setBrowseQuery] = useState("")
+  const [browseDestinationOptions, setBrowseDestinationOptions] = useState<DestinationOption[]>([])
+  const [browseDestinationSearching, setBrowseDestinationSearching] = useState(false)
+  const [browseDestinationError, setBrowseDestinationError] = useState("")
   const [lensTouched, setLensTouched] = useState(false)
   const [scopedTrip, setScopedTrip] = useState<Trip | null>(null)
   const [selectedDestinationOption, setSelectedDestinationOption] = useState<DestinationOption | null>(null)
@@ -201,6 +205,7 @@ export default function ExploreScreen() {
   const searchAbortController = useRef<AbortController | null>(null)
   const tripSearchScopeKey = useRef("")
   const destinationRepairAbortController = useRef<AbortController | null>(null)
+  const browseDestinationAbortController = useRef<AbortController | null>(null)
   const savedAttractionNamesRef = useRef<Set<string>>(new Set())
   const promptedTripId = useRef("")
   const buildInFlight = useRef(false)
@@ -226,11 +231,25 @@ export default function ExploreScreen() {
     ))
   }, [browseQuery])
 
+  const browsableDestinationFallbacks = useMemo(() => {
+    const resolvedCities = new Set(
+      browseDestinationOptions.map((option) => option.city.trim().toLowerCase())
+    )
+    return browsableDestinations.filter((destination) => (
+      !resolvedCities.has(destination.name.trim().toLowerCase())
+    ))
+  }, [browsableDestinations, browseDestinationOptions])
+
   const customDestination = useMemo(() => {
     const value = browseQuery.trim()
-    if (!value || findDestinationCard(value)) return null
+    if (
+      value.length < 2 ||
+      findDestinationCard(value) ||
+      browseDestinationSearching ||
+      browseDestinationOptions.length > 0
+    ) return null
     return createDestinationCard(value)
-  }, [browseQuery])
+  }, [browseDestinationOptions.length, browseDestinationSearching, browseQuery])
 
   const searchSuggestions = useMemo(() => {
     if (lens === "Food + culture") return ["Local food", "Markets", "Art + culture"]
@@ -264,6 +283,7 @@ export default function ExploreScreen() {
   useEffect(() => () => {
     invalidateSearchRequest()
     destinationRepairAbortController.current?.abort()
+    browseDestinationAbortController.current?.abort()
     // Refs are intentionally invalidated without setting state during unmount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -418,6 +438,43 @@ export default function ExploreScreen() {
     }
   }, [destinationRepairOpen, destinationRepairQuery, session?.access_token])
 
+  useEffect(() => {
+    if (!browseOpen) return
+    const normalized = browseQuery.trim()
+    browseDestinationAbortController.current?.abort()
+
+    if (normalized.length < 2) {
+      setBrowseDestinationOptions([])
+      setBrowseDestinationSearching(false)
+      setBrowseDestinationError("")
+      return
+    }
+
+    const controller = new AbortController()
+    browseDestinationAbortController.current = controller
+    setBrowseDestinationOptions([])
+    setBrowseDestinationSearching(true)
+    setBrowseDestinationError("")
+    const timer = setTimeout(async () => {
+      try {
+        const options = await searchDestinationOptions(normalized, session?.access_token, controller.signal)
+        if (controller.signal.aborted) return
+        setBrowseDestinationOptions(options)
+      } catch (error) {
+        if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) return
+        setBrowseDestinationOptions([])
+        setBrowseDestinationError("We couldn’t verify that destination right now. You can still search the exact name below.")
+      } finally {
+        if (!controller.signal.aborted) setBrowseDestinationSearching(false)
+      }
+    }, 180)
+
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [browseOpen, browseQuery, session?.access_token])
+
   function openDestinationRepair() {
     Keyboard.dismiss()
     setDestinationRepairQuery(scopedTrip?.destination ?? selected.destination)
@@ -451,6 +508,13 @@ export default function ExploreScreen() {
       setHasSearched(false)
       setVisibleResultCount(resultBatchSize)
       setRevealResults(false)
+      autoSearchKey.current = `${updatedTrip.id}:${destination.destination}`
+      void searchPlaces({
+        destination,
+        destinationOption: option,
+        query: "",
+        reveal: true,
+      })
     } catch (error) {
       setDestinationRepairError(error instanceof Error ? error.message : "We couldn’t update this destination. Please try again.")
     } finally {
@@ -458,7 +522,7 @@ export default function ExploreScreen() {
     }
   }
 
-  function chooseDestination(destination: DestinationCard) {
+  function resetDestinationSearch(destination: DestinationCard) {
     Keyboard.dismiss()
     invalidateSearchRequest()
     setSearching(false)
@@ -476,6 +540,29 @@ export default function ExploreScreen() {
     setRevealResults(false)
     setBrowseOpen(false)
     setBrowseQuery("")
+    setBrowseDestinationOptions([])
+    setBrowseDestinationError("")
+  }
+
+  function chooseDestination(destination: DestinationCard, searchImmediately = false) {
+    resetDestinationSearch(destination)
+    setSelectedDestinationOption(null)
+    if (searchImmediately) {
+      void searchPlaces({ destination, destinationOption: null, query: "", reveal: true })
+    }
+  }
+
+  function chooseDestinationOption(option: DestinationOption) {
+    const destination = destinationCardFromOption(option)
+    const verifiedOption = isVerifiedDestinationOption(option) ? option : null
+    resetDestinationSearch(destination)
+    setSelectedDestinationOption(verifiedOption)
+    void searchPlaces({
+      destination,
+      destinationOption: verifiedOption,
+      query: "",
+      reveal: true,
+    })
   }
 
   function chooseLens(nextLens: DestinationLens) {
@@ -492,11 +579,18 @@ export default function ExploreScreen() {
   }
 
   async function searchPlaces(options: SearchPlacesOptions = {}) {
-    if (params.tripId && destinationNeedsConfirmation) {
+    if (
+      params.tripId &&
+      destinationNeedsConfirmation &&
+      !isVerifiedDestinationOption(options.destinationOption)
+    ) {
       openDestinationRepair()
       return
     }
     const destination = options.destination ?? selected
+    const destinationOption = options.destinationOption !== undefined
+      ? options.destinationOption
+      : selectedDestinationOption
     const searchLens = options.lens ?? lens
     const searchQuery = options.query !== undefined ? options.query.trim() : query.trim()
     const requestId = searchRequestId.current + 1
@@ -531,9 +625,9 @@ export default function ExploreScreen() {
         signal: controller.signal,
         body: JSON.stringify({
           destination: destination.destination,
-          destinationPlaceId: selectedDestinationOption?.placeId || undefined,
-          destinationLatitude: selectedDestinationOption?.latitude ?? destination.latitude,
-          destinationLongitude: selectedDestinationOption?.longitude ?? destination.longitude,
+          destinationPlaceId: destinationOption?.placeId || undefined,
+          destinationLatitude: destinationOption?.latitude ?? destination.latitude,
+          destinationLongitude: destinationOption?.longitude ?? destination.longitude,
           query: searchQuery || getDestinationQueryForLens(destination, searchLens),
           ownerName: data?.profile?.display_name,
           familyVibe: data?.familyVibe,
@@ -1139,19 +1233,39 @@ export default function ExploreScreen() {
           </View>
           <ScrollView contentContainerStyle={styles.browserList} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
             <Text style={styles.browserListLabel}>{browseQuery ? "SEARCH RESULTS" : "CURATED DESTINATIONS"}</Text>
+            {browseDestinationSearching ? (
+              <View style={styles.browserLookupStatus} accessibilityLiveRegion="polite">
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.browserLookupText}>Finding verified destinations…</Text>
+              </View>
+            ) : null}
+            {browseDestinationOptions.map((option) => {
+              const verified = isVerifiedDestinationOption(option)
+              return (
+                <Pressable key={`${option.provider}:${option.placeId}:${option.canonicalLabel}`} onPress={() => chooseDestinationOption(option)} style={({ pressed }) => [styles.browserRow, pressed && styles.browserRowPressed]}>
+                  <View style={styles.browserRowCopy}>
+                    <Text style={styles.browserVerifiedLabel}>{verified ? "VERIFIED DESTINATION" : "CURATED DESTINATION"}</Text>
+                    <Text style={styles.browserCity}>{option.city}</Text>
+                    <Text style={styles.browserCountry}>{[option.region, option.country].filter((value, index, values) => value && values.indexOf(value) === index).join(" · ")}</Text>
+                  </View>
+                  {option.imageUrl ? <RemoteImage uri={option.imageUrl} accessToken={session?.access_token} preset="thumbnail" style={styles.browserImage} /> : null}
+                  <View style={styles.browserArrow}><Ionicons name="arrow-forward" size={17} color="#FFFFFF" /></View>
+                </Pressable>
+              )
+            })}
             {customDestination ? (
-              <Pressable onPress={() => chooseDestination(customDestination)} style={({ pressed }) => [styles.customDestinationRow, pressed && styles.browserRowPressed]}>
+              <Pressable onPress={() => chooseDestination(customDestination, true)} style={({ pressed }) => [styles.customDestinationRow, pressed && styles.browserRowPressed]}>
                 <View style={styles.customDestinationIcon}><Ionicons name="search" size={18} color="#FFFFFF" /></View>
                 <View style={styles.browserRowCopy}>
-                  <Text style={styles.customDestinationLabel}>SEARCH ANY DESTINATION</Text>
-                  <Text style={styles.customDestinationTitle}>Explore {customDestination.destination}</Text>
-                  <Text style={styles.browserReason}>Find verified places using your Family Vibe</Text>
+                  <Text style={styles.customDestinationLabel}>SEARCH EXACT DESTINATION</Text>
+                  <Text style={styles.customDestinationTitle}>Find places in {customDestination.destination}</Text>
+                  <Text style={styles.browserReason}>We’ll verify the location before showing matches</Text>
                 </View>
                 <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
               </Pressable>
             ) : null}
-            {browsableDestinations.map((destination) => (
-              <Pressable key={destination.slug} onPress={() => chooseDestination(destination)} style={({ pressed }) => [styles.browserRow, pressed && styles.browserRowPressed]}>
+            {browsableDestinationFallbacks.map((destination) => (
+              <Pressable key={destination.slug} onPress={() => chooseDestination(destination, true)} style={({ pressed }) => [styles.browserRow, pressed && styles.browserRowPressed]}>
                 <View style={styles.browserRowCopy}>
                   <Text style={styles.browserCity}>{destination.name}</Text>
                   <Text style={styles.browserCountry}>{destination.country} · {destination.region}</Text>
@@ -1161,7 +1275,8 @@ export default function ExploreScreen() {
                 <View style={styles.browserArrow}><Ionicons name="arrow-forward" size={17} color="#FFFFFF" /></View>
               </Pressable>
             ))}
-            {!browsableDestinations.length && !customDestination ? <Text style={styles.browserEmpty}>Type any city or region to explore it.</Text> : null}
+            {browseDestinationError ? <Text style={styles.browserLookupError}>{browseDestinationError}</Text> : null}
+            {!browseDestinationSearching && !browseDestinationOptions.length && !browsableDestinationFallbacks.length && !customDestination ? <Text style={styles.browserEmpty}>Type any city or region to explore it.</Text> : null}
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -1368,9 +1483,13 @@ const styles = StyleSheet.create({
   browserSearchInput: { flex: 1, color: "#FFFFFF", fontSize: 14 },
   browserList: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 48 },
   browserListLabel: { color: "rgba(255,255,255,0.42)", fontSize: 9, fontWeight: "800", letterSpacing: 1.5, marginBottom: 8 },
+  browserLookupStatus: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(255,255,255,0.17)" },
+  browserLookupText: { color: "rgba(255,255,255,0.68)", fontSize: 12 },
+  browserLookupError: { color: "#F1C6B5", fontSize: 11, lineHeight: 17, paddingVertical: 14 },
   browserRow: { minHeight: 112, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "rgba(255,255,255,0.17)", flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 14 },
   browserRowPressed: { opacity: 0.68 },
   browserRowCopy: { flex: 1 },
+  browserVerifiedLabel: { color: "#D48A67", fontSize: 8, fontWeight: "900", letterSpacing: 1.2, marginBottom: 4 },
   browserCity: { color: "#FFFFFF", fontSize: 29, lineHeight: 34, fontFamily: typography.serif, fontWeight: "700" },
   browserCountry: { color: "rgba(255,255,255,0.5)", fontSize: 10, marginTop: 3 },
   browserReason: { color: "#D48A67", fontSize: 10, fontWeight: "700", marginTop: 7 },

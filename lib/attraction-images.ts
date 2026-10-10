@@ -87,5 +87,10 @@ export function getAttractionImage(category: string, name: string): string {
     )?.[1] ||
     fallbackImages
 
-  return images[index % images.length]
+  const imageUrl = new URL(images[index % images.length])
+  imageUrl.searchParams.set("w", "1280")
+  imageUrl.searchParams.set("h", "854")
+  imageUrl.searchParams.set("fit", "crop")
+  imageUrl.searchParams.set("q", "85")
+  return imageUrl.toString()
 }

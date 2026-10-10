@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { Attraction, FamilyVibe } from "./types"
 import {
+  buildFamilyMatchExplanation,
   createRecommendationFeedback,
   getFamilyVibeHighlights,
   getVibeDiscoveryQuery,
@@ -101,5 +102,58 @@ describe("recommendation personalization", () => {
   it("keeps a general discovery fallback when no style is set", () => {
     expect(getVibeDiscoveryQuery(null)).toBe("family-friendly attractions")
     expect(getVibeSuggestedSearches(null)).toHaveLength(5)
+  })
+
+  it("explains the match with selected style and pace instead of provider metadata", () => {
+    const match = buildFamilyMatchExplanation(
+      { name: "City Art Museum", category: "Museum", priceRange: "$$" },
+      {
+        travel_style: ["Cultural Explorer"],
+        pace: "moderate",
+        dietary: [],
+        sensory_needs: [],
+        budget_preference: "any",
+      }
+    )
+
+    expect(match.personalized).toBe(true)
+    expect(match.reason).toContain("You chose Cultural Explorer and a moderate pace")
+    expect(match.reason).toContain("focused indoor anchor")
+    expect(match.reason).not.toContain("Google")
+    expect(match.signals).toEqual([
+      { type: "style", label: "Cultural Explorer" },
+      { type: "pace", label: "moderate pace" },
+    ])
+  })
+
+  it("uses dietary needs as a verification prompt, never a suitability claim", () => {
+    const match = buildFamilyMatchExplanation(
+      { name: "Market Kitchen", category: "Restaurant", priceRange: "$$" },
+      {
+        travel_style: ["Foodie Family"],
+        pace: "slow",
+        dietary: ["Nut allergy"],
+        sensory_needs: [],
+        budget_preference: "$$",
+      }
+    )
+
+    expect(match.reason).toContain("Confirm current Nut allergy handling directly")
+    expect(match.reason).not.toMatch(/safe|suitable|allergy-friendly/i)
+    expect(match.signals).toContainEqual({ type: "dietary", label: "Nut allergy" })
+    expect(match.tips.join(" ")).toContain("cross-contact")
+  })
+
+  it("labels an unpersonalized result honestly", () => {
+    const match = buildFamilyMatchExplanation(
+      { name: "City View", category: "Attraction" },
+      null
+    )
+
+    expect(match.personalized).toBe(false)
+    expect(match.reason).toBe(
+      "This matched your search. It adds a clear attraction stop to the trip."
+    )
+    expect(match.signals).toEqual([{ type: "general", label: "Attraction match" }])
   })
 })

@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1040" role="img" aria-labelledby="title desc">
+  <title id="title">Three VibeTravel logo concepts</title>
+  <desc id="desc">A side-by-side brand presentation of Route V, Open Passage, and Confluence marks at app-icon and mobile-header sizes.</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="20" flood-color="#171512" flood-opacity="0.13"/>
+    </filter>
+    <g id="route-v">
+      <rect width="240" height="240" rx="52" fill="#171512"/>
+      <path d="M57 64 115 171c2 4 8 4 10 0l58-107" fill="none" stroke="#F3EFE7" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M78 87c11 18 23 36 34 52" fill="none" stroke="#C8A96E" stroke-width="7" stroke-linecap="round"/>
+      <circle cx="120" cy="163" r="11" fill="#C8A96E"/>
+      <circle cx="120" cy="163" r="4" fill="#171512"/>
+    </g>
+    <g id="passage">
+      <rect width="240" height="240" rx="52" fill="#171512"/>
+      <path d="M67 176v-62c0-37 24-62 53-62s53 25 53 62v62" fill="none" stroke="#F3EFE7" stroke-width="14" stroke-linecap="round"/>
+      <path d="M90 176c0-31 11-44 29-59 16-14 27-26 33-46" fill="none" stroke="#A65636" stroke-width="11" stroke-linecap="round"/>
+      <circle cx="154" cy="66" r="8.5" fill="#C8A96E"/>
+    </g>
+    <g id="confluence">
+      <rect width="240" height="240" rx="52" fill="#171512"/>
+      <path d="M62 64c10 35 31 72 58 105M178 64c-10 35-31 72-58 105" fill="none" stroke="#F3EFE7" stroke-width="15" stroke-linecap="round"/>
+      <path d="M120 53c-8 34-8 72 0 110" fill="none" stroke="#A65636" stroke-width="12" stroke-linecap="round"/>
+      <circle cx="120" cy="169" r="12" fill="#C8A96E"/>
+      <circle cx="120" cy="169" r="4" fill="#171512"/>
+    </g>
+  </defs>
+
+  <rect width="1800" height="1040" fill="#F3EFE7"/>
+  <text x="90" y="90" fill="#A65636" font-family="Inter, Arial, sans-serif" font-size="18" font-weight="700" letter-spacing="4">VIBETRAVEL · BRAND MARK STUDY</text>
+  <text x="90" y="157" fill="#171512" font-family="Georgia, 'Times New Roman', serif" font-size="56">Three quieter ways to signal discovery.</text>
+  <text x="90" y="202" fill="#716960" font-family="Inter, Arial, sans-serif" font-size="22">Designed for the mobile header first, with enough distinction to become the app icon.</text>
+
+  <g transform="translate(90 280)">
+    <g filter="url(#shadow)"><use href="#route-v"/></g>
+    <text x="0" y="302" fill="#A65636" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="3">01 · ROUTE V</text>
+    <text x="0" y="350" fill="#171512" font-family="Georgia, 'Times New Roman', serif" font-size="34">A tailored route, made yours.</text>
+    <text x="0" y="392" fill="#716960" font-family="Inter, Arial, sans-serif" font-size="19">A confident V becomes a route and ends at</text>
+    <text x="0" y="421" fill="#716960" font-family="Inter, Arial, sans-serif" font-size="19">one precise destination—direct, ownable, modern.</text>
+    <rect x="0" y="470" width="410" height="84" rx="18" fill="#FAF8F4" stroke="#D6CEC3"/>
+    <g transform="translate(18 485) scale(.225)"><use href="#route-v"/></g>
+    <text x="91" y="506" fill="#171512" font-family="Georgia, 'Times New Roman', serif" font-size="24">VibeTravel</text>
+    <text x="91" y="531" fill="#716960" font-family="Inter, Arial, sans-serif" font-size="14">Your family’s next great story</text>
+  </g>
+
+  <g transform="translate(680 280)">
+    <g filter="url(#shadow)"><use href="#passage"/></g>
+    <text x="0" y="302" fill="#A65636" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="3">02 · OPEN PASSAGE</text>
+    <text x="0" y="350" fill="#171512" font-family="Georgia, 'Times New Roman', serif" font-size="34">Step into somewhere new.</text>
+    <text x="0" y="392" fill="#716960" font-family="Inter, Arial, sans-serif" font-size="19">An editorial arch and ascending path make</text>
+    <text x="0" y="421" fill="#716960" font-family="Inter, Arial, sans-serif" font-size="19">discovery feel considered, elevated, and inviting.</text>
+    <rect x="0" y="470" width="410" height="84" rx="18" fill="#FAF8F4" stroke="#D6CEC3"/>
+    <g transform="translate(18 485) scale(.225)"><use href="#passage"/></g>
+    <text x="91" y="506" fill="#171512" font-family="Georgia, 'Times New Roman', serif" font-size="24">VibeTravel</text>
+    <text x="91" y="531" fill="#716960" font-family="Inter, Arial, sans-serif" font-size="14">Travel shaped around your family</text>
+  </g>
+
+  <g transform="translate(1270 280)">
+    <g filter="url(#shadow)"><use href="#confluence"/></g>
+    <text x="0" y="302" fill="#A65636" font-family="Inter, Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="3">03 · CONFLUENCE</text>
+    <text x="0" y="350" fill="#171512" font-family="Georgia, 'Times New Roman', serif" font-size="34">Different people. One great trip.</text>
+    <text x="0" y="392" fill="#716960" font-family="Inter, Arial, sans-serif" font-size="19">Three flowing routes meet at one destination—</text>
+    <text x="0" y="421" fill="#716960" font-family="Inter, Arial, sans-serif" font-size="19">a calmer symbol for personalized family travel.</text>
+    <rect x="0" y="470" width="410" height="84" rx="18" fill="#FAF8F4" stroke="#D6CEC3"/>
+    <g transform="translate(18 485) scale(.225)"><use href="#confluence"/></g>
+    <text x="91" y="506" fill="#171512" font-family="Georgia, 'Times New Roman', serif" font-size="24">VibeTravel</text>
+    <text x="91" y="531" fill="#716960" font-family="Inter, Arial, sans-serif" font-size="14">A trip shaped around everyone</text>
+  </g>
+
+  <line x1="90" y1="920" x2="1710" y2="920" stroke="#D6CEC3"/>
+  <text x="90" y="966" fill="#716960" font-family="Inter, Arial, sans-serif" font-size="17">Palette: near-black #171512 · warm ivory #F3EFE7 · portfolio gold #C8A96E · VibeTravel copper #A65636</text>
+  <text x="1710" y="966" text-anchor="end" fill="#171512" font-family="Inter, Arial, sans-serif" font-size="17" font-weight="700">Recommendation: 02 · Open Passage</text>
+</svg>
