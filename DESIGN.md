@@ -35,6 +35,14 @@ Large orange or copper-filled panels are not part of this system. Use copper for
 - Headlines should be confident and spacious. Avoid excessive bold UI labels.
 - Uppercase labels are short, small, and widely tracked.
 
+## Brand mark
+
+- The primary VibeTravel mark is **Open Passage**: a warm-white arched threshold, a copper path, and a restrained gold discovery point on near-black.
+- The production vector source of truth is `docs/brand/logo-concepts/02-open-passage.svg`.
+- Use the complete mark without redrawing, rotating, recoloring, or separating its elements in product headers, authentication, legal pages, social cards, and launch surfaces.
+- App-store icons use a full-bleed near-black background. In-product and splash uses may retain the rounded-square silhouette and transparent outer corners.
+- Pair the mark with the `VibeTravel` DM Serif Display wordmark when space allows. When the wordmark is adjacent, treat the SVG as decorative so assistive technology announces the brand only once.
+
 ## Geometry and surfaces
 
 - Standard radius: 8px.

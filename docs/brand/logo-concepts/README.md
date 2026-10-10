@@ -1,6 +1,10 @@
 # VibeTravel logo concepts
 
-Three symbol-only directions prepared for review. No live app assets have been changed.
+## Selected direction
+
+**02 — Open Passage** is the approved VibeTravel brand mark. Its SVG is the visual source of truth for product, launch, and store assets. Run `node docs/brand/generate-open-passage-assets.mjs` from the project root after intentional source changes to regenerate the native raster assets.
+
+Three symbol-only directions prepared during review; Open Passage is now live in the product assets.
 
 ## 01 — Route V
 

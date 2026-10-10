@@ -13,6 +13,7 @@ import {
   Sparkles,
 } from "lucide-react"
 import type { ItineraryDay, SharedTrip } from "@/lib/types"
+import { BrandMark } from "@/components/brand-mark"
 
 interface SharedTripViewProps {
   trip: SharedTrip
@@ -48,9 +49,7 @@ export function SharedTripView({ trip, bannerImage }: SharedTripViewProps) {
       <header className="border-b border-border bg-background/95 print:hidden">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <Link href="/" className="flex items-center gap-2.5" aria-label="VibeTravel home">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              <Sparkles className="h-4 w-4" />
-            </span>
+            <BrandMark className="h-9 w-9 shrink-0" />
             <span className="font-serif text-xl text-foreground">VibeTravel</span>
           </Link>
           <div className="flex items-center gap-2">

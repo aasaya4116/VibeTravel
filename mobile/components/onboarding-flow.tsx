@@ -12,6 +12,7 @@ import { StatusBar } from "expo-status-bar"
 import { Ionicons } from "@expo/vector-icons"
 import { Text } from "@/components/typography"
 import { RemoteImageBackground } from "@/components/remote-image"
+import { BrandMark } from "@/components/brand-mark"
 import {
   budgetOptions,
   dietaryOptions,
@@ -292,7 +293,7 @@ export function OnboardingFlow({
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.brandRow}>
-              <View style={styles.brandMark}><Text style={styles.brandPlane}>✈</Text></View>
+              <BrandMark size={42} />
               <Text style={styles.brandText}>VibeTravel</Text>
             </View>
 
@@ -491,8 +492,6 @@ const styles = StyleSheet.create({
   welcomeSafe: { flex: 1 },
   welcomeContent: { flexGrow: 1, justifyContent: "space-between", paddingHorizontal: 22, paddingTop: 12, paddingBottom: 12 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  brandMark: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary },
-  brandPlane: { color: "#FFFFFF", fontSize: 19 },
   brandText: { color: "#FFFFFF", fontSize: 18, fontFamily: typography.serif, fontWeight: "700" },
   welcomeCopy: { paddingTop: 120, paddingBottom: 8 },
   welcomeEyebrow: { color: "#E5A98D", fontSize: 10, fontWeight: "900", letterSpacing: 1.65 },

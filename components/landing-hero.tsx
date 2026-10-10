@@ -15,6 +15,7 @@ import {
   Shield,
   Star,
 } from "lucide-react"
+import { BrandMark } from "@/components/brand-mark"
 
 /* ── Helpers ── */
 
@@ -50,19 +51,6 @@ function FadeIn({
     >
       {children}
     </div>
-  )
-}
-
-function PlaneSVG({ className = "" }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 512 512"
-      fill="currentColor"
-      className={className}
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path d="M186.62 464H160a16 16 0 01-14.57-22.6l64.46-142.25L113.1 297l-35.3 42.77C71.07 348.2 65.7 352 52 352H34.08a17.66 17.66 0 01-14.7-7.06c-2.38-3.21-4.72-8.65-2.44-16.41l19.82-71 .18-.59-.18-.59-19.82-71c-2.28-7.76.06-13.2 2.44-16.41a17.66 17.66 0 0114.7-7.06H52c13.7 0 19.07 3.8 25.8 12.23l35.3 42.77 96.79-2.16-64.46-142.25A16 16 0 01160 48h26.62a16 16 0 0113.88 8L320 208.42l112.17-.57a79 79 0 0143.83 15.44c14 10.7 20 23.15 20 32.71s-6 22-20 32.71a79 79 0 01-43.83 15.44L320 303.58 200.5 456a16 16 0 01-13.88 8z" />
-    </svg>
   )
 }
 
@@ -132,12 +120,10 @@ export function LandingHero() {
 
         {/* ── Nav ── */}
         <header className="relative z-10 flex items-center justify-between px-6 py-6 lg:px-12">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-white">
-              <PlaneSVG className="h-4 w-4 -rotate-45" />
-            </div>
+          <Link href="/" className="flex items-center gap-2.5" aria-label="VibeTravel home">
+            <BrandMark className="h-8 w-8 shrink-0" />
             <span className="font-serif text-xl text-white">VibeTravel</span>
-          </div>
+          </Link>
 
           {/* Centre pill nav */}
           <nav className="hidden items-center gap-0.5 rounded-full border border-white/10 bg-white/5 px-2 py-2 backdrop-blur-md md:flex">
@@ -624,9 +610,7 @@ export function LandingHero() {
       <footer className="border-t border-white/[0.05] bg-[#09090d] py-8">
         <div className="mx-auto flex max-w-5xl flex-col items-center justify-between gap-4 px-6 sm:flex-row lg:px-10">
           <div className="flex items-center gap-2">
-            <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/15 text-primary">
-              <PlaneSVG className="h-3 w-3 -rotate-45" />
-            </div>
+            <BrandMark className="h-6 w-6 shrink-0" />
             <span className="font-serif text-sm text-white/40">VibeTravel</span>
           </div>
           <div className="flex items-center gap-6 text-sm text-white/25">

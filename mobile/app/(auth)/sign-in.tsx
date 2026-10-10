@@ -12,6 +12,7 @@ import { StatusBar } from "expo-status-bar"
 import { Button } from "@/components/ui"
 import { Text, TextInput } from "@/components/typography"
 import { RemoteImageBackground } from "@/components/remote-image"
+import { BrandMark } from "@/components/brand-mark"
 import { colors, radii, shadows, typography } from "@/lib/theme"
 import { hasSupabaseConfiguration, supabase } from "@/lib/supabase"
 
@@ -41,7 +42,7 @@ export default function SignInScreen() {
       <SafeAreaView style={styles.safe}>
         <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <View style={styles.heroCopy}>
-            <View style={styles.brandRow}><View style={styles.brandMark}><Text style={styles.plane}>✈</Text></View><Text style={styles.brand}>VibeTravel</Text></View>
+            <View style={styles.brandRow}><BrandMark size={42} /><Text style={styles.brand}>VibeTravel</Text></View>
             <Text style={styles.eyebrow}>TRAVEL THAT FEELS LIKE YOU</Text>
             <Text style={styles.title}>Your family’s world, beautifully planned.</Text>
             <Text style={styles.subtitle}>Discover places that fit your people, then carry every detail with you.</Text>
@@ -105,8 +106,6 @@ const styles = StyleSheet.create({
   page: { flex: 1, justifyContent: "flex-end", paddingTop: 20 },
   heroCopy: { paddingHorizontal: 24, paddingBottom: 26 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 34 },
-  brandMark: { width: 42, height: 42, borderRadius: 14, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
-  plane: { color: "#FFFFFF", fontSize: 20 },
   brand: { color: "#FFFFFF", fontSize: 18, fontFamily: typography.serif, fontWeight: "700" },
   eyebrow: { color: "#FF9B73", fontSize: 9, fontWeight: "800", letterSpacing: 1.6 },
   title: { color: "#FFFFFF", fontSize: 38, lineHeight: 43, fontFamily: typography.serif, fontWeight: "700", maxWidth: 350, marginTop: 6 },

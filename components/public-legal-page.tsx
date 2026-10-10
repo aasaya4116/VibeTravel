@@ -1,5 +1,6 @@
 import Link from "next/link"
 import type { ReactNode } from "react"
+import { BrandMark } from "@/components/brand-mark"
 
 export function PublicLegalPage({
   eyebrow,
@@ -16,9 +17,9 @@ export function PublicLegalPage({
     <main className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border bg-card/80">
         <div className="mx-auto flex max-w-4xl items-center justify-between px-5 py-4">
-          <Link href="/" className="flex items-center gap-2 font-serif text-xl">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm text-primary-foreground">✈</span>
-            VibeTravel
+          <Link href="/" className="flex items-center gap-2 font-serif text-xl" aria-label="VibeTravel home">
+            <BrandMark className="h-8 w-8 shrink-0" />
+            <span>VibeTravel</span>
           </Link>
           <Link href="/auth/login" className="text-sm font-medium text-primary hover:underline">Sign in</Link>
         </div>

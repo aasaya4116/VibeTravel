@@ -18,8 +18,8 @@
     "android": {
       "package": "com.aasay.vibetravel",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
-        "backgroundColor": "#D4652A"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#171512"
       }
     },
     "web": {
