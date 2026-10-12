@@ -214,6 +214,7 @@ export function ensureSavedAttractionsInDay(
       notes: attraction.familyFitReason || attraction.description || "Saved by you.",
       recommended: false,
       item_type: "place" as const,
+      attraction_data: attraction,
       fit_signals: (attraction.familyFitSignals ?? [])
         .map((signal) => signal.label)
         .slice(0, 3),
@@ -254,7 +255,7 @@ export function pinSavedAttractionsToDates(
       const pinned = pinnedByName.get(item.attraction_name.trim().toLowerCase())
       if (!pinned) return [item]
       if (pinned.plannedDate !== day.date) return []
-      return [{ ...item, recommended: false }]
+      return [{ ...item, recommended: false, attraction_data: pinned }]
     }),
   }))
 
@@ -293,7 +294,7 @@ export function reconcileSavedAttractionsInItinerary(
       if (!saved) return [item]
       if (seen.has(key)) return []
       seen.add(key)
-      return [{ ...item, recommended: false }]
+      return [{ ...item, recommended: false, attraction_data: saved }]
     }),
   }))
 

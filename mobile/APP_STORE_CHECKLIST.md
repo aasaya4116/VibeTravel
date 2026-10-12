@@ -7,6 +7,7 @@
 - [x] Add production `EXPO_PUBLIC_*` variables in EAS.
 - [x] Add `SUPABASE_SERVICE_ROLE_KEY` to Vercel for in-app account deletion.
 - [ ] Add `NEXT_PUBLIC_SUPPORT_EMAIL` to Vercel and confirm that mailbox works.
+- [ ] Add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` to Vercel, then verify protected APIs return `429` when their quota is exhausted.
 - [x] Deploy the Privacy, Terms, Support, and account-deletion API changes.
 - [ ] Confirm every Supabase table has owner-scoped RLS.
 - [ ] Test sign-up email links, sign-in, session persistence, sign-out, and deletion on a physical iPhone.

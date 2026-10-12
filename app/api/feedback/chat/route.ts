@@ -1,19 +1,127 @@
-import { streamText, convertToModelMessages } from "ai"
+import { streamText, convertToModelMessages, type UIMessage } from "ai"
 import { anthropic } from "@ai-sdk/anthropic"
 import { createClient } from "@/lib/supabase/server"
+import { z } from "zod"
+import { enforceRateLimit, rateLimitResponse, RATE_LIMIT_TIERS } from "@/lib/rate-limit"
+import { escapeSlackText, sendSlackWebhook } from "@/lib/slack"
+
+const MAX_BODY_BYTES = 48_000
+
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+
+const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string().max(12_000),
+    z.number().finite(),
+    z.boolean(),
+    z.null(),
+    z.array(jsonValueSchema).max(40),
+    z.record(jsonValueSchema).refine((value) => Object.keys(value).length <= 40, {
+      message: "Object has too many fields",
+    }),
+  ])
+)
+
+const feedbackRequestSchema = z
+  .object({
+    id: z.string().trim().min(1).max(160).optional(),
+    messages: z
+      .array(
+        z
+          .object({
+            id: z.string().trim().min(1).max(160).optional(),
+            role: z.enum(["user", "assistant"]),
+            metadata: jsonValueSchema.optional(),
+            parts: z
+              .array(
+                z
+                  .object({ type: z.string().trim().min(1).max(80) })
+                  .catchall(jsonValueSchema)
+              )
+              .min(1)
+              .max(20),
+          })
+          .strict()
+      )
+      .min(1)
+      .max(24),
+    familyVibe: jsonValueSchema.nullable().optional(),
+    currentTrip: jsonValueSchema.nullable().optional(),
+    tripId: z.string().uuid().nullable().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const lastMessage = value.messages.at(-1)
+    const hasUserText = lastMessage?.parts.some((part) => {
+      const text = (part as Record<string, unknown>).text
+      return part.type === "text" && typeof text === "string" && text.trim().length > 0
+    })
+    if (lastMessage?.role !== "user" || !hasUserText) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["messages", value.messages.length - 1],
+        message: "The final message must contain user text",
+      })
+    }
+  })
+
+function requestTooLargeResponse() {
+  return Response.json(
+    { error: "This feedback conversation is too long. Start a new one and try again." },
+    { status: 413 }
+  )
+}
 
 export async function POST(req: Request) {
-  const { messages } = await req.json()
-
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    return Response.json(
+      { error: "Sign in to share feedback with Scout." },
+      { status: 401 }
+    )
+  }
+
+  const rateLimit = await enforceRateLimit(req, RATE_LIMIT_TIERS.AI_CHAT, {
+    userId: user.id,
+  })
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit)
+
+  const contentLength = Number(req.headers.get("content-length"))
+  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+    return requestTooLargeResponse()
+  }
+
+  let rawBody: string
+  try {
+    rawBody = await req.text()
+  } catch {
+    return Response.json({ error: "We could not read this feedback request." }, { status: 400 })
+  }
+  if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
+    return requestTooLargeResponse()
+  }
+
+  let body: unknown
+  try {
+    body = JSON.parse(rawBody)
+  } catch {
+    return Response.json({ error: "This feedback request is not valid JSON." }, { status: 400 })
+  }
+
+  const parsed = feedbackRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return Response.json({ error: "Check your feedback message and try again." }, { status: 400 })
+  }
+  const messages = parsed.data.messages as UIMessage[]
 
   // Save the incoming user message
-  if (user) {
-    const lastUserMsg = [...messages].reverse().find((m: { role: string }) => m.role === "user")
+  {
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user")
     const userText = lastUserMsg?.parts
-      ?.filter((p: { type: string }) => p.type === "text")
-      .map((p: { text: string }) => p.text)
+      ?.flatMap((part) => part.type === "text" ? [part.text] : [])
       .join("") ?? ""
     if (userText) {
       await supabase.from("feedback_messages").insert({
@@ -53,26 +161,21 @@ Keep responses short (2-3 sentences). One question at a time. Don't list multipl
           const allMessages = [...messages]
           const transcript = allMessages
             .filter((m: { role: string }) => m.role === "user" || m.role === "assistant")
-            .map((m: { role: string; parts?: { type: string; text: string }[]; content?: string }) => {
+            .map((m) => {
               const text = m.parts
-                ?.filter((p) => p.type === "text")
-                .map((p) => p.text)
-                .join("") ?? m.content ?? ""
+                .flatMap((part) => part.type === "text" ? [part.text] : [])
+                .join("")
               return `*${m.role === "user" ? "Tester" : "Scout"}:* ${text}`
             })
             .join("\n")
 
-          await fetch(webhook, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              text: `💬 *Scout Feedback Conversation*\n\n${transcript}\n*Scout:* ${text}`,
-            }),
-          }).catch(() => {})
+          await sendSlackWebhook(
+            `💬 *Scout Feedback Conversation*\n\n${escapeSlackText(transcript)}\n*Scout:* ${escapeSlackText(text)}`
+          )
         }
       }
     },
   })
 
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse({ headers: rateLimit.headers })
 }

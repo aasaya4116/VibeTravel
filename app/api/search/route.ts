@@ -11,6 +11,7 @@ import {
   buildFamilyMatchExplanation,
   getVibeDiscoveryQuery,
 } from "@/lib/recommendation-personalization"
+import { enforceRateLimit, rateLimitResponse, RATE_LIMIT_TIERS } from "@/lib/rate-limit"
 
 // Google returns a relevance-ranked, closed candidate set. Stream those
 // verified results directly so model latency never blocks discovery.
@@ -29,6 +30,49 @@ type Recommendation = {
     type: "age" | "sensory" | "pace" | "style" | "budget" | "dietary" | "general"
     label: string
   }>
+}
+
+type SearchFamilyVibe = Pick<
+  FamilyVibe,
+  "travel_style" | "sensory_needs" | "dietary"
+> & Partial<Pick<FamilyVibe, "pace" | "budget_preference">>
+
+const MAX_BODY_CHARACTERS = 32_000
+
+function cleanText(value: unknown, maximum: number) {
+  if (typeof value !== "string") return ""
+  return value
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maximum)
+}
+
+function cleanList(value: unknown, maximumItems = 10, maximumLength = 80) {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => cleanText(item, maximumLength))
+    .filter(Boolean)
+    .slice(0, maximumItems)
+}
+
+function cleanFamilyVibe(value: unknown): SearchFamilyVibe | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const vibe = value as Record<string, unknown>
+  const pace = ["slow", "moderate", "fast"].includes(String(vibe.pace))
+    ? String(vibe.pace) as FamilyVibe["pace"]
+    : undefined
+  const budget = ["free", "$", "$$", "$$$", "any"].includes(String(vibe.budget_preference))
+    ? String(vibe.budget_preference) as FamilyVibe["budget_preference"]
+    : undefined
+
+  return {
+    travel_style: cleanList(vibe.travel_style, 10, 60),
+    sensory_needs: cleanList(vibe.sensory_needs, 10, 80),
+    dietary: cleanList(vibe.dietary, 10, 60),
+    ...(pace ? { pace } : {}),
+    ...(budget ? { budget_preference: budget } : {}),
+  }
 }
 
 function categoryForPlace(place: PlaceResult): string {
@@ -60,7 +104,7 @@ function categoryForPlace(place: PlaceResult): string {
 
 function fallbackRecommendation(
   place: PlaceResult,
-  familyVibe: Record<string, unknown> | null | undefined,
+  familyVibe: SearchFamilyVibe | null | undefined,
   _effectiveQuery: string
 ): Recommendation {
   const styles = Array.isArray(familyVibe?.travel_style)
@@ -144,13 +188,47 @@ function toAttraction(
 }
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}))
+  const rateLimit = await enforceRateLimit(req, RATE_LIMIT_TIERS.PROVIDER_SEARCH)
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit)
+
+  const declaredLength = Number.parseInt(req.headers.get("content-length") ?? "0", 10)
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_CHARACTERS) {
+    return Response.json({ error: "Search request is too large." }, { status: 413 })
+  }
+
+  const rawBody = await req.text().catch(() => "")
+  if (!rawBody || rawBody.length > MAX_BODY_CHARACTERS) {
+    return Response.json(
+      { error: rawBody ? "Search request is too large." : "Enter a valid search." },
+      { status: rawBody ? 413 : 400 }
+    )
+  }
+
+  let body: Record<string, unknown>
+  try {
+    const parsed = JSON.parse(rawBody)
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("bad body")
+    body = parsed as Record<string, unknown>
+  } catch {
+    return Response.json({ error: "Enter a valid search." }, { status: 400 })
+  }
+
   // Clamp user-controlled inputs on this public endpoint.
-  const query = String(body?.query ?? "").trim().slice(0, 300)
-  const destination = String(body?.destination ?? "").trim().slice(0, 200)
-  const destinationPlaceId = String(body?.destinationPlaceId ?? "").trim().slice(0, 300)
-  const filters = body?.filters
-  const familyVibe = body?.familyVibe
+  const query = cleanText(body.query, 180)
+  const destination = cleanText(body.destination, 160)
+  const rawDestinationPlaceId = cleanText(body.destinationPlaceId, 300)
+  const destinationPlaceId = /^[A-Za-z0-9_-]{1,300}$/.test(rawDestinationPlaceId)
+    ? rawDestinationPlaceId
+    : ""
+  const rawFilters = body.filters && typeof body.filters === "object" && !Array.isArray(body.filters)
+    ? body.filters as Record<string, unknown>
+    : {}
+  const filters = {
+    category: cleanText(rawFilters.category, 80),
+    budget: cleanText(rawFilters.budget, 20),
+    strollerFriendly: rawFilters.strollerFriendly === true,
+  }
+  const familyVibe = cleanFamilyVibe(body.familyVibe)
   const hasFamilyContext = Boolean(
     familyVibe &&
       ((Array.isArray(familyVibe.travel_style) && familyVibe.travel_style.length > 0) ||
@@ -327,6 +405,7 @@ export async function POST(req: Request) {
       "X-Accel-Buffering": "no",
       "X-VibeTravel-Result-Source": "google-places",
       "Server-Timing": "search;desc=verified-provider-results",
+      ...rateLimit.headers,
     },
   })
 }

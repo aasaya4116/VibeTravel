@@ -339,7 +339,12 @@ describe("itinerary editing helpers", () => {
       { date: "2026-10-03", items: [] },
     ]
     const saved = [
-      { name: "Museum", estimatedDuration: "1 hour" } as Attraction,
+      {
+        name: "Museum",
+        estimatedDuration: "1 hour",
+        latitude: 38.7223,
+        longitude: -9.1393,
+      } as Attraction,
       { name: "Market", estimatedDuration: "1 hour", plannedDate: "2026-10-03" } as Attraction,
       { name: "Coffee Ceremony", estimatedDuration: "1 hour" } as Attraction,
     ]
@@ -350,6 +355,10 @@ describe("itinerary editing helpers", () => {
     expect(names.filter((name) => name === "Museum")).toHaveLength(1)
     expect(names).toEqual(expect.arrayContaining(["Museum", "Market", "Coffee Ceremony"]))
     expect(next[1].items.some((item) => item.attraction_name === "Market")).toBe(true)
+    expect(
+      next.flatMap((day) => day.items).find((item) => item.attraction_name === "Museum")
+        ?.attraction_data
+    ).toMatchObject({ latitude: 38.7223, longitude: -9.1393 })
     expect(next.flatMap((day) => day.items).filter((item) => saved.some((place) => place.name === item.attraction_name)).every((item) => item.recommended === false)).toBe(true)
   })
 })

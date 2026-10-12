@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react"
 import dynamic from "next/dynamic"
-import { MapPin, ChevronDown, ChevronUp, Loader2 } from "lucide-react"
+import { AlertTriangle, MapPin, ChevronDown, ChevronUp, Loader2 } from "lucide-react"
 import type { ItineraryDay } from "@/lib/types"
 import type { Coordinates } from "@/lib/itinerary-logistics"
 import type { GeocodedPlace } from "./trip-map-leaflet"
@@ -27,6 +27,8 @@ interface TripMapProps {
   locations: Record<string, Coordinates | null>
   locationsLoading: boolean
   locationsReady: boolean
+  locationsError: boolean
+  onRetryLocations: () => void
 }
 
 export function TripMap({
@@ -34,6 +36,8 @@ export function TripMap({
   locations,
   locationsLoading,
   locationsReady,
+  locationsError,
+  onRetryLocations,
 }: TripMapProps) {
   const [selectedDay, setSelectedDay] = useState<"all" | number>("all")
   const [collapsed, setCollapsed] = useState(false)
@@ -72,7 +76,8 @@ export function TripMap({
         <div className="flex items-center gap-2 shrink-0">
           <MapPin className="h-4 w-4 text-primary" />
           <h3 className="text-sm font-medium text-foreground">Trip Map</h3>
-          {(locationsLoading || !locationsReady) && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+          {locationsLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+          {locationsError && <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />}
         </div>
         <div className="flex items-center gap-2 min-w-0">
           {!collapsed && (
@@ -114,17 +119,35 @@ export function TripMap({
 
       {!collapsed && (
         <>
-          {locationsLoading || !locationsReady ? (
+          {visiblePlaces.length > 0 ? (
+            <LeafletMap places={visiblePlaces} />
+          ) : locationsLoading || !locationsReady ? (
             <div className="flex h-[400px] flex-col items-center justify-center gap-2 bg-muted/10">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               <p className="text-xs text-muted-foreground">Locating attractions…</p>
             </div>
-          ) : locationsReady && visiblePlaces.length === 0 ? (
-            <div className="flex h-40 items-center justify-center text-xs text-muted-foreground">
-              Could not locate attractions on map
-            </div>
           ) : (
-            <LeafletMap places={visiblePlaces} />
+            <div className="flex h-40 flex-col items-center justify-center gap-3 px-5 text-center text-xs text-muted-foreground">
+              <span>Could not locate attractions on the map.</span>
+              {locationsError && (
+                <button
+                  type="button"
+                  onClick={onRetryLocations}
+                  className="rounded-lg border border-border bg-background px-3 py-2 font-medium text-foreground transition-colors hover:border-primary/30 hover:text-primary"
+                >
+                  Try map again
+                </button>
+              )}
+            </div>
+          )}
+
+          {locationsError && visiblePlaces.length > 0 && (
+            <div className="flex items-center justify-between gap-3 border-t border-amber-200 bg-amber-50 px-5 py-2 text-xs text-amber-900">
+              <span>Some stops could not be located.</span>
+              <button type="button" onClick={onRetryLocations} className="font-semibold underline">
+                Try again
+              </button>
+            </div>
           )}
 
           {/* Day legend — only in all-days view */}

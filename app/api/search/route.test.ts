@@ -6,6 +6,16 @@ const { resolveDestination, resolveDestinationPlaceId, searchVerifiedPlaces } = 
   resolveDestinationPlaceId: vi.fn(),
   searchVerifiedPlaces: vi.fn(),
 }))
+const { enforceRateLimit } = vi.hoisted(() => ({ enforceRateLimit: vi.fn() }))
+
+vi.mock("@/lib/rate-limit", () => ({
+  RATE_LIMIT_TIERS: { PROVIDER_SEARCH: "provider-search" },
+  enforceRateLimit,
+  rateLimitResponse: () => Response.json(
+    { error: "Too many requests.", code: "RATE_LIMITED", retryAfter: 60 },
+    { status: 429, headers: { "Retry-After": "60" } }
+  ),
+}))
 
 vi.mock("@/lib/travel-apis/google-places", () => ({
   isConfigured: () => true,
@@ -71,6 +81,7 @@ function place(id: string, name: string, latitude: number, longitude: number): P
 describe("POST /api/search", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    enforceRateLimit.mockResolvedValue({ allowed: true })
     resolveDestination.mockResolvedValue(anchor)
     resolveDestinationPlaceId.mockResolvedValue(anchor)
     searchVerifiedPlaces.mockResolvedValue([
@@ -138,5 +149,63 @@ describe("POST /api/search", () => {
       .map((line) => JSON.parse(line))
     expect(records).toHaveLength(1)
     expect(records[0].summary).toMatch(/^0 Google-verified places in Nairobi, Kenya/)
+  })
+
+  it("rejects malformed and oversized bodies before calling Google", async () => {
+    const { POST } = await import("./route")
+    const malformed = await POST(new Request("http://localhost/api/search", {
+      method: "POST",
+      body: "[]",
+    }))
+    const oversized = await POST(new Request("http://localhost/api/search", {
+      method: "POST",
+      body: JSON.stringify({ destination: "x".repeat(33_000) }),
+    }))
+
+    expect(malformed.status).toBe(400)
+    expect(oversized.status).toBe(413)
+    expect(resolveDestination).not.toHaveBeenCalled()
+    expect(searchVerifiedPlaces).not.toHaveBeenCalled()
+  })
+
+  it("returns 429 before paid provider work when the search limit is exhausted", async () => {
+    enforceRateLimit.mockResolvedValueOnce({ allowed: false })
+    const { POST } = await import("./route")
+
+    const response = await POST(new Request("http://localhost/api/search", {
+      method: "POST",
+      body: JSON.stringify({ destination: "Nairobi, Kenya", query: "museums" }),
+    }))
+
+    expect(response.status).toBe(429)
+    expect(response.headers.get("retry-after")).toBe("60")
+    expect(resolveDestination).not.toHaveBeenCalled()
+    expect(searchVerifiedPlaces).not.toHaveBeenCalled()
+  })
+
+  it("ignores a malformed provider place ID and sanitizes user search text", async () => {
+    const { POST } = await import("./route")
+    const response = await POST(new Request("http://localhost/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        destination: "Nairobi,\nKenya",
+        destinationPlaceId: "not/a/place/id",
+        query: "  family\u0000 museums  ",
+      }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(resolveDestinationPlaceId).not.toHaveBeenCalled()
+    expect(resolveDestination).toHaveBeenCalledWith(
+      "Nairobi, Kenya",
+      expect.objectContaining({ timeoutMs: 6_000 })
+    )
+    expect(searchVerifiedPlaces).toHaveBeenCalledWith(
+      "family museums",
+      "Nairobi, Kenya",
+      12,
+      expect.any(Object)
+    )
   })
 })

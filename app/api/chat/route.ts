@@ -1,4 +1,4 @@
-import { streamText, convertToModelMessages, stepCountIs } from "ai"
+import { streamText, convertToModelMessages, stepCountIs, type UIMessage } from "ai"
 import { anthropic } from "@ai-sdk/anthropic"
 import { z } from "zod"
 import { searchPlaces, searchPlacesBatch } from "@/lib/travel-apis/google-places"
@@ -6,19 +6,182 @@ import { getWeatherForecast } from "@/lib/travel-apis/openweather"
 import { searchTours } from "@/lib/travel-apis/viator"
 import { searchHotels } from "@/lib/travel-apis/expedia"
 import { createClient } from "@/lib/supabase/server"
+import { enforceRateLimit, rateLimitResponse, RATE_LIMIT_TIERS } from "@/lib/rate-limit"
+
+const MAX_BODY_BYTES = 96_000
+
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+
+const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string().max(20_000),
+    z.number().finite(),
+    z.boolean(),
+    z.null(),
+    z.array(jsonValueSchema).max(60),
+    z.record(jsonValueSchema).refine((value) => Object.keys(value).length <= 60, {
+      message: "Object has too many fields",
+    }),
+  ])
+)
+
+const messagePartSchema = z
+  .object({
+    type: z.string().trim().min(1).max(80),
+  })
+  .catchall(jsonValueSchema)
+
+const messageSchema = z
+  .object({
+    id: z.string().trim().min(1).max(160).optional(),
+    role: z.enum(["user", "assistant"]),
+    metadata: jsonValueSchema.optional(),
+    parts: z.array(messagePartSchema).min(1).max(30),
+  })
+  .strict()
+
+const familyVibeSchema = z
+  .object({
+    id: z.string().max(160),
+    user_id: z.string().max(160),
+    family_name: z.string().trim().max(120).nullable(),
+    kids: z.array(z.record(jsonValueSchema)).max(20),
+    travelers: z.array(z.record(jsonValueSchema)).max(20).optional(),
+    travel_style: z.array(z.string().trim().max(80)).max(20),
+    sensory_needs: z.array(z.string().trim().max(120)).max(20),
+    mobility_notes: z.string().trim().max(2_000).nullable(),
+    dietary: z.array(z.string().trim().max(120)).max(20),
+    pace: z.enum(["slow", "moderate", "fast"]),
+    budget_preference: z.enum(["free", "$", "$$", "$$$", "any"]),
+    created_at: z.string().max(80),
+    updated_at: z.string().max(80),
+  })
+  .strict()
+
+const currentTripSchema = z
+  .object({
+    id: z.string().max(160),
+    user_id: z.string().max(160),
+    title: z.string().trim().min(1).max(200),
+    destination: z.string().trim().min(1).max(200),
+    start_date: z.string().max(40).nullable(),
+    end_date: z.string().max(40).nullable(),
+    accommodation_area: z.string().max(300).nullable(),
+    status: z.enum(["planning", "active", "completed"]),
+    itinerary: z.array(jsonValueSchema).max(60),
+    created_at: z.string().max(80),
+    updated_at: z.string().max(80),
+  })
+  .strict()
+
+const chatRequestSchema = z
+  .object({
+    id: z.string().trim().min(1).max(160).optional(),
+    messages: z.array(messageSchema).min(1).max(60),
+    familyVibe: familyVibeSchema.nullable().optional(),
+    currentTrip: currentTripSchema.nullable().optional(),
+    tripId: z.string().uuid().nullable().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const lastMessage = value.messages.at(-1)
+    const hasUserText = lastMessage?.parts.some((part) => {
+      const text = (part as Record<string, unknown>).text
+      return part.type === "text" && typeof text === "string" && text.trim().length > 0
+    })
+    if (lastMessage?.role !== "user" || !hasUserText) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["messages", value.messages.length - 1],
+        message: "The final message must contain user text",
+      })
+    }
+  })
+
+function contentLengthExceedsLimit(req: Request) {
+  const value = req.headers.get("content-length")
+  if (!value) return false
+  const length = Number(value)
+  return Number.isFinite(length) && length > MAX_BODY_BYTES
+}
+
+function requestTooLargeResponse() {
+  return Response.json(
+    { error: "This conversation is too long. Start a new chat and try again." },
+    { status: 413 }
+  )
+}
 
 export async function POST(req: Request) {
-  const { messages, familyVibe, currentTrip, tripId } = await req.json()
-
-  // Guard this public, unauthenticated endpoint against runaway cost/abuse.
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return Response.json({ error: "No messages provided." }, { status: 400 })
-  }
-  if (messages.length > 60 || JSON.stringify(messages).length > 100_000) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
     return Response.json(
-      { error: "This conversation is too long — start a new chat." },
-      { status: 413 }
+      { error: "Sign in to use Scout." },
+      { status: 401 }
     )
+  }
+  const userId = user.id
+
+  const rateLimit = await enforceRateLimit(req, RATE_LIMIT_TIERS.AI_CHAT, {
+    userId,
+  })
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit)
+
+  if (contentLengthExceedsLimit(req)) return requestTooLargeResponse()
+
+  let rawBody: string
+  try {
+    rawBody = await req.text()
+  } catch {
+    return Response.json({ error: "We could not read this chat request." }, { status: 400 })
+  }
+  if (new TextEncoder().encode(rawBody).byteLength > MAX_BODY_BYTES) {
+    return requestTooLargeResponse()
+  }
+
+  let body: unknown
+  try {
+    body = JSON.parse(rawBody)
+  } catch {
+    return Response.json({ error: "This chat request is not valid JSON." }, { status: 400 })
+  }
+
+  const parsed = chatRequestSchema.safeParse(body)
+  if (!parsed.success) {
+    return Response.json(
+      { error: "Check your message and try again." },
+      { status: 400 }
+    )
+  }
+
+  const { familyVibe, currentTrip, tripId } = parsed.data
+  const messages = parsed.data.messages as UIMessage[]
+
+  async function reserveProviderQuota(units = 1) {
+    for (let unit = 0; unit < Math.max(1, units); unit += 1) {
+      const providerLimit = await enforceRateLimit(
+        req,
+        RATE_LIMIT_TIERS.PROVIDER_SEARCH,
+        { userId }
+      )
+      if (!providerLimit.allowed) {
+        return {
+          error:
+            providerLimit.reason === "unavailable"
+              ? "Live travel search is temporarily unavailable. Please try again shortly."
+              : "You have reached the live-search limit. Please wait a moment and try again.",
+          code:
+            providerLimit.reason === "unavailable"
+              ? "RATE_LIMIT_UNAVAILABLE"
+              : "RATE_LIMITED",
+          retryAfter: providerLimit.retryAfterSeconds,
+        }
+      }
+    }
+    return null
   }
 
   // Captured for use inside action tool closures
@@ -51,13 +214,10 @@ Current trip being planned:
     : "No active trip selected."
 
   // Save the incoming user message
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (user) {
-    const lastUserMsg = [...messages].reverse().find((m: { role: string }) => m.role === "user")
+  {
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user")
     const userText = lastUserMsg?.parts
-      ?.filter((p: { type: string }) => p.type === "text")
-      .map((p: { text: string }) => p.text)
+      ?.flatMap((part) => part.type === "text" ? [part.text] : [])
       .join("") ?? ""
     if (userText) {
       const { error: saveErr } = await supabase.from("chat_messages").insert({
@@ -117,6 +277,8 @@ Do all of this without asking for confirmation first — just do it, then report
           destination: z.string().describe("City or destination"),
         }),
         execute: async (input: { name: string; destination: string }) => {
+          const quotaError = await reserveProviderQuota()
+          if (quotaError) return quotaError
           const result = await searchPlaces(input.name, input.destination)
           return result ?? { error: "Place not found or Google Places API not configured." }
         },
@@ -137,6 +299,8 @@ Do all of this without asking for confirmation first — just do it, then report
             .describe("List of places to look up (max 5)"),
         }),
         execute: async (input: { attractions: { name: string; destination: string }[] }) => {
+          const quotaError = await reserveProviderQuota(input.attractions.length)
+          if (quotaError) return quotaError
           const map = await searchPlacesBatch(input.attractions)
           return input.attractions.map(({ name }) => map.get(name) ?? { name, error: "Not found" })
         },
@@ -150,6 +314,8 @@ Do all of this without asking for confirmation first — just do it, then report
           endDate: z.string().describe("YYYY-MM-DD"),
         }),
         execute: async (input: { destination: string; startDate: string; endDate: string }) => {
+          const quotaError = await reserveProviderQuota()
+          if (quotaError) return quotaError
           const forecast = await getWeatherForecast(input.destination, input.startDate, input.endDate)
           return forecast ?? { error: "Could not get forecast. OpenWeather API may not be configured." }
         },
@@ -165,6 +331,8 @@ Do all of this without asking for confirmation first — just do it, then report
             .describe("Type of food or restaurant name (e.g. 'ramen', 'pizza', 'breakfast spot')"),
         }),
         execute: async (input: { destination: string; query?: string }) => {
+          const quotaError = await reserveProviderQuota()
+          if (quotaError) return quotaError
           const searchQuery = input.query ? `${input.query} restaurant` : "restaurant"
           const result = await searchPlaces(searchQuery, input.destination)
           return result ?? { error: "No results found or Google Places API not configured." }
@@ -179,6 +347,8 @@ Do all of this without asking for confirmation first — just do it, then report
           minChildAge: z.number().optional(),
         }),
         execute: async (input: { destination: string; query?: string; minChildAge?: number }) => {
+          const quotaError = await reserveProviderQuota()
+          if (quotaError) return quotaError
           const results = await searchTours(input.destination, input.query, { minAge: input.minChildAge })
           return results.length > 0 ? results : { error: "No tours found or Viator API not configured." }
         },
@@ -202,6 +372,8 @@ Do all of this without asking for confirmation first — just do it, then report
           adults?: number
           children?: number
         }) => {
+          const quotaError = await reserveProviderQuota()
+          if (quotaError) return quotaError
           const results = await searchHotels(
             input.destination,
             input.checkin,
@@ -356,5 +528,5 @@ Do all of this without asking for confirmation first — just do it, then report
     },
   })
 
-  return result.toUIMessageStreamResponse()
+  return result.toUIMessageStreamResponse({ headers: rateLimit.headers })
 }

@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { createRequestClient } from "@/lib/supabase/request"
 import { isConfigured, searchVerifiedPlaces } from "@/lib/travel-apis/google-places"
+import {
+  enforceRateLimit,
+  rateLimitResponse,
+  RATE_LIMIT_TIERS,
+} from "@/lib/rate-limit"
 
 export const maxDuration = 15
 
@@ -28,6 +33,11 @@ export async function GET(req: NextRequest) {
     return new Response("Unauthorized", { status: 401 })
   }
 
+  const rateLimit = await enforceRateLimit(req, RATE_LIMIT_TIERS.PROVIDER_SEARCH, {
+    userId: user.id,
+  })
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit)
+
   if (!isConfigured()) {
     return new Response("Photo service unavailable", { status: 503 })
   }
@@ -52,5 +62,8 @@ export async function GET(req: NextRequest) {
     "Cache-Control",
     "private, max-age=86400, stale-while-revalidate=604800"
   )
+  for (const [name, value] of Object.entries(rateLimit.headers)) {
+    response.headers.set(name, value)
+  }
   return response
 }
