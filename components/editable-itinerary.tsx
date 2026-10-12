@@ -94,8 +94,13 @@ export function EditableItinerary({
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null)
   const [travelMode, setTravelMode] = useState<TravelMode>("transit")
   const [tripModeOpen, setTripModeOpen] = useState(false)
-  const { locations, loading: locationsLoading, ready: locationsReady } =
-    useItineraryLocations(destination, itinerary)
+  const {
+    locations,
+    loading: locationsLoading,
+    ready: locationsReady,
+    error: locationsError,
+    retry: retryLocations,
+  } = useItineraryLocations(destination, itinerary)
 
   useEffect(() => {
     itineraryRef.current = initialItinerary
@@ -331,6 +336,8 @@ export function EditableItinerary({
         locations={locations}
         locationsLoading={locationsLoading}
         locationsReady={locationsReady}
+        locationsError={locationsError}
+        onRetryLocations={retryLocations}
       />
 
       <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground">

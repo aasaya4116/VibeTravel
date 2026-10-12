@@ -9,6 +9,7 @@ import {
   isConfigured as isGooglePlacesConfigured,
   type DestinationAnchor,
 } from "../../../lib/travel-apis/google-places"
+import { enforceRateLimit, rateLimitResponse, RATE_LIMIT_TIERS } from "@/lib/rate-limit"
 
 const CACHE_HEADERS = {
   "Cache-Control":
@@ -22,6 +23,14 @@ const FALLBACK_CACHE_HEADERS = {
 function stableFallbackId(label: string) {
   const slug = normalizeDestination(label).replace(/\s+/g, "-")
   return `curated:${slug}`
+}
+
+function cleanQuery(value: string) {
+  return value
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100)
 }
 
 function curatedOptions(query: string, limit: number) {
@@ -65,7 +74,7 @@ function resolvedOption(option: DestinationAnchor) {
 }
 
 export async function GET(req: NextRequest) {
-  const query = (req.nextUrl.searchParams.get("q") ?? "").trim().slice(0, 100)
+  const query = cleanQuery(req.nextUrl.searchParams.get("q") ?? "")
   const local = curatedOptions(query, query ? 8 : 12)
 
   // Preserve the curated browse list before the user has typed enough for a
@@ -83,6 +92,9 @@ export async function GET(req: NextRequest) {
       { status: 503, headers: FALLBACK_CACHE_HEADERS }
     )
   }
+
+  const rateLimit = await enforceRateLimit(req, RATE_LIMIT_TIERS.PROVIDER_AUTOCOMPLETE)
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit)
 
   try {
     const remote = await autocompleteDestinations(query, 6, {

@@ -1,18 +1,37 @@
 import { NextRequest } from "next/server"
+import { enforceRateLimit, rateLimitResponse, RATE_LIMIT_TIERS } from "@/lib/rate-limit"
 
 // Named colors for up to 6 days
 const DAY_COLORS = ["red", "blue", "green", "orange", "purple", "yellow"]
 
+function cleanText(value: string, maximum: number) {
+  return value
+    .replace(/[\u0000-\u001F\u007F]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maximum)
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
-  const places = searchParams.getAll("place")
+  const places = searchParams
+    .getAll("place")
+    .map((place) => cleanText(place, 140))
+    .filter(Boolean)
+    .slice(0, 20)
   const colors = searchParams.getAll("color") // day index strings
-  const dest = searchParams.get("dest") || ""
+  const dest = cleanText(searchParams.get("dest") || "", 160)
   const apiKey = process.env.GOOGLE_PLACES_API_KEY
 
-  if (!apiKey || places.length === 0) {
+  if (!apiKey) {
+    return new Response("Map service is not configured", { status: 503 })
+  }
+  if (places.length === 0) {
     return new Response("Missing params", { status: 400 })
   }
+
+  const rateLimit = await enforceRateLimit(req, RATE_LIMIT_TIERS.PROVIDER_MEDIA)
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit)
 
   // Cap at 20 markers to stay within URL limits
   const cappedPlaces = places.slice(0, 20)
@@ -23,7 +42,10 @@ export async function GET(req: NextRequest) {
   let urlStr = `https://maps.googleapis.com/maps/api/staticmap?size=800x420&scale=2&maptype=roadmap&key=${encodeURIComponent(apiKey)}`
 
   cappedPlaces.forEach((place, i) => {
-    const dayIndex = parseInt(cappedColors[i] ?? "0")
+    const parsedDayIndex = Number.parseInt(cappedColors[i] ?? "0", 10)
+    const dayIndex = Number.isFinite(parsedDayIndex) && parsedDayIndex >= 0
+      ? parsedDayIndex
+      : 0
     const color = DAY_COLORS[dayIndex % DAY_COLORS.length]
     const label = String.fromCharCode(65 + (i % 26)) // A, B, C...
     const address = encodeURIComponent(`${place}, ${dest}`)
@@ -31,12 +53,10 @@ export async function GET(req: NextRequest) {
     urlStr += `&markers=color:${color}%7Clabel:${label}%7C${address}`
   })
 
-  // Log sanitized URL for debugging (key redacted)
-  console.log("[map-image] fetching:", urlStr.replace(encodeURIComponent(apiKey), "REDACTED"))
-
   try {
     const res = await fetch(urlStr, {
       next: { revalidate: 86400 },
+      signal: AbortSignal.any([req.signal, AbortSignal.timeout(5_000)]),
     })
     if (!res.ok) {
       const errText = await res.text().catch(() => "")

@@ -29,11 +29,28 @@ import {
   buildSavedPicksDraft,
   mergeSavedPicksIntoItinerary,
 } from "@/lib/itinerary-draft"
+import {
+  enforceRateLimit,
+  rateLimitResponse,
+  RATE_LIMIT_TIERS,
+} from "@/lib/rate-limit"
 
 export const maxDuration = 60
 
 const ITINERARY_MODEL = "claude-sonnet-4-5-20250929"
 const ITINERARY_DEADLINE_MS = 48_000
+const MAX_ITINERARY_BODY_BYTES = 32_000
+
+const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+const itineraryRequestSchema = z
+  .object({
+    instruction: z.string().trim().max(2_000).optional(),
+    dayDate: isoDateSchema.optional(),
+    dayInstruction: z.string().trim().max(2_000).optional(),
+    fastDraft: z.boolean().optional(),
+    dates: z.array(isoDateSchema).max(MAX_GENERATION_DAYS).optional(),
+  })
+  .strict()
 
 const itineraryItemSchema = z.object({
   attraction_name: z.string(),
@@ -63,23 +80,56 @@ export async function POST(
   const requestStartedAt = Date.now()
   const requestId = crypto.randomUUID()
   const { id: tripId } = await params
-  const body = await req.json().catch(() => ({}))
-  const deltaInstruction: string | undefined = body?.instruction
-  const targetDayDate: string | undefined = body?.dayDate
-  const targetDayInstruction: string | undefined = body?.dayInstruction
-  const fastDraft = body?.fastDraft === true
-  const requestedDates: string[] | null = Array.isArray(body?.dates)
-    ? Array.from(new Set<string>(
-        (body.dates as unknown[]).filter(
-          (date: unknown): date is string => typeof date === "string"
-        )
-      ))
-    : null
   const { supabase, user } = await createRequestClient(req)
 
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
+
+  const contentLength = Number(req.headers.get("content-length"))
+  if (Number.isFinite(contentLength) && contentLength > MAX_ITINERARY_BODY_BYTES) {
+    return NextResponse.json({ error: "Itinerary request is too large." }, { status: 413 })
+  }
+
+  let rawBody: string
+  try {
+    rawBody = await req.text()
+  } catch {
+    return NextResponse.json({ error: "Could not read itinerary request." }, { status: 400 })
+  }
+  if (new TextEncoder().encode(rawBody).byteLength > MAX_ITINERARY_BODY_BYTES) {
+    return NextResponse.json({ error: "Itinerary request is too large." }, { status: 413 })
+  }
+
+  let body: unknown = {}
+  if (rawBody.trim()) {
+    try {
+      body = JSON.parse(rawBody)
+    } catch {
+      return NextResponse.json({ error: "Itinerary request is not valid JSON." }, { status: 400 })
+    }
+  }
+  const parsedRequest = itineraryRequestSchema.safeParse(body)
+  if (!parsedRequest.success) {
+    return NextResponse.json({ error: "Check the itinerary request and try again." }, { status: 400 })
+  }
+
+  const deltaInstruction = parsedRequest.data.instruction
+  const targetDayDate = parsedRequest.data.dayDate
+  const targetDayInstruction = parsedRequest.data.dayInstruction
+  const fastDraft = parsedRequest.data.fastDraft === true
+  const requestedDates: string[] | null = parsedRequest.data.dates
+    ? Array.from(new Set(parsedRequest.data.dates))
+    : null
+
+  const rateLimit = await enforceRateLimit(
+    req,
+    fastDraft
+      ? RATE_LIMIT_TIERS.ITINERARY_DRAFT
+      : RATE_LIMIT_TIERS.ITINERARY_GENERATION,
+    { userId: user.id }
+  )
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit)
 
   // Fetch trip, saved attractions, family vibe, and the lead traveler in parallel.
   const [tripResult, savedResult, vibeResult, profileResult] = await Promise.all([
@@ -220,21 +270,6 @@ Family vibe profile:
     ? `Accommodation: The family is staying near "${trip.accommodation_area}". Use this as the geographic anchor — cluster each day's activities around this area or around each other to minimize travel time. Prefer activities nearest to the accommodation for the first and last days.`
     : `Accommodation: Not specified. Group activities so each day covers one distinct neighborhood or area to minimize cross-city travel.`
 
-  // Fetch weather forecast (best-effort — skipped if key missing)
-  const weatherForecast = !fastDraft && trip.start_date && trip.end_date
-    ? await getWeatherForecast(trip.destination, trip.start_date, trip.end_date, {
-        signal: req.signal,
-      })
-    : null
-
-  const weatherContext = weatherForecast
-    ? `
-Weather forecast for ${trip.destination}:
-${weatherForecast.days.map((d) => `- ${d.date}: ${d.icon} ${d.condition}, ${d.tempLow}–${d.tempHigh}°F, ${d.rainChance}% rain`).join("\n")}
-Note: ${weatherForecast.summary}
-When rain is likely (>50%), prioritize indoor activities for that day.`
-    : ""
-
   const isTargetDay = !!targetDayDate && !!targetDay
   const isDelta = !!deltaInstruction && trip.itinerary && trip.itinerary.length > 0
   const fullTripDateValues = trip.start_date && trip.end_date
@@ -272,6 +307,22 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
       { status: 400 }
     )
   }
+
+  // Fetch weather only after every trip/date constraint is valid, so rejected
+  // requests cannot consume a provider call.
+  const weatherForecast = !fastDraft && trip.start_date && trip.end_date
+    ? await getWeatherForecast(trip.destination, trip.start_date, trip.end_date, {
+        signal: req.signal,
+      })
+    : null
+
+  const weatherContext = weatherForecast
+    ? `
+Weather forecast for ${trip.destination}:
+${weatherForecast.days.map((d) => `- ${d.date}: ${d.icon} ${d.condition}, ${d.tempLow}–${d.tempHigh}°F, ${d.rainChance}% rain`).join("\n")}
+Note: ${weatherForecast.summary}
+When rain is likely (>50%), prioritize indoor activities for that day.`
+    : ""
 
   const generationDateValues = isTargetDay && targetDayDate
     ? [targetDayDate]
@@ -341,16 +392,19 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
       return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
 
-    return NextResponse.json({
-      itinerary,
-      inclusion: {
-        savedCount: attractions.length,
-        includedCount: attractions.length,
-        missingNames: [],
-        requestId,
-        generationMode: "saved-picks-only" as const,
+    return NextResponse.json(
+      {
+        itinerary,
+        inclusion: {
+          savedCount: attractions.length,
+          includedCount: attractions.length,
+          missingNames: [],
+          requestId,
+          generationMode: "saved-picks-only" as const,
+        },
       },
-    })
+      { headers: rateLimit.headers }
+    )
   }
 
   console.info(
@@ -585,6 +639,7 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
         end_time: item.end_time,
         notes: item.notes,
         item_type: savedAttraction ? "place" : item.item_type,
+        attraction_data: savedAttraction ?? existingItem?.attraction_data,
         fit_signals: cleanFitSignals(savedSignals?.length ? savedSignals : item.fit_signals),
         status: existingItem?.status,
         recommended: !(
@@ -731,14 +786,17 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
     )
   }
 
-  return NextResponse.json({
-    itinerary,
-    inclusion: {
-      savedCount: attractions.length,
-      includedCount: attractions.length - missingSavedNames.length,
-      missingNames: missingSavedNames,
-      requestId,
-      generationMode,
+  return NextResponse.json(
+    {
+      itinerary,
+      inclusion: {
+        savedCount: attractions.length,
+        includedCount: attractions.length - missingSavedNames.length,
+        missingNames: missingSavedNames,
+        requestId,
+        generationMode,
+      },
     },
-  })
+    { headers: rateLimit.headers }
+  )
 }

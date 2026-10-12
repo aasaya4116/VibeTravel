@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server"
+import { enforceRateLimit, rateLimitResponse, RATE_LIMIT_TIERS } from "@/lib/rate-limit"
 
 // Proxies Google Places photos so the API key never reaches the browser.
 // Photo resource names look like: places/<place_id>/photos/<token>
@@ -21,10 +22,16 @@ export async function GET(req: NextRequest) {
   // from being used as an open proxy for arbitrary Google API calls.
   if (!REF_PATTERN.test(ref)) return new Response("Bad ref", { status: 400 })
 
+  const rateLimit = await enforceRateLimit(req, RATE_LIMIT_TIERS.PROVIDER_MEDIA)
+  if (!rateLimit.allowed) return rateLimitResponse(rateLimit)
+
   const url = `https://places.googleapis.com/v1/${ref}/media?maxHeightPx=${height}&maxWidthPx=${width}&key=${apiKey}`
 
   try {
-    const res = await fetch(url, { next: { revalidate: 86400 } })
+    const res = await fetch(url, {
+      next: { revalidate: 86400 },
+      signal: AbortSignal.any([req.signal, AbortSignal.timeout(5_000)]),
+    })
     if (!res.ok) {
       const errText = await res.text().catch(() => "")
       console.error(`[place-photo] Google error ${res.status}:`, errText.slice(0, 300))
