@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Alert, Keyboard, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native"
+import { ActivityIndicator, Alert, Keyboard, Linking, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase"
 import { useAuth } from "@/providers/auth-provider"
 import { useDashboard } from "@/hooks/use-dashboard"
 import { updateFamilyVibe, updateProfileDisplayName } from "@/lib/data"
+import { clearCurrentUserDownloadedData } from "@/lib/local-data"
 import {
   budgetOptions,
   dietaryOptions,
@@ -22,12 +23,33 @@ import {
 const siteUrl = process.env.EXPO_PUBLIC_SITE_URL ?? "https://vibe-travel-six.vercel.app"
 const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? siteUrl
 
-function SettingRow({ icon, label, onPress, destructive = false }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; destructive?: boolean }) {
+function SettingRow({
+  icon,
+  label,
+  description,
+  onPress,
+  destructive = false,
+  disabled = false,
+  loading = false,
+}: {
+  icon: keyof typeof Ionicons.glyphMap
+  label: string
+  description?: string
+  onPress: () => void
+  destructive?: boolean
+  disabled?: boolean
+  loading?: boolean
+}) {
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.setting, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={({ pressed }) => [styles.setting, pressed && styles.pressed, disabled && styles.disabled]}>
       <Ionicons name={icon} size={20} color={destructive ? colors.danger : colors.primary} />
-      <Text style={[styles.settingText, destructive && styles.dangerText]}>{label}</Text>
-      <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />
+      <View style={styles.settingCopy}>
+        <Text style={[styles.settingText, destructive && styles.dangerText]}>{label}</Text>
+        {description ? <Text style={styles.settingDescription}>{description}</Text> : null}
+      </View>
+      {loading
+        ? <ActivityIndicator size="small" color={colors.primary} />
+        : <Ionicons name="chevron-forward" size={17} color={colors.textMuted} />}
     </Pressable>
   )
 }
@@ -36,6 +58,8 @@ export default function ProfileScreen() {
   const { session } = useAuth()
   const { data, loading, error: dashboardError, refresh } = useDashboard()
   const [deleting, setDeleting] = useState(false)
+  const [clearingData, setClearingData] = useState(false)
+  const [signingOut, setSigningOut] = useState(false)
   const [editingOwner, setEditingOwner] = useState(false)
   const [ownerName, setOwnerName] = useState("")
   const [savingOwner, setSavingOwner] = useState(false)
@@ -64,7 +88,49 @@ export default function ProfileScreen() {
   }
 
   async function signOut() {
-    await supabase.auth.signOut()
+    setSigningOut(true)
+    try {
+      if (session?.user) {
+        await clearCurrentUserDownloadedData(
+          session.user.id,
+          data?.trips.map((trip) => trip.id) ?? [],
+        ).catch(() => undefined)
+      }
+    } finally {
+      await supabase.auth.signOut()
+      setSigningOut(false)
+    }
+  }
+
+  async function clearDownloadedData() {
+    if (!session?.user || clearingData) return
+    setClearingData(true)
+    try {
+      const result = await clearCurrentUserDownloadedData(session.user.id, data?.trips.map((trip) => trip.id) ?? [])
+      if (!result.localDataCleared) {
+        Alert.alert("Couldn’t clear all downloaded data", "Please close VibeTravel, reopen it, and try again.")
+        return
+      }
+      Alert.alert(
+        "Downloaded data cleared",
+        result.imageCacheCleared
+          ? "Offline trip copies and cached images were removed from this device. Your sign-in and cloud trips were not changed."
+          : "Offline trip copies were removed. Some temporary images may remain until your device clears them. Your sign-in and cloud trips were not changed.",
+      )
+    } finally {
+      setClearingData(false)
+    }
+  }
+
+  function confirmClearDownloadedData() {
+    Alert.alert(
+      "Clear downloaded data?",
+      "This removes offline trip copies, recent prompts, and cached images from this device. Your account, sign-in, and cloud trips stay untouched.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Clear data", style: "destructive", onPress: () => void clearDownloadedData() },
+      ],
+    )
   }
 
   function openVibeEditor() {
@@ -139,6 +205,10 @@ export default function ProfileScreen() {
       })
       const body = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(body.error || "Could not delete your account")
+      await clearCurrentUserDownloadedData(
+        session.user.id,
+        data?.trips.map((trip) => trip.id) ?? [],
+      ).catch(() => undefined)
       await supabase.auth.signOut()
     } catch (error) {
       Alert.alert("Account not deleted", error instanceof Error ? error.message : "Please try again.")
@@ -246,10 +316,18 @@ export default function ProfileScreen() {
         <SettingRow icon="shield-checkmark-outline" label="Privacy Policy" onPress={() => router.push("/privacy")} />
         <SettingRow icon="document-text-outline" label="Terms of Use" onPress={() => router.push("/terms")} />
         <SettingRow icon="help-circle-outline" label="Support" onPress={() => router.push("/support")} />
+        <SettingRow
+          icon="cloud-offline-outline"
+          label="Clear downloaded data"
+          description="Removes offline copies from this device only"
+          disabled={clearingData}
+          loading={clearingData}
+          onPress={confirmClearDownloadedData}
+        />
         <SettingRow icon="globe-outline" label="Open VibeTravel on the web" onPress={() => Linking.openURL(siteUrl)} />
       </Card>
 
-      <Button variant="secondary" onPress={signOut}>Sign out</Button>
+      <Button variant="secondary" loading={signingOut} disabled={signingOut || deleting} onPress={signOut}>Sign out</Button>
       <Button variant="ghost" onPress={confirmDelete} loading={deleting} style={styles.deleteButton}>Delete account</Button>
       <Text style={styles.version}>VibeTravel for iOS · Version 1.1</Text>
     </Screen>
@@ -383,8 +461,11 @@ const styles = StyleSheet.create({
   emptyVibeText: { color: colors.textMuted, fontSize: 13, lineHeight: 20, marginTop: 9 },
   settingsCard: { paddingVertical: 4 },
   setting: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 54, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
-  settingText: { flex: 1, color: colors.text, fontSize: 15, fontWeight: "600" },
+  settingCopy: { flex: 1, paddingVertical: 10 },
+  settingText: { color: colors.text, fontSize: 15, fontWeight: "600" },
+  settingDescription: { color: colors.textMuted, fontSize: 11, lineHeight: 16, marginTop: 2 },
   pressed: { opacity: 0.6 },
+  disabled: { opacity: 0.55 },
   dangerText: { color: colors.danger },
   deleteButton: { marginTop: -5 },
   version: { color: colors.textMuted, fontSize: 11, textAlign: "center", marginTop: 6 },

@@ -10,8 +10,10 @@ import {
   User,
   LogOut,
   Menu,
+  MessageSquareText,
   X,
   LayoutDashboard,
+  LifeBuoy,
 } from "lucide-react"
 import { BrandMark } from "@/components/brand-mark"
 
@@ -65,28 +67,35 @@ export function AppHeader() {
 
           <div className="flex items-center gap-1">
             <Link
+              href="/support"
+              className="hidden h-11 w-11 items-center justify-center rounded-full text-white/40 transition-colors hover:bg-white/8 hover:text-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:flex"
+              aria-label="Support"
+            >
+              <LifeBuoy className="h-5 w-5" />
+            </Link>
+            <Link
               href="/profile"
-              className="hidden rounded-lg p-2 text-white/40 transition-colors hover:bg-white/8 hover:text-white/80 md:flex"
+              className="hidden h-11 w-11 items-center justify-center rounded-full text-white/40 transition-colors hover:bg-white/8 hover:text-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:flex"
               aria-label="Profile"
             >
               <User className="h-5 w-5" />
             </Link>
             <button
               onClick={handleSignOut}
-              className="hidden rounded-lg p-2 text-white/40 transition-colors hover:bg-white/8 hover:text-white/80 md:flex"
+              className="hidden h-11 w-11 items-center justify-center rounded-full text-white/40 transition-colors hover:bg-white/8 hover:text-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:flex"
               aria-label="Sign out"
             >
               <LogOut className="h-5 w-5" />
             </button>
             <button
               onClick={() => window.dispatchEvent(new CustomEvent("open-scout-feedback"))}
-              className="hidden rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/40 transition-colors hover:bg-white/10 hover:text-white/70 md:block"
+              className="hidden min-h-11 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs text-white/50 transition-colors hover:border-primary/60 hover:bg-white/10 hover:text-white/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:block"
             >
               Give feedback
             </button>
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="rounded-lg p-2 text-white/50 transition-colors hover:bg-white/8 md:hidden"
+              className="flex h-11 w-11 items-center justify-center rounded-full text-white/50 transition-colors hover:bg-white/8 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary md:hidden"
               aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
             >
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -126,6 +135,24 @@ export function AppHeader() {
               <User className="h-5 w-5" />
               Profile
             </Link>
+            <Link
+              href="/support"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center gap-3 rounded-xl px-4 py-3 text-base font-medium text-white/50 transition-colors hover:bg-white/8 hover:text-white/80"
+            >
+              <LifeBuoy className="h-5 w-5" />
+              Support
+            </Link>
+            <button
+              onClick={() => {
+                setMobileMenuOpen(false)
+                window.dispatchEvent(new CustomEvent("open-scout-feedback"))
+              }}
+              className="flex items-center gap-3 rounded-xl px-4 py-3 text-base font-medium text-white/50 transition-colors hover:bg-white/8 hover:text-white/80"
+            >
+              <MessageSquareText className="h-5 w-5" />
+              Give feedback
+            </button>
             <button
               onClick={() => { setMobileMenuOpen(false); handleSignOut() }}
               className="flex items-center gap-3 rounded-xl px-4 py-3 text-base font-medium text-white/50 transition-colors hover:bg-white/8 hover:text-white/80"

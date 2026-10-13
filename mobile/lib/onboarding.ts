@@ -17,6 +17,7 @@ export interface MobileRootNavigationInput {
   hasSession: boolean
   rootSegment?: string
   userMetadata?: UserMetadata
+  allowAuthenticatedAuthRoute?: boolean
 }
 
 export type MobileRootNavigationTarget = "/(auth)/sign-in" | "/onboarding" | "/(tabs)" | null
@@ -124,6 +125,7 @@ export function getMobileRootNavigationTarget({
   hasSession,
   rootSegment,
   userMetadata,
+  allowAuthenticatedAuthRoute = false,
 }: MobileRootNavigationInput): MobileRootNavigationTarget {
   if (loading) return null
 
@@ -136,6 +138,10 @@ export function getMobileRootNavigationTarget({
   }
 
   if (isPublic) return null
+
+  // Password recovery establishes a temporary authenticated session before
+  // the traveler chooses their new password. Keep that auth screen mounted.
+  if (inAuth && allowAuthenticatedAuthRoute) return null
 
   if (isOnboardingPending(userMetadata)) {
     return inOnboarding ? null : "/onboarding"

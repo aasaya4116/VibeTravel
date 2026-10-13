@@ -15,6 +15,7 @@ import {
   Edit,
   Accessibility,
   LogOut,
+  LifeBuoy,
 } from "lucide-react"
 import type { Profile, FamilyVibe, TravelerRole } from "@/lib/types"
 
@@ -216,6 +217,25 @@ export function ProfileView({
             </Link>
           </div>
         )}
+      </div>
+
+      <div className="mt-6 flex flex-col gap-4 rounded-2xl border border-border bg-card p-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-primary/20 bg-primary/5 text-primary">
+            <LifeBuoy className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-primary">Help when you need it</p>
+            <h2 className="mt-1 font-semibold text-foreground">VibeTravel Support</h2>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">Get help with your account, trips, privacy requests, or app feedback.</p>
+          </div>
+        </div>
+        <Link
+          href="/support"
+          className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full border border-border px-5 text-sm font-semibold text-foreground transition hover:-translate-y-px hover:border-primary hover:text-primary"
+        >
+          Open support
+        </Link>
       </div>
     </div>
   )

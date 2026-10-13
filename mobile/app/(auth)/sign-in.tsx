@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Link } from "expo-router"
+import { Link, type Href } from "expo-router"
 import {
   KeyboardAvoidingView,
   Platform,
@@ -63,7 +63,14 @@ export default function SignInScreen() {
             placeholderTextColor={colors.textMuted}
             style={styles.input}
           />
-          <Text style={styles.label}>Password</Text>
+          <View style={styles.passwordLabelRow}>
+            <Text style={styles.label}>Password</Text>
+            <Link href={"/forgot-password" as Href} asChild>
+              <Pressable accessibilityRole="link" hitSlop={8} style={styles.forgotTarget}>
+                <Text style={styles.forgotLink}>Forgot password?</Text>
+              </Pressable>
+            </Link>
+          </View>
           <TextInput
             accessibilityLabel="Password"
             autoCapitalize="none"
@@ -100,20 +107,23 @@ export default function SignInScreen() {
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: colors.dark },
+  backdrop: { flex: 1, width: "100%", maxWidth: "100%", backgroundColor: colors.dark },
   backdropShade: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(14,11,9,0.46)" },
-  safe: { flex: 1 },
-  page: { flex: 1, justifyContent: "flex-end", paddingTop: 20 },
-  heroCopy: { paddingHorizontal: 24, paddingBottom: 26 },
+  safe: { flex: 1, width: "100%", maxWidth: "100%" },
+  page: { flex: 1, width: "100%", maxWidth: "100%", minWidth: 0, justifyContent: "flex-end", paddingTop: 20 },
+  heroCopy: { width: "100%", maxWidth: "100%", minWidth: 0, paddingHorizontal: 24, paddingBottom: 26 },
   brandRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 34 },
   brand: { color: "#FFFFFF", fontSize: 18, fontFamily: typography.serif, fontWeight: "700" },
   eyebrow: { color: "#FF9B73", fontSize: 9, fontWeight: "800", letterSpacing: 1.6 },
-  title: { color: "#FFFFFF", fontSize: 38, lineHeight: 43, fontFamily: typography.serif, fontWeight: "700", maxWidth: 350, marginTop: 6 },
-  subtitle: { color: "rgba(255,255,255,0.72)", fontSize: 14, lineHeight: 21, marginTop: 10, maxWidth: 340 },
-  formCard: { backgroundColor: colors.background, borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingHorizontal: 24, paddingTop: 22, paddingBottom: 18, ...shadows.floating },
+  title: { width: "100%", flexShrink: 1, color: "#FFFFFF", fontSize: 38, lineHeight: 43, fontFamily: typography.serif, fontWeight: "700", maxWidth: 350, marginTop: 6 },
+  subtitle: { width: "100%", flexShrink: 1, color: "rgba(255,255,255,0.72)", fontSize: 14, lineHeight: 21, marginTop: 10, maxWidth: 340 },
+  formCard: { width: "100%", maxWidth: "100%", minWidth: 0, backgroundColor: colors.background, borderTopLeftRadius: 30, borderTopRightRadius: 30, paddingHorizontal: 24, paddingTop: 22, paddingBottom: 18, ...shadows.floating },
   welcome: { color: colors.text, fontSize: 24, fontFamily: typography.serif, fontWeight: "700", marginBottom: 12 },
-  form: { gap: 10 },
+  form: { width: "100%", maxWidth: "100%", minWidth: 0, gap: 10 },
   label: { color: colors.text, fontSize: 13, fontWeight: "700", marginTop: 4 },
+  passwordLabelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 },
+  forgotLink: { color: colors.primary, fontSize: 13, fontWeight: "700" },
+  forgotTarget: { minHeight: 44, justifyContent: "center" },
   input: { minHeight: 50, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radii.medium, paddingHorizontal: 16, color: colors.text, fontSize: 16 },
   error: { color: colors.danger, backgroundColor: colors.dangerSoft, padding: 12, borderRadius: 10, fontSize: 13 },
   switchText: { color: colors.textMuted, textAlign: "center", marginTop: 24, fontSize: 14 },

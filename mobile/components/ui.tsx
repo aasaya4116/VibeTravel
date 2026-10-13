@@ -124,8 +124,8 @@ export function LoadingScreen({ label = "Loading your travel world…" }: { labe
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.background },
-  screen: { paddingHorizontal: 18, paddingBottom: 40, gap: 16 },
+  safe: { flex: 1, width: "100%", maxWidth: "100%", backgroundColor: colors.background },
+  screen: { width: "100%", maxWidth: "100%", minWidth: 0, paddingHorizontal: 18, paddingBottom: 40, gap: 16 },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radii.large,

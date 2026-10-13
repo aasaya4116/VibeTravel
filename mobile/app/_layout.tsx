@@ -32,6 +32,7 @@ function AppNavigator() {
       hasSession: Boolean(session),
       rootSegment: segments[0],
       userMetadata: session?.user.user_metadata,
+      allowAuthenticatedAuthRoute: segments.join("/") === "(auth)/reset-password",
     })
     if (target) router.replace(target)
   }, [loading, router, segments, session])

@@ -1,6 +1,6 @@
 # VibeTravel UAT Feedback Tracker
 
-Last updated: 2026-10-08
+Last updated: 2026-10-12
 
 ## Test execution
 
@@ -62,6 +62,7 @@ Last updated: 2026-10-08
 | UAT-024 | P1 | New trip | Implemented — retest | **Date-range calendar.** Manual date entry is replaced with one accessible calendar range picker that shows the selected range and inclusive trip length, prevents past or reversed ranges, preserves edits until Save, and never opens the keyboard for date selection. |
 | UAT-025 | P1 | Onboarding | Backlog — planned | **Modern personalized onboarding.** Add a short, skippable first-run flow that collects only useful inputs: preferred name, home city or airport, travel party, interests, pace, optional budget band, and optional dietary/accessibility needs. Save progress after each step and keep every answer editable in Profile/Family Vibe. |
 | UAT-026 | P0 | Mobile destination entry | Implemented — retest | **Verified worldwide destinations.** Worldwide city lookup now requires an explicitly selected Google-verified destination, persists its canonical name, keeps Explore lenses anchored to the exact selected place, fails closed during provider outages, and lets travelers repair malformed legacy destinations without recreating the trip. Editorial cards remain inspiration only. |
+| UAT-027 | P2 | Privacy and analytics | Backlog — trigger-based | **Consent-ready telemetry.** VibeTravel currently has no web analytics, advertising pixels, session replay, or other nonessential browser tracking, so do not add a launch-blocking cookie banner. Keep those tools disabled for launch, disclose operational providers and external map/image requests, and add a genuine Accept/Reject preference layer before introducing nonessential analytics, advertising, or replay. Preserve privacy-safe Sentry defaults whenever crash reporting is enabled. |
 
 ## Acceptance criteria for UAT-020 through UAT-026
 
@@ -119,6 +120,13 @@ Last updated: 2026-10-08
 - Explore changes only the interest lens while retaining the same canonical destination and geographic anchor; results outside the selected metro or country are rejected.
 - Existing malformed destinations such as `Nair` show a repair action before search rather than silently treating the partial as a valid city.
 - Curated destination cards remain editorial inspiration and are never the source of truth for worldwide destination recognition.
+
+### UAT-027 — Consent-ready telemetry
+
+- Web analytics, advertising pixels, session replay, and other nonessential tracking remain disabled for the initial launch.
+- The privacy notice accurately names operational providers and explains external map, image, authentication, hosting, and crash-reporting requests.
+- Before any nonessential telemetry is introduced, provide equally clear Accept and Reject choices, remember the choice, and let the traveler withdraw it later.
+- Do not request Apple's App Tracking Transparency permission unless a future release introduces cross-app or cross-company tracking as Apple defines it.
 
 ## VT-007 test directions
 

@@ -133,6 +133,16 @@ describe("mobile root navigation", () => {
     })).toBe("/(tabs)")
   })
 
+  it("keeps an authenticated password recovery screen mounted", () => {
+    expect(getMobileRootNavigationTarget({
+      loading: false,
+      hasSession: true,
+      rootSegment: "(auth)",
+      allowAuthenticatedAuthRoute: true,
+      userMetadata: { display_name: "Existing traveler" },
+    })).toBeNull()
+  })
+
   it("lets the onboarding UI own its post-completion and post-skip exit", () => {
     for (const outcome of ["completed", "skipped"] as const) {
       expect(getMobileRootNavigationTarget({

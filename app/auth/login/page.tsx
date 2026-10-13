@@ -4,6 +4,7 @@ import { Suspense, useState } from "react"
 import { createClient } from "@/lib/supabase/client"
 import Link from "next/link"
 import { BrandMark } from "@/components/brand-mark"
+import { sanitizeAuthRedirect } from "@/lib/auth-redirect"
 import { useRouter, useSearchParams } from "next/navigation"
 
 function LoginForm() {
@@ -13,7 +14,7 @@ function LoginForm() {
   const [loading, setLoading] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
-  const next = searchParams.get("next") ?? "/dashboard"
+  const next = sanitizeAuthRedirect(searchParams.get("next"))
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -49,7 +50,7 @@ function LoginForm() {
   return (
     <form
       onSubmit={handleLogin}
-      className="rounded-2xl border border-border bg-card p-8"
+      className="card-soft rounded-2xl border border-border bg-card p-6 sm:p-8"
     >
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-2">
@@ -71,12 +72,20 @@ function LoginForm() {
         </div>
 
         <div className="flex flex-col gap-2">
-          <label
-            htmlFor="password"
-            className="text-sm font-medium text-foreground"
-          >
-            Password
-          </label>
+          <div className="flex items-center justify-between gap-4">
+            <label
+              htmlFor="password"
+              className="text-sm font-medium text-foreground"
+            >
+              Password
+            </label>
+            <Link
+              href="/auth/forgot-password"
+              className="inline-flex min-h-11 items-center text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              Forgot password?
+            </Link>
+          </div>
           <input
             id="password"
             type="password"
@@ -97,7 +106,7 @@ function LoginForm() {
         <button
           type="submit"
           disabled={loading}
-          className="rounded-xl bg-primary px-4 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+          className="min-h-11 rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background transition hover:-translate-y-px hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:translate-y-0 disabled:opacity-50 motion-reduce:transform-none motion-reduce:transition-none"
         >
           {loading ? "Signing in..." : "Sign in"}
         </button>
@@ -121,7 +130,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
-          <Link href="/" className="inline-flex items-center gap-3" aria-label="VibeTravel home">
+          <Link href="/" className="inline-flex min-h-11 items-center gap-3 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="VibeTravel home">
             <BrandMark className="h-10 w-10 shrink-0" />
             <h1 className="font-serif text-3xl text-foreground">VibeTravel</h1>
           </Link>
