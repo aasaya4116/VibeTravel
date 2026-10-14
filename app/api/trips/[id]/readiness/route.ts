@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { createDefaultReadiness } from "@/lib/trip-readiness"
+import { captureUnexpectedApiError } from "@/lib/sentry-server"
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -47,13 +48,20 @@ async function getOwnedTrip(id: string) {
 
   if (!user) return { error: "Unauthorized" as const, supabase, user: null }
 
-  const { data: trip } = await supabase
+  const { data: trip, error } = await supabase
     .from("trips")
     .select("id")
     .eq("id", id)
     .eq("user_id", user.id)
     .maybeSingle()
 
+  if (error) {
+    captureUnexpectedApiError(error, {
+      route: "/api/trips/[id]/readiness",
+      operation: "verify_trip_owner",
+    })
+    return { error: "Readiness tracking is temporarily unavailable" as const, supabase, user }
+  }
   if (!trip) return { error: "Trip not found" as const, supabase, user }
   return { error: null, supabase, user }
 }
@@ -65,7 +73,13 @@ export async function GET(_request: Request, { params }: RouteContext) {
   if (owner.error) {
     return NextResponse.json(
       { error: owner.error },
-      { status: owner.error === "Unauthorized" ? 401 : 404 }
+      {
+        status: owner.error === "Unauthorized"
+          ? 401
+          : owner.error === "Trip not found"
+            ? 404
+            : 503,
+      }
     )
   }
 
@@ -76,6 +90,10 @@ export async function GET(_request: Request, { params }: RouteContext) {
     .maybeSingle()
 
   if (error) {
+    captureUnexpectedApiError(error, {
+      route: "/api/trips/[id]/readiness",
+      operation: "load_trip_readiness",
+    })
     return NextResponse.json({ error: "Readiness tracking is temporarily unavailable" }, { status: 503 })
   }
 
@@ -92,7 +110,13 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   if (owner.error || !owner.user) {
     return NextResponse.json(
       { error: owner.error },
-      { status: owner.error === "Unauthorized" ? 401 : 404 }
+      {
+        status: owner.error === "Unauthorized"
+          ? 401
+          : owner.error === "Trip not found"
+            ? 404
+            : 503,
+      }
     )
   }
 
@@ -120,6 +144,10 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     .single()
 
   if (error || !data) {
+    captureUnexpectedApiError(error ?? new Error("Readiness write returned no data"), {
+      route: "/api/trips/[id]/readiness",
+      operation: "save_trip_readiness",
+    })
     return NextResponse.json({ error: "Could not save trip readiness" }, { status: 400 })
   }
 

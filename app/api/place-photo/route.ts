@@ -1,5 +1,9 @@
 import { NextRequest } from "next/server"
 import { enforceRateLimit, rateLimitResponse, RATE_LIMIT_TIERS } from "@/lib/rate-limit"
+import {
+  captureUnexpectedApiError,
+  isExpectedRequestInterruption,
+} from "@/lib/sentry-server"
 
 // Proxies Google Places photos so the API key never reaches the browser.
 // Photo resource names look like: places/<place_id>/photos/<token>
@@ -33,8 +37,12 @@ export async function GET(req: NextRequest) {
       signal: AbortSignal.any([req.signal, AbortSignal.timeout(5_000)]),
     })
     if (!res.ok) {
-      const errText = await res.text().catch(() => "")
-      console.error(`[place-photo] Google error ${res.status}:`, errText.slice(0, 300))
+      if (res.status === 401 || res.status === 403 || res.status >= 500) {
+        captureUnexpectedApiError(new Error("Photo provider rejected request"), {
+          route: "/api/place-photo",
+          operation: "fetch_place_photo",
+        })
+      }
       return new Response("Photo unavailable", { status: 502 })
     }
 
@@ -50,7 +58,13 @@ export async function GET(req: NextRequest) {
     if (etag) headers.set("ETag", etag)
 
     return new Response(res.body, { headers })
-  } catch {
+  } catch (error) {
+    if (!req.signal.aborted && !isExpectedRequestInterruption(error)) {
+      captureUnexpectedApiError(error, {
+        route: "/api/place-photo",
+        operation: "fetch_place_photo",
+      })
+    }
     return new Response("Photo unavailable", { status: 502 })
   }
 }

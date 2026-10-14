@@ -2,6 +2,10 @@ import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { z } from "zod"
 import { MAX_ITINERARY_DAYS } from "@/lib/itinerary-batching"
+import {
+  captureUnexpectedApiError,
+  isExpectedDataRejection,
+} from "@/lib/sentry-server"
 
 const itineraryItemSchema = z.object({
   id: z.string().min(1).max(200),
@@ -66,6 +70,12 @@ export async function PATCH(
     .single()
 
   if (error) {
+    if (!isExpectedDataRejection(error)) {
+      captureUnexpectedApiError(error, {
+        route: "/api/trips/[id]",
+        operation: "update_trip",
+      })
+    }
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
 
@@ -93,6 +103,12 @@ export async function DELETE(
     .eq("user_id", user.id)
 
   if (error) {
+    if (!isExpectedDataRejection(error)) {
+      captureUnexpectedApiError(error, {
+        route: "/api/trips/[id]",
+        operation: "delete_trip",
+      })
+    }
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
 

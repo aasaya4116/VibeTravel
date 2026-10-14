@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import { captureUnexpectedApiError } from "@/lib/sentry-server"
 
 export async function GET(req: Request) {
   const supabase = await createClient()
@@ -28,7 +29,13 @@ export async function GET(req: Request) {
 
   const { data, error } = await query
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    captureUnexpectedApiError(error, {
+      route: "/api/chat/history",
+      operation: "load_chat_history",
+    })
+    return NextResponse.json({ error: "Chat history is temporarily unavailable." }, { status: 500 })
+  }
 
   return NextResponse.json({ messages: data ?? [] })
 }

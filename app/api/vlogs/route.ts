@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 import { enforceRateLimit, rateLimitResponse, RATE_LIMIT_TIERS } from "@/lib/rate-limit"
+import {
+  captureUnexpectedApiError,
+  isExpectedRequestInterruption,
+} from "@/lib/sentry-server"
 
 function cleanDestination(value: string | null) {
   return (value ?? "")
@@ -81,7 +85,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ videos }, {
       headers: { "Cache-Control": "public, max-age=300, s-maxage=3600" },
     })
-  } catch {
+  } catch (error) {
+    if (!req.signal.aborted && !isExpectedRequestInterruption(error)) {
+      captureUnexpectedApiError(error, {
+        route: "/api/vlogs",
+        operation: "load_travel_videos",
+      })
+    }
     return NextResponse.json({ error: "YouTube fetch failed" }, { status: 502 })
   }
 }

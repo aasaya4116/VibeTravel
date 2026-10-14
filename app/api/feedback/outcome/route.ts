@@ -6,6 +6,10 @@ import {
   RATE_LIMIT_TIERS,
 } from "@/lib/rate-limit"
 import { escapeSlackText, sendSlackWebhook } from "@/lib/slack"
+import {
+  captureUnexpectedApiError,
+  isExpectedDataRejection,
+} from "@/lib/sentry-server"
 
 const MAX_BODY_BYTES = 8_192
 
@@ -98,7 +102,13 @@ export async function POST(req: Request) {
       trip_id: trip_id ?? null,
     })
     if (error) throw error
-  } catch {
+  } catch (error) {
+    if (!isExpectedDataRejection(error)) {
+      captureUnexpectedApiError(error, {
+        route: "/api/feedback/outcome",
+        operation: "save_outcome_feedback",
+      })
+    }
     return json({ error: "We could not save your feedback. Please try again." }, 500)
   }
 

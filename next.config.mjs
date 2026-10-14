@@ -1,3 +1,5 @@
+import { withSentryConfig } from "@sentry/nextjs/config"
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // This workspace sits beneath another npm lockfile. Pin Next's roots to this
@@ -29,4 +31,15 @@ const nextConfig = {
   },
 }
 
-export default nextConfig
+export default withSentryConfig(nextConfig, {
+  // Project credentials are read from SENTRY_ORG, SENTRY_PROJECT, and
+  // SENTRY_AUTH_TOKEN at build time. Runtime delivery uses the DSN only.
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+  silent: !process.env.CI,
+  telemetry: false,
+  sourcemaps: {
+    deleteSourcemapsAfterUpload: true,
+  },
+})

@@ -10,6 +10,10 @@ import {
   type DestinationAnchor,
 } from "../../../lib/travel-apis/google-places"
 import { enforceRateLimit, rateLimitResponse, RATE_LIMIT_TIERS } from "@/lib/rate-limit"
+import {
+  captureUnexpectedApiError,
+  isExpectedRequestInterruption,
+} from "@/lib/sentry-server"
 
 const CACHE_HEADERS = {
   "Cache-Control":
@@ -116,8 +120,11 @@ export async function GET(req: NextRequest) {
       { headers: remote.length > 0 ? CACHE_HEADERS : FALLBACK_CACHE_HEADERS }
     )
   } catch (error) {
-    if (!req.signal.aborted) {
-      console.error("[destinations] Worldwide lookup failed; using curated fallback:", error)
+    if (!req.signal.aborted && !isExpectedRequestInterruption(error)) {
+      captureUnexpectedApiError(error, {
+        route: "/api/destinations",
+        operation: "autocomplete_destinations",
+      })
     }
     return NextResponse.json(
       { error: "Verified destination search is temporarily unavailable." },

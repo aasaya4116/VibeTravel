@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server"
 import { z } from "zod"
 import { enforceRateLimit, rateLimitResponse, RATE_LIMIT_TIERS } from "@/lib/rate-limit"
 import { escapeSlackText, sendSlackWebhook } from "@/lib/slack"
+import { captureUnexpectedApiError } from "@/lib/sentry-server"
 
 const MAX_BODY_BYTES = 48_000
 
@@ -124,11 +125,17 @@ export async function POST(req: Request) {
       ?.flatMap((part) => part.type === "text" ? [part.text] : [])
       .join("") ?? ""
     if (userText) {
-      await supabase.from("feedback_messages").insert({
+      const { error } = await supabase.from("feedback_messages").insert({
         user_id: user.id,
         role: "user",
         content: userText,
       })
+      if (error) {
+        captureUnexpectedApiError(error, {
+          route: "/api/feedback/chat",
+          operation: "save_user_feedback_message",
+        })
+      }
     }
   }
 
@@ -147,13 +154,25 @@ How to run the conversation:
 
 Keep responses short (2-3 sentences). One question at a time. Don't list multiple questions at once.`,
     messages: await convertToModelMessages(messages),
+    onError: ({ error }) => {
+      captureUnexpectedApiError(error, {
+        route: "/api/feedback/chat",
+        operation: "stream_feedback_chat",
+      })
+    },
     onFinish: async ({ text }: { text: string }) => {
       if (user && text) {
-        await supabase.from("feedback_messages").insert({
+        const { error } = await supabase.from("feedback_messages").insert({
           user_id: user.id,
           role: "assistant",
           content: text,
         })
+        if (error) {
+          captureUnexpectedApiError(error, {
+            route: "/api/feedback/chat",
+            operation: "save_assistant_feedback_message",
+          })
+        }
 
         // Slack notification after assistant responds (includes growing transcript)
         const webhook = process.env.SLACK_FEEDBACK_WEBHOOK_URL

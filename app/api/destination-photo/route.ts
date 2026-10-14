@@ -6,6 +6,10 @@ import {
   rateLimitResponse,
   RATE_LIMIT_TIERS,
 } from "@/lib/rate-limit"
+import {
+  captureUnexpectedApiError,
+  isExpectedRequestInterruption,
+} from "@/lib/sentry-server"
 
 export const maxDuration = 15
 
@@ -46,7 +50,15 @@ export async function GET(req: NextRequest) {
     "iconic skyline landmark scenic viewpoint",
     destination,
     6
-  ).catch(() => [])
+  ).catch((error) => {
+    if (!req.signal.aborted && !isExpectedRequestInterruption(error)) {
+      captureUnexpectedApiError(error, {
+        route: "/api/destination-photo",
+        operation: "find_destination_photo",
+      })
+    }
+    return []
+  })
   const place = candidates.find((candidate) => Boolean(candidate.photoUrl))
   if (!place?.photoUrl) {
     return new Response("Photo unavailable", { status: 404 })
