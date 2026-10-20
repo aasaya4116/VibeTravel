@@ -1,5 +1,9 @@
 import { NextRequest } from "next/server"
 import { enforceRateLimit, rateLimitResponse, RATE_LIMIT_TIERS } from "@/lib/rate-limit"
+import {
+  captureUnexpectedApiError,
+  isExpectedRequestInterruption,
+} from "@/lib/sentry-server"
 
 // Named colors for up to 6 days
 const DAY_COLORS = ["red", "blue", "green", "orange", "purple", "yellow"]
@@ -59,8 +63,12 @@ export async function GET(req: NextRequest) {
       signal: AbortSignal.any([req.signal, AbortSignal.timeout(5_000)]),
     })
     if (!res.ok) {
-      const errText = await res.text().catch(() => "")
-      console.error(`[map-image] Google Static Maps error ${res.status}:`, errText.slice(0, 500))
+      if (res.status === 401 || res.status === 403 || res.status >= 500) {
+        captureUnexpectedApiError(new Error("Map provider rejected request"), {
+          route: "/api/map-image",
+          operation: "fetch_static_map",
+        })
+      }
       return new Response("Map unavailable", { status: 502 })
     }
 
@@ -71,7 +79,13 @@ export async function GET(req: NextRequest) {
         "Cache-Control": "public, max-age=86400, s-maxage=86400",
       },
     })
-  } catch {
+  } catch (error) {
+    if (!req.signal.aborted && !isExpectedRequestInterruption(error)) {
+      captureUnexpectedApiError(error, {
+        route: "/api/map-image",
+        operation: "fetch_static_map",
+      })
+    }
     return new Response("Map unavailable", { status: 500 })
   }
 }

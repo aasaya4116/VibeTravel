@@ -7,6 +7,7 @@ import { searchTours } from "@/lib/travel-apis/viator"
 import { searchHotels } from "@/lib/travel-apis/expedia"
 import { createClient } from "@/lib/supabase/server"
 import { enforceRateLimit, rateLimitResponse, RATE_LIMIT_TIERS } from "@/lib/rate-limit"
+import { captureUnexpectedApiError } from "@/lib/sentry-server"
 
 const MAX_BODY_BYTES = 96_000
 
@@ -226,7 +227,12 @@ Current trip being planned:
         role: "user",
         content: userText,
       })
-      if (saveErr) console.error("[chat] Failed to save user message:", saveErr.message)
+      if (saveErr) {
+        captureUnexpectedApiError(saveErr, {
+          route: "/api/chat",
+          operation: "save_user_message",
+        })
+      }
     }
   }
 
@@ -413,12 +419,22 @@ Do all of this without asking for confirmation first — just do it, then report
               body: JSON.stringify(input),
             })
             if (!res.ok) {
+              if (res.status >= 500) {
+                captureUnexpectedApiError(new Error("Trip service returned an error"), {
+                  route: "/api/chat",
+                  operation: "create_trip_tool",
+                })
+              }
               const err = await res.json().catch(() => ({}))
               return { error: err.error ?? "Could not create trip." }
             }
             const { data } = await res.json()
             return { created: true, trip_id: data.id, title: data.title, destination: data.destination }
-          } catch {
+          } catch (error) {
+            captureUnexpectedApiError(error, {
+              route: "/api/chat",
+              operation: "create_trip_tool",
+            })
             return { error: "Could not create trip." }
           }
         },
@@ -475,9 +491,19 @@ Do all of this without asking for confirmation first — just do it, then report
                 { onConflict: "user_id,attraction_name,trip_id" }
               )
 
-            if (error) return { error: error.message }
+            if (error) {
+              captureUnexpectedApiError(error, {
+                route: "/api/chat",
+                operation: "save_attraction_tool",
+              })
+              return { error: "Failed to save attraction." }
+            }
             return { saved: true, name: input.attraction_name }
-          } catch {
+          } catch (error) {
+            captureUnexpectedApiError(error, {
+              route: "/api/chat",
+              operation: "save_attraction_tool",
+            })
             return { error: "Failed to save attraction." }
           }
         },
@@ -500,6 +526,12 @@ Do all of this without asking for confirmation first — just do it, then report
             })
 
             if (!res.ok) {
+              if (res.status >= 500) {
+                captureUnexpectedApiError(new Error("Itinerary service returned an error"), {
+                  route: "/api/chat",
+                  operation: "generate_itinerary_tool",
+                })
+              }
               const err = await res.json().catch(() => ({}))
               return {
                 error:
@@ -509,11 +541,21 @@ Do all of this without asking for confirmation first — just do it, then report
             }
 
             return { triggered: true, trip_id: input.trip_id }
-          } catch {
+          } catch (error) {
+            captureUnexpectedApiError(error, {
+              route: "/api/chat",
+              operation: "generate_itinerary_tool",
+            })
             return { error: "Could not reach the itinerary service. Please try from the trip page." }
           }
         },
       },
+    },
+    onError: ({ error }) => {
+      captureUnexpectedApiError(error, {
+        route: "/api/chat",
+        operation: "stream_scout_response",
+      })
     },
     onFinish: async ({ text }: { text: string }) => {
       if (user && text) {
@@ -523,7 +565,12 @@ Do all of this without asking for confirmation first — just do it, then report
           role: "assistant",
           content: text,
         })
-        if (saveErr) console.error("[chat] Failed to save assistant message:", saveErr.message)
+        if (saveErr) {
+          captureUnexpectedApiError(saveErr, {
+            route: "/api/chat",
+            operation: "save_assistant_message",
+          })
+        }
       }
     },
   })

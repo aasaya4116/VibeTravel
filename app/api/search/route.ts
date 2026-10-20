@@ -12,6 +12,10 @@ import {
   getVibeDiscoveryQuery,
 } from "@/lib/recommendation-personalization"
 import { enforceRateLimit, rateLimitResponse, RATE_LIMIT_TIERS } from "@/lib/rate-limit"
+import {
+  captureUnexpectedApiError,
+  isExpectedRequestInterruption,
+} from "@/lib/sentry-server"
 
 // Google returns a relevance-ranked, closed candidate set. Stream those
 // verified results directly so model latency never blocks discovery.
@@ -307,7 +311,13 @@ export async function POST(req: Request) {
       timeoutMs: 6_000,
       destinationAnchor,
     })
-  } catch {
+  } catch (error) {
+    if (!req.signal.aborted && !isExpectedRequestInterruption(error)) {
+      captureUnexpectedApiError(error, {
+        route: "/api/search",
+        operation: "search_verified_places",
+      })
+    }
     return Response.json(
       { error: "We couldn't verify places with Google right now. Please try again shortly." },
       { status: 502 }
@@ -382,7 +392,12 @@ export async function POST(req: Request) {
           }) + "\n"
         )
       } catch (error) {
-        if (!streamCancelled) console.error("[search] stream error:", error)
+        if (!streamCancelled) {
+          captureUnexpectedApiError(error, {
+            route: "/api/search",
+            operation: "stream_search_results",
+          })
+        }
       } finally {
         if (!streamCancelled && controller.desiredSize !== null) {
           try {

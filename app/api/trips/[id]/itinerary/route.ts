@@ -34,6 +34,7 @@ import {
   rateLimitResponse,
   RATE_LIMIT_TIERS,
 } from "@/lib/rate-limit"
+import { captureUnexpectedApiError } from "@/lib/sentry-server"
 
 export const maxDuration = 60
 
@@ -158,14 +159,41 @@ export async function POST(
   ])
 
   if (tripResult.error || !tripResult.data) {
+    if (tripResult.error && tripResult.error.code !== "PGRST116") {
+      captureUnexpectedApiError(tripResult.error, {
+        route: "/api/trips/[id]/itinerary",
+        operation: "load_trip",
+      })
+      return NextResponse.json(
+        { error: "Trip details are temporarily unavailable." },
+        { status: 503 }
+      )
+    }
     return NextResponse.json({ error: "Trip not found" }, { status: 404 })
   }
 
   if (savedResult.error) {
+    captureUnexpectedApiError(savedResult.error, {
+      route: "/api/trips/[id]/itinerary",
+      operation: "load_saved_places",
+    })
     return NextResponse.json(
       { error: "Failed to load saved attractions" },
       { status: 500 }
     )
+  }
+
+  if (vibeResult.error && vibeResult.error.code !== "PGRST116") {
+    captureUnexpectedApiError(vibeResult.error, {
+      route: "/api/trips/[id]/itinerary",
+      operation: "load_family_vibe",
+    })
+  }
+  if (profileResult.error) {
+    captureUnexpectedApiError(profileResult.error, {
+      route: "/api/trips/[id]/itinerary",
+      operation: "load_traveler_profile",
+    })
   }
 
   const trip = tripResult.data
@@ -370,6 +398,10 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
       .filter((name) => !includedSavedNames.has(name.toLowerCase()))
 
     if (missingSavedNames.length > 0) {
+      captureUnexpectedApiError(new Error("Saved-place reconciliation invariant failed"), {
+        route: "/api/trips/[id]/itinerary",
+        operation: "reconcile_fast_draft",
+      })
       return NextResponse.json(
         {
           error: "We kept your saved places safe, but could not place all of them in the itinerary. Please try again.",
@@ -389,7 +421,11 @@ When rain is likely (>50%), prioritize indoor activities for that day.`
       .eq("user_id", user.id)
 
     if (updateError) {
-      return NextResponse.json({ error: updateError.message }, { status: 500 })
+      captureUnexpectedApiError(updateError, {
+        route: "/api/trips/[id]/itinerary",
+        operation: "save_fast_draft",
+      })
+      return NextResponse.json({ error: "Could not save itinerary" }, { status: 500 })
     }
 
     return NextResponse.json(
@@ -571,6 +607,10 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
         { status: 499 }
       )
     }
+    captureUnexpectedApiError(err, {
+      route: "/api/trips/[id]/itinerary",
+      operation: "generate_itinerary",
+    })
     if (isTargetDay || isDelta || attractionsToAssign.length === 0) {
       return NextResponse.json(
         {
@@ -609,6 +649,10 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
   }
 
   if (!parsed?.days?.length) {
+    captureUnexpectedApiError(new Error("Itinerary generation returned no days"), {
+      route: "/api/trips/[id]/itinerary",
+      operation: "validate_generated_itinerary",
+    })
     return NextResponse.json(
       { error: "Could not generate itinerary" },
       { status: 500 }
@@ -715,6 +759,10 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
         )
       : null
     if (!rebuiltDay) {
+      captureUnexpectedApiError(new Error("Target-day generation returned no matching day"), {
+        route: "/api/trips/[id]/itinerary",
+        operation: "rebuild_itinerary_day",
+      })
       return NextResponse.json(
         { error: "Could not regenerate the selected day" },
         { status: 500 }
@@ -761,8 +809,9 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
     .filter((name) => !includedSavedNames.has(name.toLowerCase()))
 
   if (!isTargetDay && missingSavedNames.length > 0) {
-    console.error(`[itinerary:${requestId}] saved-place invariant failed`, {
-      missingSavedCount: missingSavedNames.length,
+    captureUnexpectedApiError(new Error("Saved-place inclusion invariant failed"), {
+      route: "/api/trips/[id]/itinerary",
+      operation: "validate_saved_place_inclusion",
     })
     return NextResponse.json(
       { error: "We kept your saved places safe, but could not place all of them in the itinerary. Please try again.", requestId },
@@ -780,8 +829,12 @@ Return a complete plan for every listed date. Mark saved places recommended: fal
     .eq("user_id", user.id)
 
   if (updateError) {
+    captureUnexpectedApiError(updateError, {
+      route: "/api/trips/[id]/itinerary",
+      operation: "save_itinerary",
+    })
     return NextResponse.json(
-      { error: updateError.message },
+      { error: "Could not save itinerary" },
       { status: 500 }
     )
   }

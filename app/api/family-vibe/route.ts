@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 import { z } from "zod"
+import { captureUnexpectedApiError } from "@/lib/sentry-server"
 
 const familyVibeSchema = z.object({
   family_name: z.string().trim().max(120).nullable().optional(),
@@ -64,7 +65,14 @@ export async function POST(req: Request) {
     .single()
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 })
+    captureUnexpectedApiError(error, {
+      route: "/api/family-vibe",
+      operation: "save_family_vibe",
+    })
+    return NextResponse.json(
+      { error: "We could not save your Family Vibe right now." },
+      { status: 500 }
+    )
   }
 
   return NextResponse.json({ data })

@@ -1,10 +1,15 @@
 import { updateSession } from '@/lib/supabase/proxy'
+import { captureUnexpectedApiError } from '@/lib/sentry-server'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function proxy(request: NextRequest) {
   try {
     return await updateSession(request)
-  } catch {
+  } catch (error) {
+    captureUnexpectedApiError(error, {
+      route: 'proxy',
+      operation: 'refresh_auth_session',
+    })
     // If Supabase auth fails, allow the request through rather than crashing
     return NextResponse.next({ request })
   }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { captureUnexpectedApiError } from "@/lib/sentry-server"
 
 function bearerToken(request: Request) {
   return request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1] ?? null
@@ -36,7 +37,10 @@ export async function DELETE(request: Request) {
   })
   const { error } = await admin.auth.admin.deleteUser(user.id)
   if (error) {
-    console.error("Account deletion failed", { userId: user.id, message: error.message })
+    captureUnexpectedApiError(error, {
+      route: "/api/account/delete",
+      operation: "delete_account",
+    })
     return NextResponse.json({ error: "We could not delete the account right now. Please contact support." }, { status: 500 })
   }
 

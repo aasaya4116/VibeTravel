@@ -1,5 +1,9 @@
 import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
+import {
+  captureUnexpectedApiError,
+  isExpectedDataRejection,
+} from "@/lib/sentry-server"
 
 export async function POST(req: Request) {
   const supabase = await createClient()
@@ -27,6 +31,12 @@ export async function POST(req: Request) {
     .single()
 
   if (error) {
+    if (!isExpectedDataRejection(error)) {
+      captureUnexpectedApiError(error, {
+        route: "/api/trips",
+        operation: "create_trip",
+      })
+    }
     return NextResponse.json({ error: error.message }, { status: 400 })
   }
 

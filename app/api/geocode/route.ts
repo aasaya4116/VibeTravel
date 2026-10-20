@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server"
 import { searchVerifiedPlaces } from "@/lib/travel-apis/google-places"
 import { enforceRateLimit, rateLimitResponse, RATE_LIMIT_TIERS } from "@/lib/rate-limit"
+import {
+  captureUnexpectedApiError,
+  isExpectedRequestInterruption,
+} from "@/lib/sentry-server"
 
 export const maxDuration = 15
 
@@ -88,7 +92,13 @@ export async function GET(req: NextRequest) {
         ),
       }))
     )
-  } catch {
+  } catch (error) {
+    if (!req.signal.aborted && !isExpectedRequestInterruption(error)) {
+      captureUnexpectedApiError(error, {
+        route: "/api/geocode",
+        operation: "resolve_map_locations",
+      })
+    }
     return Response.json(
       { error: "Map locations are temporarily unavailable." },
       {

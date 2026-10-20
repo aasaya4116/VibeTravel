@@ -2,6 +2,10 @@ import { NextResponse } from "next/server"
 import { createClient as createSupabaseClient } from "@supabase/supabase-js"
 import { createClient } from "@/lib/supabase/server"
 import { createShareToken } from "@/lib/trip-sharing-server"
+import {
+  captureUnexpectedApiError,
+  isExpectedDataRejection,
+} from "@/lib/sentry-server"
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -24,13 +28,20 @@ async function getOwner(request: Request, id: string) {
 
   if (!user) return { error: "Unauthorized" as const, supabase, user: null }
 
-  const { data: trip } = await supabase
+  const { data: trip, error } = await supabase
     .from("trips")
     .select("id")
     .eq("id", id)
     .eq("user_id", user.id)
     .maybeSingle()
 
+  if (error) {
+    captureUnexpectedApiError(error, {
+      route: "/api/trips/[id]/share",
+      operation: "verify_trip_owner",
+    })
+    return { error: "Sharing is temporarily unavailable" as const, supabase, user }
+  }
   if (!trip) return { error: "Trip not found" as const, supabase, user }
 
   return { error: null, supabase, user }
@@ -43,7 +54,13 @@ export async function GET(request: Request, { params }: RouteContext) {
   if (owner.error) {
     return NextResponse.json(
       { error: owner.error },
-      { status: owner.error === "Unauthorized" ? 401 : 404 }
+      {
+        status: owner.error === "Unauthorized"
+          ? 401
+          : owner.error === "Trip not found"
+            ? 404
+            : 503,
+      }
     )
   }
 
@@ -55,6 +72,10 @@ export async function GET(request: Request, { params }: RouteContext) {
     .maybeSingle()
 
   if (error) {
+    captureUnexpectedApiError(error, {
+      route: "/api/trips/[id]/share",
+      operation: "load_share_link",
+    })
     return NextResponse.json({ error: "Sharing is temporarily unavailable" }, { status: 503 })
   }
 
@@ -73,7 +94,13 @@ export async function POST(request: Request, { params }: RouteContext) {
   if (owner.error || !owner.user) {
     return NextResponse.json(
       { error: owner.error },
-      { status: owner.error === "Unauthorized" ? 401 : 404 }
+      {
+        status: owner.error === "Unauthorized"
+          ? 401
+          : owner.error === "Trip not found"
+            ? 404
+            : 503,
+      }
     )
   }
 
@@ -85,6 +112,10 @@ export async function POST(request: Request, { params }: RouteContext) {
     .maybeSingle()
 
   if (existingError) {
+    captureUnexpectedApiError(existingError, {
+      route: "/api/trips/[id]/share",
+      operation: "load_share_link",
+    })
     return NextResponse.json({ error: "Sharing is temporarily unavailable" }, { status: 503 })
   }
 
@@ -104,6 +135,12 @@ export async function POST(request: Request, { params }: RouteContext) {
     .single()
 
   if (error || !data) {
+    if (!isExpectedDataRejection(error)) {
+      captureUnexpectedApiError(error ?? new Error("Share link write returned no data"), {
+        route: "/api/trips/[id]/share",
+        operation: "create_share_link",
+      })
+    }
     return NextResponse.json({ error: "Could not create the share link" }, { status: 400 })
   }
 
@@ -120,7 +157,13 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   if (owner.error || !owner.user) {
     return NextResponse.json(
       { error: owner.error },
-      { status: owner.error === "Unauthorized" ? 401 : 404 }
+      {
+        status: owner.error === "Unauthorized"
+          ? 401
+          : owner.error === "Trip not found"
+            ? 404
+            : 503,
+      }
     )
   }
 
@@ -132,6 +175,12 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     .is("revoked_at", null)
 
   if (error) {
+    if (!isExpectedDataRejection(error)) {
+      captureUnexpectedApiError(error, {
+        route: "/api/trips/[id]/share",
+        operation: "revoke_share_link",
+      })
+    }
     return NextResponse.json({ error: "Could not stop sharing" }, { status: 400 })
   }
 
