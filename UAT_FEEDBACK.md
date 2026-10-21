@@ -1,6 +1,6 @@
 # VibeTravel UAT Feedback Tracker
 
-Last updated: 2026-10-12
+Last updated: 2026-10-21
 
 ## Test execution
 
@@ -63,8 +63,9 @@ Last updated: 2026-10-12
 | UAT-025 | P1 | Onboarding | Backlog — planned | **Modern personalized onboarding.** Add a short, skippable first-run flow that collects only useful inputs: preferred name, home city or airport, travel party, interests, pace, optional budget band, and optional dietary/accessibility needs. Save progress after each step and keep every answer editable in Profile/Family Vibe. |
 | UAT-026 | P0 | Mobile destination entry | Implemented — retest | **Verified worldwide destinations.** Worldwide city lookup now requires an explicitly selected Google-verified destination, persists its canonical name, keeps Explore lenses anchored to the exact selected place, fails closed during provider outages, and lets travelers repair malformed legacy destinations without recreating the trip. Editorial cards remain inspiration only. |
 | UAT-027 | P2 | Privacy and analytics | Backlog — trigger-based | **Consent-ready telemetry.** VibeTravel currently has no web analytics, advertising pixels, session replay, or other nonessential browser tracking, so do not add a launch-blocking cookie banner. Keep those tools disabled for launch, disclose operational providers and external map/image requests, and add a genuine Accept/Reject preference layer before introducing nonessential analytics, advertising, or replay. Preserve privacy-safe Sentry defaults whenever crash reporting is enabled. |
+| UAT-028 | P0 | Place discovery | Implemented — retest | **External place details.** Every live search result now has a visible Google Maps action separate from Add to trip. It opens the exact verified listing when Google supplies a Maps URI or place ID, falls back to an honest Maps search, and keeps the Added state visible when the traveler returns. |
 
-## Acceptance criteria for UAT-020 through UAT-026
+## Acceptance criteria for UAT-020 through UAT-028
 
 ### UAT-020 — Mobile latency fast path
 
@@ -127,6 +128,14 @@ Last updated: 2026-10-12
 - The privacy notice accurately names operational providers and explains external map, image, authentication, hosting, and crash-reporting requests.
 - Before any nonessential telemetry is introduced, provide equally clear Accept and Reject choices, remember the choice, and let the traveler withdraw it later.
 - Do not request Apple's App Tracking Transparency permission unless a future release introduces cross-app or cross-company tracking as Apple defines it.
+
+### UAT-028 — External place details
+
+- Every verified mobile and web search result has a visible, accessible Google Maps action; no double-click or hidden gesture is required.
+- The action opens the exact Google listing when a provider URI or place ID exists, and otherwise clearly performs a name-and-location Maps search.
+- View details and Add to trip remain separate actions, and returning to VibeTravel preserves the current Explore results and scroll context.
+- Added places remain visibly marked and cannot be saved twice after opening an external listing, changing lenses, or returning to the app.
+- VoiceOver and browser assistive technology announce that the link opens Google Maps outside the current VibeTravel context.
 
 ## VT-007 test directions
 

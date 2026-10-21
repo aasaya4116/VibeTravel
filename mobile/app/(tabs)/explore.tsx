@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Keyboard,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -114,13 +115,30 @@ function appendUniqueAttraction(
   return true
 }
 
+function googleMapsPlaceUrl(attraction: Attraction) {
+  const suppliedUrl = attraction.googleMapsUri?.trim()
+  if (suppliedUrl) return suppliedUrl
+
+  const query = [attraction.name, attraction.location]
+    .map((value) => value?.trim())
+    .filter(Boolean)
+    .join(", ")
+  const placeId = attraction.googlePlaceId?.trim()
+
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}${
+    placeId ? `&query_place_id=${encodeURIComponent(placeId)}` : ""
+  }`
+}
+
 function ResultCard({
   attraction,
+  onViewDetails,
   onSave,
   saved,
   saving,
 }: {
   attraction: Attraction
+  onViewDetails: () => void
   onSave: () => void
   saved: boolean
   saving: boolean
@@ -146,9 +164,20 @@ function ResultCard({
         <View style={styles.signalRow}>
           {signals.slice(0, 3).map((signal) => <Text key={signal} style={styles.signal}>{signal}</Text>)}
         </View>
-        <Button onPress={onSave} loading={saving} disabled={saved} variant={saved ? "secondary" : "primary"} style={[styles.saveButton, saved && styles.savedButton]}>
-          {saved ? "Added to trip ✓" : "Add to trip"}
-        </Button>
+        <View style={styles.resultActions}>
+          <Button onPress={onSave} loading={saving} disabled={saved} variant={saved ? "secondary" : "primary"} style={[styles.saveButton, saved && styles.savedButton]}>
+            {saved ? "Added to trip ✓" : "Add to trip"}
+          </Button>
+          <Button
+            onPress={onViewDetails}
+            variant="secondary"
+            accessibilityLabel={`View ${attraction.name} on Google Maps; opens another app`}
+            accessibilityHint="Opens the verified place listing without losing your Explore results"
+            style={styles.detailsButton}
+          >
+            {attraction.googleMapsUri || attraction.googlePlaceId ? "View on Google Maps ↗" : "Search Google Maps ↗"}
+          </Button>
+        </View>
       </View>
     </View>
   )
@@ -748,6 +777,14 @@ export default function ExploreScreen() {
     setPendingAttraction(attraction)
   }
 
+  async function viewPlaceDetails(attraction: Attraction) {
+    try {
+      await Linking.openURL(googleMapsPlaceUrl(attraction))
+    } catch {
+      Alert.alert("Google Maps couldn’t be opened", "Please try again.")
+    }
+  }
+
   async function saveToTripWithAttraction(trip: Trip, attraction: Attraction) {
     if (!user) return
     const normalizedName = attraction.name.trim().toLowerCase()
@@ -1043,6 +1080,7 @@ export default function ExploreScreen() {
                 <ResultCard
                   key={attraction.googlePlaceId ?? attraction.name}
                   attraction={attraction}
+                  onViewDetails={() => void viewPlaceDetails(attraction)}
                   onSave={() => beginSave(attraction)}
                   saved={params.tripId ? savedAttractionNames.has(normalizedName) : recentlySavedNames.has(normalizedName)}
                   saving={savingName === normalizedName}
@@ -1434,8 +1472,10 @@ const styles = StyleSheet.create({
   whyText: { color: colors.text, fontSize: 13, lineHeight: 19, marginTop: 4 },
   signalRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 13 },
   signal: { color: colors.textMuted, borderBottomWidth: 1, borderBottomColor: colors.border, paddingHorizontal: 2, paddingVertical: 5, fontSize: 9, fontWeight: "700" },
-  saveButton: { marginTop: 16 },
+  resultActions: { marginTop: 16, gap: 8 },
+  saveButton: { alignSelf: "stretch" },
   savedButton: { borderColor: colors.success, backgroundColor: colors.successSoft },
+  detailsButton: { alignSelf: "stretch", minHeight: 46 },
   noResults: { marginHorizontal: 18, paddingVertical: 20, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   noResultsTitle: { color: colors.text, fontSize: 18, fontFamily: typography.serif, fontWeight: "700" },
   noResultsBody: { color: colors.textMuted, fontSize: 11, lineHeight: 17, marginTop: 4 },

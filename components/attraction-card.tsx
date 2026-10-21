@@ -84,6 +84,12 @@ export function AttractionCard({
   const [showFeedback, setShowFeedback] = useState(false)
   const gradientClass = categoryColors[attraction.category] || "from-slate-500/20 to-gray-500/20"
   const emoji = categoryEmoji[attraction.category] || "📍"
+  const googleMapsQuery = [attraction.name, attraction.location].filter(Boolean).join(", ")
+  const googleMapsUrl = !isInspiration
+    ? attraction.googleMapsUri || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(googleMapsQuery)}${
+      attraction.googlePlaceId ? `&query_place_id=${encodeURIComponent(attraction.googlePlaceId)}` : ""
+    }`
+    : null
 
   return (
     <div className="group overflow-hidden rounded-2xl border border-border bg-card transition-all hover:border-primary/20 hover:shadow-md">
@@ -157,28 +163,42 @@ export function AttractionCard({
             {attraction.name}
           </h3>
         </div>
-        {showSave && <div className="flex shrink-0 flex-col items-end gap-1">
-          <button
-            onClick={onPlan}
-            className={`inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
-              isSaved
-                ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400"
-                : "bg-primary text-primary-foreground hover:bg-primary/90"
-            }`}
-            aria-label={
-              isSaved
-                ? tripTitle ? `Edit trip plan for ${attraction.name} in ${tripTitle}` : `Edit trip plan for ${attraction.name}`
-                : `Add ${attraction.name} to a trip`
-            }
-          >
-            {isSaved ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-            {isSaved ? "In trip" : "Add to trip"}
-          </button>
-          {isSaved && plannedDate && (
-            <span className="flex items-center gap-1 text-[10px] font-medium leading-tight text-muted-foreground">
-              <CalendarDays className="h-3 w-3" />
-              {formatPlannedDate(plannedDate)}
-            </span>
+        {(showSave || googleMapsUrl) && <div className="flex shrink-0 flex-col items-end gap-2">
+          {showSave && <>
+            <button
+              onClick={onPlan}
+              className={`inline-flex min-h-11 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${
+                isSaved
+                  ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:text-emerald-400"
+                  : "bg-primary text-primary-foreground hover:bg-primary/90"
+              }`}
+              aria-label={
+                isSaved
+                  ? tripTitle ? `Edit trip plan for ${attraction.name} in ${tripTitle}` : `Edit trip plan for ${attraction.name}`
+                  : `Add ${attraction.name} to a trip`
+              }
+            >
+              {isSaved ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+              {isSaved ? "Added" : "Add to trip"}
+            </button>
+            {isSaved && plannedDate && (
+              <span className="flex items-center gap-1 text-[10px] font-medium leading-tight text-muted-foreground">
+                <CalendarDays className="h-3 w-3" />
+                {formatPlannedDate(plannedDate)}
+              </span>
+            )}
+          </>}
+          {googleMapsUrl && (
+            <a
+              href={googleMapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`View ${attraction.name} on Google Maps; opens in a new tab`}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-border px-3 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              {attraction.googleMapsUri || attraction.googlePlaceId ? "View on Google Maps" : "Search Google Maps"}
+            </a>
           )}
         </div>}
       </div>
@@ -378,19 +398,8 @@ export function AttractionCard({
           )}
 
           {/* External links */}
-          {(attraction.googleMapsUri || attraction.websiteUri || attraction.yelpUrl) && (
+          {(attraction.websiteUri || attraction.yelpUrl) && (
             <div className="flex flex-wrap gap-2">
-              {attraction.googleMapsUri && (
-                <a
-                  href={attraction.googleMapsUri}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary"
-                >
-                  <ExternalLink className="h-3 w-3" />
-                  Google Maps
-                </a>
-              )}
               {attraction.websiteUri && (
                 <a
                   href={attraction.websiteUri}
