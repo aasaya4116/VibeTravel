@@ -2,17 +2,18 @@
 
 ## Before the first TestFlight build
 
-- [ ] Confirm the bundle identifier in `app.json`.
+- [x] Confirm the bundle identifier in `app.json`.
 - [x] Link the Expo project with `eas init`.
 - [x] Add production `EXPO_PUBLIC_*` variables in EAS.
 - [x] Add `SUPABASE_SERVICE_ROLE_KEY` to Vercel for in-app account deletion.
 - [x] Add the same tested mailbox as `NEXT_PUBLIC_SUPPORT_EMAIL` in Vercel and `EXPO_PUBLIC_SUPPORT_EMAIL` in the EAS production environment.
 - [x] Add `vibetravel://reset-password` to Supabase Auth's allowed redirect URLs.
 - [x] Add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` to Vercel.
-- [ ] Verify protected APIs return `429` when their quota is exhausted.
+- [x] Verify protected APIs return `429` when their quota is exhausted.
 - [x] Deploy the Privacy, Terms, Support, and account-deletion API changes.
 - [x] Apply `scripts/013_harden_rls_policies.sql`, then run `scripts/verify_rls.sql` successfully against production Supabase.
-- [ ] Test sign-up email links, password recovery, sign-in, session persistence, sign-out, cache erasure, and deletion on a physical iPhone.
+- [x] Test sign-up email links, password recovery, sign-in, session persistence, sign-out, cache erasure, and deletion on a physical iPhone.
+- [ ] Connect production Sentry, then verify one browser error and one API error arrive with readable source locations.
 
 ## App Review information
 
@@ -36,6 +37,6 @@ VibeTravel may collect data linked to the user: email address, display name, fam
 - [ ] iPhone and iPad screenshots using fictional trip and traveler information.
 - [x] App description, subtitle, keywords, promotional text, and review notes.
 - [ ] TestFlight “What to Test” notes and support contact.
-- [ ] Confirm the Explore tab loads destination imagery and Family Vibe reasons.
-- [ ] Search a destination, save three verified places, and generate an itinerary natively.
+- [x] Confirm the Explore tab loads destination imagery and Family Vibe reasons.
+- [x] Search a destination, save three verified places, and generate an itinerary natively.
 - [ ] Confirm destination and attraction images fail gracefully on a slow connection.
