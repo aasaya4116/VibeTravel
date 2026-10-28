@@ -13,7 +13,7 @@
 - [x] Deploy the Privacy, Terms, Support, and account-deletion API changes.
 - [x] Apply `scripts/013_harden_rls_policies.sql`, then run `scripts/verify_rls.sql` successfully against production Supabase.
 - [x] Test sign-up email links, password recovery, sign-in, session persistence, sign-out, cache erasure, and deletion on a physical iPhone.
-- [ ] Connect production Sentry, then verify one browser error and one API error arrive with readable source locations.
+- [x] Connect production Sentry; browser and API events were verified in production with readable TypeScript source locations on October 27, 2026.
 
 ## App Review information
 
