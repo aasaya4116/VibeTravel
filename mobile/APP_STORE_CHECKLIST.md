@@ -14,6 +14,8 @@
 - [x] Apply `scripts/013_harden_rls_policies.sql`, then run `scripts/verify_rls.sql` successfully against production Supabase.
 - [x] Test sign-up email links, password recovery, sign-in, session persistence, sign-out, cache erasure, and deletion on a physical iPhone.
 - [x] Connect production Sentry; browser and API events were verified in production with readable TypeScript source locations on October 27, 2026.
+- [x] Enable production iOS Sentry and verify build 20 uploaded its JavaScript source map plus 22 native debug-symbol files on October 28, 2026.
+- [ ] Trigger one handled failure from TestFlight build 20 and confirm Sentry resolves it to the original TypeScript source location.
 
 ## App Review information
 
