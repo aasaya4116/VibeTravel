@@ -17,6 +17,7 @@ import {
   initializeObservability,
   scrubObservabilityText,
   scrubSentryEvent,
+  startOperationTiming,
 } from "./observability"
 
 describe("mobile observability privacy", () => {
@@ -108,6 +109,29 @@ describe("mobile observability privacy", () => {
     }))
 
     vi.unstubAllGlobals()
+    if (previousDsn === undefined) delete process.env.EXPO_PUBLIC_SENTRY_DSN
+    else process.env.EXPO_PUBLIC_SENTRY_DSN = previousDsn
+  })
+
+  it("synthesizes a safe stack when React Native returns a stackless error", () => {
+    const previousDsn = process.env.EXPO_PUBLIC_SENTRY_DSN
+    process.env.EXPO_PUBLIC_SENTRY_DSN = "https://public@example.ingest.sentry.io/1"
+    initializeObservability()
+
+    const stacklessError = new Error("Private destination details")
+    stacklessError.stack = undefined
+    startOperationTiming("search.places").fail(stacklessError, { http_status: 0 })
+
+    const [captured, context] = vi.mocked(Sentry.captureException).mock.calls.at(-1) ?? []
+    expect(captured).toBeInstanceOf(Error)
+    expect(captured).not.toBe(stacklessError)
+    expect((captured as Error).message).toBe("Operational error")
+    expect((captured as Error).stack).toEqual(expect.any(String))
+    expect(context).toEqual(expect.objectContaining({
+      tags: { operation: "search.places" },
+      extra: { http_status: 0 },
+    }))
+
     if (previousDsn === undefined) delete process.env.EXPO_PUBLIC_SENTRY_DSN
     else process.env.EXPO_PUBLIC_SENTRY_DSN = previousDsn
   })

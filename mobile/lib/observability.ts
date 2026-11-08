@@ -185,7 +185,9 @@ function captureOperationalError(
   attributes: ObservabilityAttributes = {},
 ) {
   if (!observabilityEnabled) return
-  const exception = error instanceof Error ? error : new Error("Operational error")
+  const exception = error instanceof Error && error.stack?.trim()
+    ? error
+    : new Error("Operational error")
   Sentry.captureException(exception, {
     tags: { operation: normalizeOperationName(operation) },
     extra: sanitizeObservabilityAttributes(attributes),
