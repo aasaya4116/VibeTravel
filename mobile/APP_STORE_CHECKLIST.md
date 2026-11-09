@@ -36,7 +36,7 @@ VibeTravel may collect data linked to the user: email address, display name, fam
 ## Release assets
 
 - [x] Final 1024×1024 icon with no transparency.
-- [ ] iPhone and iPad screenshots using fictional trip and traveler information.
+- [ ] iPhone screenshots using fictional trip and traveler information.
 - [x] App description, subtitle, keywords, promotional text, and review notes.
 - [ ] TestFlight “What to Test” notes and support contact.
 - [x] Confirm the Explore tab loads destination imagery and Family Vibe reasons.
