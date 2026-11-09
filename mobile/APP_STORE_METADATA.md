@@ -89,4 +89,4 @@ Use fictional traveler and trip information in every screenshot.
 - Allow `vibetravel://reset-password` in Supabase Auth and test the complete recovery flow from Mail on a physical iPhone.
 - Verify the live Supabase project has RLS enabled and owner-scoped policies on every user-data table.
 - Complete the App Privacy questionnaire against every production provider and SDK.
-- Capture final iPhone and iPad screenshots from the signed build.
+- Capture final iPhone screenshots from the signed build. The initial release is iPhone-only.
