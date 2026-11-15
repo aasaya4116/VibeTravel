@@ -43,6 +43,57 @@ type SearchFamilyVibe = Pick<
 
 const MAX_BODY_CHARACTERS = 32_000
 
+const NON_VISITOR_PRIMARY_TYPES = new Set([
+  "building",
+  "corporate_office",
+  "office",
+  "premise",
+])
+
+const VISITOR_FACING_TYPES = new Set([
+  "amusement_center",
+  "amusement_park",
+  "aquarium",
+  "art_gallery",
+  "art_museum",
+  "bakery",
+  "book_store",
+  "botanical_garden",
+  "cafe",
+  "childrens_museum",
+  "cultural_center",
+  "gift_shop",
+  "game_store",
+  "historical_place",
+  "market",
+  "museum",
+  "park",
+  "restaurant",
+  "shopping_mall",
+  "store",
+  "theme_park",
+  "toy_store",
+  "tourist_attraction",
+  "video_arcade",
+  "video_game_store",
+  "visitor_center",
+  "zoo",
+])
+
+const GENERIC_ALIAS_TERMS = new Set([
+  "attraction",
+  "building",
+  "cafe",
+  "food",
+  "museum",
+  "park",
+  "place",
+  "restaurant",
+  "shop",
+  "shopping",
+  "store",
+])
+
 function cleanText(value: unknown, maximum: number) {
   if (typeof value !== "string") return ""
   return value
@@ -79,6 +130,67 @@ function cleanFamilyVibe(value: unknown): SearchFamilyVibe | null {
   }
 }
 
+function normalizedAsciiWords(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+}
+
+function isVisitorFacingPlace(place: PlaceResult) {
+  const primaryType = place.primaryType?.toLowerCase() ?? ""
+  const primaryLabel = place.primaryTypeLabel?.toLowerCase() ?? ""
+  const types = new Set(place.types.map((type) => type.toLowerCase()))
+  const explicitlyVisitorFacing = [...types].some((type) => VISITOR_FACING_TYPES.has(type))
+  const nonVisitorPrimary =
+    NON_VISITOR_PRIMARY_TYPES.has(primaryType) ||
+    [...NON_VISITOR_PRIMARY_TYPES].some((type) => primaryLabel === type.replaceAll("_", " "))
+
+  return !nonVisitorPrimary || explicitlyVisitorFacing
+}
+
+function mergeUniquePlaces(...groups: PlaceResult[][]) {
+  const seen = new Set<string>()
+  return groups.flat().filter((place) => {
+    if (seen.has(place.id)) return false
+    seen.add(place.id)
+    return true
+  })
+}
+
+function validatedEnglishAlias(place: PlaceResult, searchQuery: string) {
+  if (/[A-Za-z]/.test(place.name) || !place.websiteUri) return null
+  const alias = searchQuery.trim()
+  if (!alias || alias.length > 60 || !/^[A-Za-z0-9][A-Za-z0-9 &'’.\-]*$/.test(alias)) return null
+
+  const words = normalizedAsciiWords(alias)
+  const identifyingWords = words.filter((word) => word.length >= 4 && !GENERIC_ALIAS_TERMS.has(word))
+  if (identifyingWords.length === 0 || identifyingWords.length > 4) return null
+
+  let hostname = ""
+  try {
+    hostname = new URL(place.websiteUri).hostname.toLowerCase().replace(/^www\./, "")
+  } catch {
+    return null
+  }
+  const normalizedHostname = hostname.replace(/[^a-z0-9]+/g, "")
+  if (!identifyingWords.some((word) => normalizedHostname.includes(word))) return null
+
+  return alias.replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
+}
+
+function factualDescription(place: PlaceResult, category: string, destination: string) {
+  const providerType = place.primaryTypeLabel?.trim()
+  const type = providerType && !NON_VISITOR_PRIMARY_TYPES.has(providerType.toLowerCase().replaceAll(" ", "_"))
+    ? providerType
+    : category
+  const normalizedType = type.trim().toLowerCase() || "place"
+  const article = /^[aeiou]/i.test(normalizedType) ? "An" : "A"
+  return `${article} ${normalizedType} in ${destination}.`
+}
+
 function categoryForPlace(place: PlaceResult): string {
   const toCategory = (type: string | null | undefined) => {
     if (!type) return null
@@ -89,6 +201,7 @@ function categoryForPlace(place: PlaceResult): string {
     if (type === "playground") return "Playground"
     if (["amusement_park", "theme_park"].includes(type)) return "Theme Park"
     if (["restaurant", "cafe", "coffee_shop", "bakery"].includes(type)) return "Restaurant"
+    if (["video_game_store", "video_arcade", "toy_store", "game_store"].includes(type)) return "Entertainment"
     if (["performing_arts_theater", "cultural_center", "historical_place"].includes(type)) return "Cultural"
     if (["tourist_attraction", "visitor_center", "amusement_center"].includes(type)) return "Adventure"
     return null
@@ -141,9 +254,12 @@ function fallbackRecommendation(
 function toAttraction(
   place: PlaceResult,
   recommendation: Recommendation,
-  personalizedForFamily: boolean
+  personalizedForFamily: boolean,
+  destination: string,
+  searchQuery: string
 ): Attraction {
   const category = categoryForPlace(place)
+  const englishAlias = validatedEnglishAlias(place, searchQuery)
   // Search results should never wait on a secondary image provider. Google
   // photos are already lazy-loaded through our proxy; category art is the
   // deterministic fallback when a venue has no provider photo.
@@ -151,8 +267,9 @@ function toAttraction(
 
   return {
     googlePlaceId: place.id,
-    name: place.name,
-    description: `${place.primaryTypeLabel || category}${place.address ? ` · ${place.address}` : ""}`,
+    name: englishAlias ?? place.name,
+    ...(englishAlias ? { localName: place.name } : {}),
+    description: factualDescription(place, category, destination),
     category,
     vibes: recommendation.vibes,
     ageRange: recommendation.ageRange,
@@ -272,7 +389,7 @@ export async function POST(req: Request) {
   let candidates: PlaceResult[]
   let resolvedDestination = destination
   try {
-    const providerDeadline = AbortSignal.timeout(6_000)
+    const providerDeadline = AbortSignal.timeout(9_000)
     const providerSignal = AbortSignal.any([req.signal, providerDeadline])
     let destinationAnchor = destinationPlaceId
       ? await resolveDestinationPlaceId(destinationPlaceId, {
@@ -306,11 +423,33 @@ export async function POST(req: Request) {
       )
     }
     resolvedDestination = destinationAnchor.canonicalLabel
-    candidates = await searchVerifiedPlaces(providerQuery, resolvedDestination, 12, {
+    const exactCandidates = await searchVerifiedPlaces(providerQuery, resolvedDestination, 12, {
       signal: providerSignal,
       timeoutMs: 6_000,
       destinationAnchor,
     })
+    candidates = exactCandidates.filter(isVisitorFacingPlace)
+
+    // Exact brand searches can resolve only to an office/building even when a
+    // visitor-facing store exists nearby. Make one bounded supplemental query
+    // only for a sparse custom search, then preserve Google's ordering while
+    // deduplicating the verified destination-scoped results.
+    if (!isGenericDiscovery && candidates.length === 0) {
+      const supplementalCandidates = await searchVerifiedPlaces(
+        `${providerQuery} store`,
+        resolvedDestination,
+        12,
+        {
+          signal: providerSignal,
+          timeoutMs: 6_000,
+          destinationAnchor,
+        }
+      )
+      candidates = mergeUniquePlaces(
+        candidates,
+        supplementalCandidates.filter(isVisitorFacingPlace)
+      ).slice(0, 12)
+    }
   } catch (error) {
     if (!req.signal.aborted && !isExpectedRequestInterruption(error)) {
       captureUnexpectedApiError(error, {
@@ -359,7 +498,9 @@ export async function POST(req: Request) {
         const attraction = toAttraction(
           place,
           recommendation,
-          personalizedForFamily
+          personalizedForFamily,
+          resolvedDestination,
+          effectiveQuery
         )
         enqueue(JSON.stringify(attraction) + "\n")
       }

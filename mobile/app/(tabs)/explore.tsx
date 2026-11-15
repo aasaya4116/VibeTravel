@@ -155,7 +155,9 @@ function ResultCard({
           {attraction.rating ? <Text style={styles.rating}>★ {attraction.rating.toFixed(1)}</Text> : null}
         </View>
         <Text style={styles.resultTitle}>{attraction.name}</Text>
+        {attraction.localName ? <Text style={styles.resultLocalName}>{attraction.localName}</Text> : null}
         <Text style={styles.resultLocation} numberOfLines={1}>{attraction.location}</Text>
+        {attraction.description ? <Text style={styles.resultDescription}>{attraction.description}</Text> : null}
         {attraction.familyFitReason ? (
           <View style={styles.whyBox}>
             <Text style={styles.whyLabel}>WHY THIS MATCHED</Text>
@@ -1512,7 +1514,9 @@ const styles = StyleSheet.create({
   resultCategory: { color: colors.primary, fontSize: 9, fontWeight: "800", letterSpacing: 1.3 },
   rating: { color: colors.text, fontSize: 11, fontWeight: "800" },
   resultTitle: { color: colors.text, fontSize: 24, lineHeight: 29, fontFamily: typography.serif, fontWeight: "700", marginTop: 5 },
+  resultLocalName: { color: colors.textMuted, fontSize: 14, lineHeight: 19, marginTop: 2 },
   resultLocation: { color: colors.textMuted, fontSize: 11, marginTop: 4 },
+  resultDescription: { color: colors.text, fontSize: 14, lineHeight: 21, marginTop: 12 },
   whyBox: { borderLeftWidth: 2, borderLeftColor: colors.primary, paddingLeft: 11, marginTop: 15 },
   whyLabel: { color: colors.primary, fontSize: 8, fontWeight: "800", letterSpacing: 1.1 },
   whyText: { color: colors.text, fontSize: 13, lineHeight: 19, marginTop: 4 },

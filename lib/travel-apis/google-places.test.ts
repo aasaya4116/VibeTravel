@@ -346,6 +346,37 @@ describe("Google Places geographic search", () => {
     )
   })
 
+  it("requests English while retaining provider language metadata for local-only names", async () => {
+    vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key")
+    const fetchMock = vi.fn().mockResolvedValue(json({
+      places: [{
+        id: "local-name-store",
+        displayName: { text: "任天堂", languageCode: "ja" },
+        formattedAddress: "Tokyo, Japan",
+        location: { latitude: -1.2865, longitude: 36.8172 },
+        businessStatus: "OPERATIONAL",
+        primaryType: "video_game_store",
+        primaryTypeDisplayName: { text: "Video game store", languageCode: "en" },
+        types: ["video_game_store", "store"],
+      }],
+    }))
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { searchVerifiedPlaces } = await import("./google-places")
+    const [result] = await searchVerifiedPlaces("Nintendo", "Nairobi", 10, {
+      destinationAnchor: nairobiAnchor(),
+    })
+    const providerRequest = fetchMock.mock.calls[0][1] as RequestInit
+    const body = JSON.parse(String(providerRequest.body))
+
+    expect(body.languageCode).toBe("en")
+    expect(result).toMatchObject({
+      name: "任天堂",
+      nameLanguageCode: "ja",
+      primaryTypeLabel: "Video game store",
+    })
+  })
+
   it("does not upscale a low-resolution or portrait provider photo", async () => {
     vi.stubEnv("GOOGLE_PLACES_API_KEY", "test-key")
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({

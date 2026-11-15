@@ -59,6 +59,7 @@ function place(id: string, name: string, latitude: number, longitude: number): P
   return {
     id,
     name,
+    nameLanguageCode: "en",
     address: `${name}, Nairobi, Kenya`,
     latitude,
     longitude,
@@ -131,6 +132,70 @@ describe("POST /api/search", () => {
       latitude: -1.2812,
       longitude: 36.8219,
     })
+    expect(searchVerifiedPlaces).toHaveBeenCalledTimes(1)
+  })
+
+  it("replaces a non-visitor exact match with one destination-scoped store search", async () => {
+    const office: PlaceResult = {
+      ...place("nintendo-office", "任天堂", -1.2733, 36.8146),
+      nameLanguageCode: "ja",
+      websiteUri: "https://www.nintendo.co.jp/corporate/",
+      primaryType: "corporate_office",
+      primaryTypeLabel: "Building",
+      types: ["corporate_office", "point_of_interest", "establishment"],
+    }
+    const store: PlaceResult = {
+      ...place("nintendo-store", "任天堂", -1.2812, 36.8219),
+      nameLanguageCode: "ja",
+      websiteUri: "https://www.nintendo.co.jp/officialstore/",
+      primaryType: "video_game_store",
+      primaryTypeLabel: "Video game store",
+      types: ["video_game_store", "store", "point_of_interest"],
+    }
+    searchVerifiedPlaces
+      .mockResolvedValueOnce([office])
+      .mockResolvedValueOnce([store])
+
+    const { POST } = await import("./route")
+    const response = await POST(new Request("http://localhost/api/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        destination: "Nairobi, Kenya",
+        destinationPlaceId: "nairobi-id",
+        query: "Nintendo",
+        filters: {},
+      }),
+    }))
+    const records = (await response.text())
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    const result = records.find((record) => record.googlePlaceId)
+
+    expect(searchVerifiedPlaces).toHaveBeenNthCalledWith(
+      1,
+      "Nintendo",
+      "Nairobi, Kenya",
+      12,
+      expect.any(Object)
+    )
+    expect(searchVerifiedPlaces).toHaveBeenNthCalledWith(
+      2,
+      "Nintendo store",
+      "Nairobi, Kenya",
+      12,
+      expect.any(Object)
+    )
+    expect(searchVerifiedPlaces).toHaveBeenCalledTimes(2)
+    expect(result).toMatchObject({
+      googlePlaceId: "nintendo-store",
+      name: "Nintendo",
+      localName: "任天堂",
+      category: "Entertainment",
+      description: "A video game store in Nairobi, Kenya.",
+    })
+    expect(records.some((record) => record.googlePlaceId === "nintendo-office")).toBe(false)
   })
 
   it("terminates a successful empty result with one summary record", async () => {
