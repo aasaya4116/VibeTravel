@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Alert,
@@ -12,7 +12,7 @@ import {
   type LayoutChangeEvent,
 } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-import { router, useLocalSearchParams } from "expo-router"
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { fetch } from "expo/fetch"
 import { Button, Eyebrow, LoadingScreen, Screen } from "@/components/ui"
@@ -48,6 +48,7 @@ import {
 import { absoluteMediaUrl, apiUrl } from "@/lib/media"
 import { consumeNdjson } from "@/lib/ndjson-stream"
 import { startOperationTiming } from "@/lib/observability"
+import { clearPendingPlaceSave, consumeCompletedPlaceSave, readPendingPlaceSave, stagePendingPlaceSave } from "@/lib/pending-place-save"
 import { colors, radii, typography } from "@/lib/theme"
 import type { Attraction, Trip } from "@/lib/types"
 import { useDashboard } from "@/hooks/use-dashboard"
@@ -308,6 +309,19 @@ export default function ExploreScreen() {
   useEffect(() => {
     savedAttractionNamesRef.current = savedAttractionNames
   }, [savedAttractionNames])
+
+  useEffect(() => {
+    const completedSave = consumeCompletedPlaceSave()
+    if (!completedSave) return
+    setLastSavedName(completedSave.attractionName)
+    setLastSavedTripTitle(completedSave.tripTitle)
+  }, [params.tripId])
+
+  useFocusEffect(useCallback(() => {
+    if (params.tripId) return
+    const pendingSave = readPendingPlaceSave()
+    if (pendingSave) setPendingAttraction(pendingSave.attraction)
+  }, [params.tripId]))
 
   useEffect(() => () => {
     invalidateSearchRequest()
@@ -760,6 +774,7 @@ export default function ExploreScreen() {
       setRecentlySavedNames((current) => new Set([...current, normalizedName]))
       setLastSavedName(attractionName)
       setLastSavedTripTitle(trip.title)
+      clearPendingPlaceSave()
       setPendingAttraction(null)
     } catch (error) {
       Alert.alert("Place not saved", error instanceof Error ? error.message : "Please try again.")
@@ -775,6 +790,22 @@ export default function ExploreScreen() {
       return
     }
     setPendingAttraction(attraction)
+  }
+
+  function createTripForPendingAttraction() {
+    if (!pendingAttraction) return
+    stagePendingPlaceSave({
+      attraction: pendingAttraction,
+      destinationLabel: selected.destination,
+      destinationOption: selectedDestinationOption,
+    })
+    setPendingAttraction(null)
+    router.push({ pathname: "/trips/new", params: { source: "explore-save" } } as never)
+  }
+
+  function closeTripChooser() {
+    clearPendingPlaceSave()
+    setPendingAttraction(null)
   }
 
   async function viewPlaceDetails(attraction: Attraction) {
@@ -1319,20 +1350,35 @@ export default function ExploreScreen() {
         </SafeAreaView>
       </Modal>
 
-      <Modal visible={Boolean(pendingAttraction && !params.tripId)} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setPendingAttraction(null)}>
+      <Modal visible={Boolean(pendingAttraction && !params.tripId)} animationType="slide" presentationStyle="pageSheet" onRequestClose={closeTripChooser}>
         <SafeAreaView style={styles.modalSafe}>
           <View style={styles.modalHeader}>
             <View style={styles.modalHeadingCopy}><Eyebrow>Add to a trip</Eyebrow><Text style={styles.modalTitle}>{pendingAttraction?.name}</Text></View>
-            <Pressable onPress={() => setPendingAttraction(null)} style={styles.closeButton}><Ionicons name="close" size={22} color={colors.text} /></Pressable>
+            <Pressable onPress={closeTripChooser} style={styles.closeButton}><Ionicons name="close" size={22} color={colors.text} /></Pressable>
           </View>
           <ScrollView contentContainerStyle={styles.tripChoices}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Create a new trip for this place"
+              accessibilityHint="Opens trip creation and carries this saved place with you"
+              disabled={saving}
+              onPress={createTripForPendingAttraction}
+              style={({ pressed }) => [styles.newTripChoice, pressed && styles.pressed]}
+            >
+              <View style={styles.newTripChoiceIcon}><Ionicons name="add" size={24} color="#FFFFFF" /></View>
+              <View style={styles.newTripChoiceCopy}>
+                <Text style={styles.newTripChoiceTitle}>Create a new trip</Text>
+                <Text style={styles.newTripChoiceBody}>We’ll carry this place into your new trip.</Text>
+              </View>
+              <Ionicons name="arrow-forward" size={20} color={colors.primary} />
+            </Pressable>
             {data?.trips.map((trip) => (
               <Pressable key={trip.id} disabled={saving} onPress={() => saveToTrip(trip)} style={({ pressed }) => [styles.tripChoice, pressed && styles.pressed]}>
                 <View><Text style={styles.tripChoiceTitle}>{trip.title}</Text><Text style={styles.tripChoiceDestination}>{trip.destination}</Text></View>
                 {saving ? <ActivityIndicator color={colors.primary} /> : <Ionicons name="arrow-forward-circle" size={28} color={colors.primary} />}
               </Pressable>
             ))}
-            {!data?.trips.length ? <Text style={styles.noTrips}>Create a trip first, then return here to save places.</Text> : null}
+            {!data?.trips.length ? <Text style={styles.noTrips}>No trips yet. Start one above and this place will be saved automatically.</Text> : null}
           </ScrollView>
         </SafeAreaView>
       </Modal>
@@ -1509,6 +1555,11 @@ const styles = StyleSheet.create({
   modalTitle: { color: colors.text, fontSize: 27, lineHeight: 32, fontFamily: typography.serif, fontWeight: "700", marginTop: 4 },
   closeButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   tripChoices: { padding: 18, gap: 10 },
+  newTripChoice: { minHeight: 86, borderRadius: 19, padding: 16, backgroundColor: colors.primarySoft, borderWidth: 1, borderColor: colors.primary, flexDirection: "row", alignItems: "center", gap: 12 },
+  newTripChoiceIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.primary, alignItems: "center", justifyContent: "center" },
+  newTripChoiceCopy: { flex: 1 },
+  newTripChoiceTitle: { color: colors.text, fontSize: 17, fontWeight: "800" },
+  newTripChoiceBody: { color: colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: 3 },
   tripChoice: { minHeight: 78, borderRadius: 19, padding: 16, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   tripChoiceTitle: { color: colors.text, fontSize: 17, fontWeight: "800" },
   tripChoiceDestination: { color: colors.textMuted, fontSize: 12, marginTop: 3 },
