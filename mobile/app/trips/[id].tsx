@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useMemo, useRef, useState } from "react"
 import {
   Alert,
   KeyboardAvoidingView,
@@ -32,6 +32,12 @@ const siteUrl = process.env.EXPO_PUBLIC_SITE_URL ?? "https://vibe-travel-six.ver
 const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? siteUrl
 const paceLimits = { slow: 3, moderate: 4, fast: 6 } as const
 
+type TripSharePayload = {
+  title: string
+  message: string
+  url?: string
+}
+
 function normalizePlaceName(value: string) {
   return value.trim().toLocaleLowerCase().replace(/\s+/g, " ")
 }
@@ -57,6 +63,8 @@ export default function TripScreen() {
   const [sharing, setSharing] = useState(false)
   const [shareDisclosureVisible, setShareDisclosureVisible] = useState(false)
   const [shareError, setShareError] = useState("")
+  const [shareLink, setShareLink] = useState<{ tripId: string; url: string } | null>(null)
+  const pendingShareRef = useRef<TripSharePayload | null>(null)
   const [deletingTrip, setDeletingTrip] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [selectedDay, setSelectedDay] = useState(0)
@@ -111,6 +119,7 @@ export default function TripScreen() {
     (saved) => !itineraryPlaceNames.has(normalizePlaceName(saved.attraction_name))
   ), [itineraryPlaceNames, savedAttractions])
   const abovePace = Boolean(day && day.items.length > paceLimits[pace])
+  const currentShareUrl = trip && shareLink?.tripId === trip.id ? shareLink.url : ""
 
   async function persistItinerary(itinerary: Trip["itinerary"]) {
     if (!trip || !user || offline) return false
@@ -143,30 +152,64 @@ export default function TripScreen() {
     Linking.openURL(supplied || `https://maps.apple.com/?q=${encodeURIComponent(destination)}`)
   }
 
-  async function shareTrip() {
-    if (!trip || !session) return
-    setSharing(true)
-    setShareError("")
+  async function presentShareOptions(content: TripSharePayload) {
     try {
-      const response = await fetch(`${apiUrl}/api/trips/${trip.id}/share`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      })
-      const payload = await response.json().catch(() => ({}))
-      if (!response.ok || !payload.token) throw new Error(payload.error || "Could not create the private link")
-      const url = `${siteUrl}/share/${payload.token}`
-      const message = `Take a look at our ${trip.destination} trip plan on VibeTravel.`
-      setShareDisclosureVisible(false)
-      await Share.share(Platform.OS === "ios"
-        ? { title: trip.title, message, url }
-        : { title: trip.title, message: `${message}\n${url}` })
+      await Share.share(content)
     } catch (error) {
-      const message = error instanceof Error ? error.message : "We could not create the private link"
-      setShareError(`${message.replace(/[.!?]+$/, "")}. Check your connection and try again.`)
+      const message = error instanceof Error ? error.message : "We could not open your share options"
+      setShareError(`${message.replace(/[.!?]+$/, "")}. You can still touch and hold the private link below to copy it.`)
       setShareDisclosureVisible(true)
     } finally {
       setSharing(false)
     }
+  }
+
+  function presentPendingShare() {
+    const content = pendingShareRef.current
+    if (!content) return
+    pendingShareRef.current = null
+    void presentShareOptions(content)
+  }
+
+  async function shareTrip() {
+    if (!trip || !session) return
+    setSharing(true)
+    setShareError("")
+
+    let url = currentShareUrl
+    if (!url) {
+      try {
+        const response = await fetch(`${apiUrl}/api/trips/${trip.id}/share`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok || !payload.token) throw new Error(payload.error || "Could not create the private link")
+        url = `${siteUrl}/share/${payload.token}`
+        setShareLink({ tripId: trip.id, url })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "We could not create the private link"
+        setShareError(`${message.replace(/[.!?]+$/, "")}. Check your connection and try again.`)
+        setSharing(false)
+        return
+      }
+    }
+
+    const message = `Take a look at our ${trip.destination} trip plan on VibeTravel.`
+    const content = Platform.OS === "ios"
+      ? { title: trip.title, message, url }
+      : { title: trip.title, message: `${message}\n${url}` }
+
+    if (Platform.OS === "ios") {
+      // Presenting the native share sheet while this React Native modal is
+      // dismissing can silently fail on iOS. Wait for onDismiss instead.
+      pendingShareRef.current = content
+      setShareDisclosureVisible(false)
+      return
+    }
+
+    setShareDisclosureVisible(false)
+    await presentShareOptions(content)
   }
 
   function openShareDisclosure() {
@@ -524,6 +567,7 @@ export default function TripScreen() {
       animationType="fade"
       statusBarTranslucent
       onRequestClose={closeShareDisclosure}
+      onDismiss={presentPendingShare}
     >
       <View style={styles.shareModalRoot}>
         <Pressable
@@ -551,6 +595,17 @@ export default function TripScreen() {
               <Text style={styles.shareSheetOverline}>PRIVATE LINK</Text>
               <Text accessibilityRole="header" style={styles.shareSheetTitle}>Before you share</Text>
               <Text style={styles.shareSheetBody}>Anyone who has this private link can open the shared trip view. Only send it to people you trust.</Text>
+
+              {currentShareUrl ? (
+                <View style={styles.shareLinkCard}>
+                  <View style={styles.shareLinkHeader}>
+                    <Ionicons name="copy-outline" size={18} color={colors.primaryDark} />
+                    <Text style={styles.shareLinkTitle}>Copy private link</Text>
+                  </View>
+                  <Text selectable accessibilityLabel="Private trip link" style={styles.shareLinkText}>{currentShareUrl}</Text>
+                  <Text style={styles.shareLinkHint}>Touch and hold the link to copy it.</Text>
+                </View>
+              ) : null}
 
               <View style={styles.shareVisibilityCard}>
                 <View style={[styles.shareVisibilityIcon, styles.shareVisibleIcon]}><Ionicons name="eye-outline" size={18} color={colors.primaryDark} /></View>
@@ -584,7 +639,7 @@ export default function TripScreen() {
                 accessibilityHint="Creates the private link and opens your device share options"
                 accessibilityState={{ busy: sharing }}
               >
-                Continue sharing
+                {currentShareUrl ? "Open share options" : "Create link & share"}
               </Button>
               <Button variant="ghost" onPress={closeShareDisclosure} disabled={sharing}>Cancel</Button>
             </ScrollView>
@@ -738,6 +793,11 @@ const styles = StyleSheet.create({
   shareSheetOverline: { color: colors.primary, fontSize: 10, lineHeight: 15, fontWeight: "800", letterSpacing: 1.8, marginTop: 16 },
   shareSheetTitle: { color: colors.text, fontSize: 29, lineHeight: 34, fontFamily: typography.serif, fontWeight: "700", marginTop: 3 },
   shareSheetBody: { color: colors.textMuted, fontSize: 13, lineHeight: 20, marginTop: 8, marginBottom: 15 },
+  shareLinkCard: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.primary, backgroundColor: colors.primarySoft, padding: 13, marginBottom: 9 },
+  shareLinkHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  shareLinkTitle: { color: colors.primaryDark, fontSize: 13, fontWeight: "800" },
+  shareLinkText: { color: colors.text, fontSize: 12, lineHeight: 18, marginTop: 9 },
+  shareLinkHint: { color: colors.textMuted, fontSize: 11, lineHeight: 16, marginTop: 5 },
   shareVisibilityCard: { flexDirection: "row", alignItems: "flex-start", gap: 11, minHeight: 76, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, backgroundColor: colors.surface, padding: 13, marginBottom: 9 },
   shareVisibilityIcon: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   shareVisibleIcon: { backgroundColor: colors.primarySoft },

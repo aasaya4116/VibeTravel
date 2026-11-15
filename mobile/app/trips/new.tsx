@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react"
 import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native"
-import { router } from "expo-router"
+import { router, useLocalSearchParams } from "expo-router"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { Ionicons } from "@expo/vector-icons"
 import { DateRangePicker } from "@/components/date-range-picker"
 import { Button, Eyebrow } from "@/components/ui"
 import { Text, TextInput } from "@/components/typography"
 import { RemoteImage, RemoteImageBackground } from "@/components/remote-image"
-import { createTrip } from "@/lib/data"
+import { createTrip, saveAttractionToTrip } from "@/lib/data"
 import { destinationCards } from "@/lib/destinations"
 import { searchDestinationOptions, type DestinationOption } from "@/lib/destination-options"
+import { absoluteMediaUrl } from "@/lib/media"
+import { clearPendingPlaceSave, completePendingPlaceSave, readPendingPlaceSave } from "@/lib/pending-place-save"
 import { colors, radii, typography } from "@/lib/theme"
 import { inclusiveTripDayCount, isValidIsoDate, localTodayIso, MAX_TRIP_DAYS, tripLengthLabel } from "@/lib/trip-dates"
 import { useAuth } from "@/providers/auth-provider"
@@ -23,6 +25,7 @@ function formatTripDate(value: string) {
 }
 
 export default function NewTripScreen() {
+  const { source } = useLocalSearchParams<{ source?: string }>()
   const { user, session } = useAuth()
   const { refresh: refreshDashboard } = useDashboard()
   const [title, setTitle] = useState("")
@@ -39,6 +42,30 @@ export default function NewTripScreen() {
   const [destinationSearchState, setDestinationSearchState] = useState<"idle" | "loading" | "ready" | "error">("idle")
   const [destinationSearchAttempt, setDestinationSearchAttempt] = useState(0)
   const destinationInputRef = useRef<TextInput>(null)
+  const pendingPlaceSaveRef = useRef(source === "explore-save" ? readPendingPlaceSave() : null)
+  const pendingPlaceSave = pendingPlaceSaveRef.current
+
+  useEffect(() => {
+    const pending = pendingPlaceSaveRef.current
+    if (!pending) return
+
+    const destinationOption = pending.destinationOption?.resolved ? pending.destinationOption : null
+    const destinationLabel = destinationOption?.canonicalLabel || destinationOption?.label || pending.destinationLabel
+    const city = destinationOption?.city || destinationLabel.split(",")[0]?.trim() || "New"
+    const nextSuggestedTitle = `${city} family adventure`
+
+    setDestinationQuery(destinationLabel)
+    setTitle(nextSuggestedTitle)
+    setSuggestedTitle(nextSuggestedTitle)
+    if (destinationOption) {
+      setSelectedDestination(destinationOption)
+      setDestinationFocused(false)
+    } else {
+      setDestinationFocused(true)
+      requestAnimationFrame(() => destinationInputRef.current?.focus())
+    }
+
+  }, [])
 
   useEffect(() => {
     const query = destinationQuery.trim()
@@ -159,8 +186,26 @@ export default function NewTripScreen() {
         start_date: startDate || null,
         end_date: endDate || null,
       })
+      let pendingPlaceSaveError = ""
+      if (pendingPlaceSave) {
+        try {
+          await saveAttractionToTrip(user.id, trip.id, {
+            ...pendingPlaceSave.attraction,
+            imageUrl: absoluteMediaUrl(pendingPlaceSave.attraction.imageUrl),
+          })
+          completePendingPlaceSave(trip.title)
+        } catch (error) {
+          pendingPlaceSaveError = error instanceof Error ? error.message : "Please add the place again from Explore."
+          clearPendingPlaceSave()
+        }
+      }
       void refreshDashboard()
       router.replace({ pathname: "/explore", params: { tripId: trip.id, destination: trip.destination } } as never)
+      if (pendingPlaceSaveError) {
+        requestAnimationFrame(() => {
+          Alert.alert("Trip created, but place not saved", pendingPlaceSaveError)
+        })
+      }
     } catch (error) {
       Alert.alert("Trip not created", error instanceof Error ? error.message : "Please reconnect and try again.")
     } finally {
@@ -177,6 +222,16 @@ export default function NewTripScreen() {
             <Text style={styles.title}>Where are you headed?</Text>
             <Text style={styles.subtitle}>Choose a verified city so every place, photo, and itinerary day stays anchored to the right destination.</Text>
           </View>
+          {pendingPlaceSave ? (
+            <View style={styles.carriedPlaceCard}>
+              <View style={styles.carriedPlaceIcon}><Ionicons name="bookmark" size={19} color={colors.primary} /></View>
+              <View style={styles.carriedPlaceCopy}>
+                <Text style={styles.carriedPlaceEyebrow}>COMING WITH YOU</Text>
+                <Text style={styles.carriedPlaceName}>{pendingPlaceSave.attraction.name}</Text>
+                <Text style={styles.carriedPlaceBody}>Create this trip and we’ll save the place automatically.</Text>
+              </View>
+            </View>
+          ) : null}
           <View style={styles.inspirationHeader}>
             <Text style={styles.inspirationLabel}>A LITTLE INSPIRATION</Text>
             <Text style={styles.inspirationHint}>Or search anywhere below</Text>
@@ -375,6 +430,12 @@ const styles = StyleSheet.create({
   intro: { paddingHorizontal: 22 },
   title: { color: colors.text, fontSize: 34, lineHeight: 39, fontFamily: typography.serif, fontWeight: "700", marginTop: 7 },
   subtitle: { color: colors.textMuted, fontSize: 13, lineHeight: 19, marginTop: 8, marginBottom: 20 },
+  carriedPlaceCard: { marginHorizontal: 22, marginBottom: 18, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.primarySoft, padding: 14, flexDirection: "row", alignItems: "center", gap: 12 },
+  carriedPlaceIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.background, alignItems: "center", justifyContent: "center" },
+  carriedPlaceCopy: { flex: 1 },
+  carriedPlaceEyebrow: { color: colors.primary, fontSize: 9, fontWeight: "900", letterSpacing: 1.25 },
+  carriedPlaceName: { color: colors.text, fontSize: 16, fontWeight: "800", marginTop: 3 },
+  carriedPlaceBody: { color: colors.textMuted, fontSize: 11, lineHeight: 16, marginTop: 3 },
   inspirationHeader: { paddingHorizontal: 22, marginBottom: 9, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   inspirationLabel: { color: colors.primary, fontSize: 9, fontWeight: "800", letterSpacing: 1.45 },
   inspirationHint: { color: colors.textMuted, fontSize: 10 },

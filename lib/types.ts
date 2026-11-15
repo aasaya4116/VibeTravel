@@ -123,6 +123,8 @@ export interface ItineraryItem {
 export interface Attraction {
   googlePlaceId?: string
   name: string
+  /** Provider-local name when a verified English alias is shown as the title. */
+  localName?: string
   description: string
   category: string
   vibes: string[]

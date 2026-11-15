@@ -35,6 +35,7 @@ export interface DestinationAnchor {
 export interface PlaceResult {
   id: string
   name: string
+  nameLanguageCode: string | null
   address: string
   latitude: number | null
   longitude: number | null
@@ -63,7 +64,7 @@ const PRICE_MAP: Record<string, string> = {
 
 type GooglePlace = {
   id?: string
-  displayName?: { text?: string }
+  displayName?: { text?: string; languageCode?: string }
   formattedAddress?: string
   addressComponents?: Array<{
     longText?: string
@@ -512,6 +513,7 @@ function toPlaceResult(place: GooglePlace): PlaceResult | null {
   return {
     id,
     name,
+    nameLanguageCode: place.displayName?.languageCode ?? null,
     address: place.formattedAddress ?? "",
     latitude:
       typeof place.location?.latitude === "number"
