@@ -4,6 +4,7 @@ import { notFound } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { getWikipediaImage } from "@/lib/wikipedia-image"
 import { isValidShareToken } from "@/lib/trip-sharing"
+import { buildSharedTripMetadata } from "@/lib/shared-trip-metadata"
 import type { SharedTripPayload } from "@/lib/types"
 import { SharedTripView } from "@/components/shared-trip-view"
 
@@ -35,12 +36,7 @@ export async function generateMetadata({
     }
   }
 
-  return {
-    title: `${shared.trip.title} | VibeTravel`,
-    description: `A private family trip plan for ${shared.trip.destination}, shared with you on VibeTravel.`,
-    robots: { index: false, follow: false },
-    referrer: "no-referrer",
-  }
+  return buildSharedTripMetadata(shared.trip)
 }
 
 export default async function SharedTripPage({
