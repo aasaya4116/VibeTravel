@@ -19,6 +19,7 @@ import { Button, Eyebrow, LoadingScreen, Screen } from "@/components/ui"
 import { Text, TextInput } from "@/components/typography"
 import { RemoteImage } from "@/components/remote-image"
 import DiscoveryCanvas from "@/components/discovery-canvas"
+import { ItineraryGenerationView } from "@/components/itinerary-generation-modal"
 import {
   destinationCards,
   destinationLenses,
@@ -33,6 +34,7 @@ import {
   type DestinationLens,
 } from "@/lib/destinations"
 import {
+  cacheTripItinerary,
   generateTripItinerary,
   loadTrip,
   readTripDestinationOption,
@@ -48,8 +50,10 @@ import {
 import { absoluteMediaUrl, apiUrl } from "@/lib/media"
 import { consumeNdjson } from "@/lib/ndjson-stream"
 import { startOperationTiming } from "@/lib/observability"
+import { isCompleteItineraryGeneration, isSavedPlaceDraft, itineraryGenerationOptions } from "@/lib/itinerary-generation"
 import { clearPendingPlaceSave, consumeCompletedPlaceSave, readPendingPlaceSave, stagePendingPlaceSave } from "@/lib/pending-place-save"
 import { colors, radii, typography } from "@/lib/theme"
+import { inclusiveTripDayCount } from "@/lib/trip-dates"
 import type { Attraction, Trip } from "@/lib/types"
 import { useDashboard } from "@/hooks/use-dashboard"
 import { useAuth } from "@/providers/auth-provider"
@@ -231,6 +235,7 @@ export default function ExploreScreen() {
   const [buildPromptOpen, setBuildPromptOpen] = useState(false)
   const [buildingItinerary, setBuildingItinerary] = useState(false)
   const [buildError, setBuildError] = useState("")
+  const [buildSurfaceMode, setBuildSurfaceMode] = useState<"building" | "error" | "draft" | null>(null)
   const screenRef = useRef<ScrollView>(null)
   const autoSearchKey = useRef("")
   const searchRequestId = useRef(0)
@@ -292,7 +297,12 @@ export default function ExploreScreen() {
 
   const vibeDescription = describeVibeMatch(data?.familyVibe ?? null)
   const savedCount = savedAttractionNames.size
-  const hasItinerary = Boolean(scopedTrip?.itinerary?.some((day) => day.items.length))
+  const itineraryItems = useMemo(() => (
+    (scopedTrip?.itinerary ?? []).flatMap((day) => day.items)
+  ), [scopedTrip?.itinerary])
+  const hasItineraryItems = itineraryItems.length > 0
+  const itineraryIsSavedPlaceDraft = isSavedPlaceDraft(scopedTrip?.itinerary ?? [], savedAttractionNames)
+  const hasItinerary = hasItineraryItems && !itineraryIsSavedPlaceDraft
   const itineraryAttractionNames = useMemo(() => new Set(
     (scopedTrip?.itinerary ?? []).flatMap((day) => (
       day.items.map((item) => item.attraction_name.trim().toLowerCase())
@@ -306,7 +316,11 @@ export default function ExploreScreen() {
   ))
   const buildCtaLabel = hasItinerary
     ? `Update itinerary · ${pendingSavedCount} new place${pendingSavedCount === 1 ? "" : "s"}`
-    : `Build itinerary · ${savedCount} place${savedCount === 1 ? "" : "s"}`
+    : `Build itinerary with ${savedCount} place${savedCount === 1 ? "" : "s"}`
+  const tripCity = scopedTrip?.destination.split(",")[0]?.trim() || selected.name
+  const generationDayCount = scopedTrip?.start_date && scopedTrip.end_date
+    ? inclusiveTripDayCount(scopedTrip.start_date, scopedTrip.end_date) ?? Math.max(scopedTrip.itinerary.length, 1)
+    : Math.max(scopedTrip?.itinerary.length ?? 0, 1)
 
   useEffect(() => {
     savedAttractionNamesRef.current = savedAttractionNames
@@ -852,7 +866,7 @@ export default function ExploreScreen() {
     }
   }
 
-  async function buildItinerary() {
+  async function buildItinerary(forceFullPlanner = false) {
     if (buildInFlight.current || !scopedTrip) return
     if (!session?.access_token) {
       setBuildError("Your session needs a quick refresh. Sign in again, and your saved places will still be here.")
@@ -860,29 +874,44 @@ export default function ExploreScreen() {
       return
     }
 
+    const useFullPlanner = forceFullPlanner || !hasItinerary
     buildInFlight.current = true
     setBuildingItinerary(true)
     setBuildError("")
+    if (useFullPlanner) {
+      // Keep the same native Modal mounted while its sheet becomes the
+      // full-screen generation surface. Presenting a second Modal during an
+      // iOS dismissal can silently fail.
+      setBuildPromptOpen(false)
+      setBuildSurfaceMode("building")
+    }
     try {
-      // fastDraft gives the traveler a complete, deterministic first pass immediately.
-      // The trip screen can then enrich or rebuild individual days without losing picks.
-      const options = hasItinerary
-        ? {
-            fastDraft: true,
-            instruction: "Add every saved place to the itinerary. Preserve all existing traveler picks and manual edits; adjust only suggestions as needed.",
-          }
-        : { fastDraft: true }
+      // A first build must run the full planner. Fast draft is reserved for
+      // safely merging new traveler picks into a plan that already exists.
+      const options = itineraryGenerationOptions(!useFullPlanner)
       const result = await generateTripItinerary(session.access_token, scopedTrip.id, options)
       if (result.inclusion && result.inclusion.includedCount < result.inclusion.savedCount) {
         throw new Error(`Only ${result.inclusion.includedCount} of ${result.inclusion.savedCount} saved places were included. Please try again.`)
       }
+      if (user) cacheTripItinerary(user.id, scopedTrip, result.itinerary)
       setScopedTrip((current) => current ? { ...current, itinerary: result.itinerary } : current)
+
+      // The API preserves every pick with a deterministic draft when the
+      // model is unavailable. Keep that useful fallback, but never present it
+      // as the completed itinerary the traveler asked us to build.
+      if (useFullPlanner && !isCompleteItineraryGeneration(result)) {
+        setBuildSurfaceMode("draft")
+        return
+      }
+
+      setBuildSurfaceMode(null)
       setBuildPromptOpen(false)
       router.push({ pathname: "/trips/[id]", params: { id: scopedTrip.id } })
     } catch (error) {
       const detail = error instanceof Error ? error.message : "Please try again."
-      setBuildError(`We couldn’t finish the itinerary. Your ${savedCount} saved place${savedCount === 1 ? " is" : "s are"} safe. ${detail}`)
-      setBuildPromptOpen(true)
+      setBuildError(detail)
+      if (useFullPlanner) setBuildSurfaceMode("error")
+      else setBuildPromptOpen(true)
     } finally {
       buildInFlight.current = false
       setBuildingItinerary(false)
@@ -1177,13 +1206,13 @@ export default function ExploreScreen() {
             accessibilityLabel={buildCtaLabel}
             accessibilityHint={hasItinerary
               ? "Adds your new saved places without removing the itinerary you already planned"
-              : "Builds a first itinerary with every saved place and opens your trip"}
+              : "Builds a complete itinerary around every saved place and opens your trip"}
             disabled={buildingItinerary}
             onPress={() => void buildItinerary()}
             style={({ pressed }) => [styles.stickyBuild, pressed && styles.stickyBuildPressed, buildingItinerary && styles.stickyBuildDisabled]}
           >
             <View style={styles.stickyBuildCopy}>
-              <Text style={styles.stickyBuildEyebrow}>{hasItinerary ? "NEW PICKS READY" : "ENOUGH TO START"}</Text>
+              <Text style={styles.stickyBuildEyebrow}>{hasItinerary ? "NEW PICKS READY" : "READY TO PLAN"}</Text>
               <Text style={styles.stickyBuildLabel}>{buildCtaLabel}</Text>
             </View>
             {buildingItinerary
@@ -1386,39 +1415,60 @@ export default function ExploreScreen() {
       </Modal>
 
       <Modal
-        visible={buildPromptOpen}
-        transparent
-        animationType="slide"
-        onRequestClose={() => { if (!buildingItinerary) setBuildPromptOpen(false) }}
+        visible={buildPromptOpen || buildSurfaceMode !== null}
+        transparent={buildSurfaceMode === null}
+        animationType={buildSurfaceMode === null ? "slide" : "fade"}
+        onRequestClose={() => {
+          if (buildingItinerary) return
+          if (buildSurfaceMode !== null) setBuildSurfaceMode(null)
+          else setBuildPromptOpen(false)
+        }}
       >
-        <View style={styles.buildPromptOverlay}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Keep exploring"
-            disabled={buildingItinerary}
-            onPress={() => setBuildPromptOpen(false)}
-            style={StyleSheet.absoluteFill}
+        {buildSurfaceMode !== null ? (
+          <ItineraryGenerationView
+            active
+            mode={buildSurfaceMode}
+            destination={scopedTrip?.destination ?? selected.destination}
+            savedCount={savedCount}
+            dayCount={generationDayCount}
+            errorMessage={buildError}
+            onRetry={() => void buildItinerary(true)}
+            onReviewSavedPlaces={() => setBuildSurfaceMode(null)}
+            onBackToTrip={() => {
+              setBuildSurfaceMode(null)
+              if (scopedTrip) router.push({ pathname: "/trips/[id]", params: { id: scopedTrip.id } })
+            }}
           />
-          <SafeAreaView edges={["bottom"]} style={styles.buildPromptSafe}>
-            <View style={styles.buildPromptSheet}>
-              <View style={styles.buildPromptHandle} />
-              <View style={styles.buildPromptIcon}><Ionicons name="sparkles" size={20} color={colors.primary} /></View>
-              <Text style={styles.buildPromptEyebrow}>YOUR TRIP HAS A POINT OF VIEW</Text>
-              <Text style={styles.buildPromptTitle}>You have enough to build.</Text>
-              <Text style={styles.buildPromptBody}>We’ll organize all {savedCount} saved places into a practical first itinerary. You can keep exploring or refine every day afterward.</Text>
-              {buildError ? (
-                <View style={styles.buildPromptError}>
-                  <Ionicons name="alert-circle-outline" size={18} color={colors.danger} />
-                  <Text style={styles.buildPromptErrorText}>{buildError}</Text>
-                </View>
-              ) : null}
-              <Button onPress={() => void buildItinerary()} loading={buildingItinerary} style={styles.buildPromptPrimary}>
-                {hasItinerary ? "Update my itinerary" : "Build my itinerary"}
-              </Button>
-              <Button variant="ghost" disabled={buildingItinerary} onPress={() => setBuildPromptOpen(false)} style={styles.buildPromptSecondary}>Keep exploring</Button>
-            </View>
-          </SafeAreaView>
-        </View>
+        ) : (
+          <View style={styles.buildPromptOverlay}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Keep exploring"
+              disabled={buildingItinerary}
+              onPress={() => setBuildPromptOpen(false)}
+              style={StyleSheet.absoluteFill}
+            />
+            <SafeAreaView edges={["bottom"]} style={styles.buildPromptSafe}>
+              <View style={styles.buildPromptSheet}>
+                <View style={styles.buildPromptHandle} />
+                <View style={styles.buildPromptIcon}><Ionicons name="sparkles" size={20} color={colors.primary} /></View>
+                <Text style={styles.buildPromptEyebrow}>READY TO PLAN</Text>
+                <Text style={styles.buildPromptTitle}>Build your {tripCity} itinerary</Text>
+                <Text style={styles.buildPromptBody}>We’ll organize your {savedCount} saved place{savedCount === 1 ? "" : "s"}, then add family-fit stops, meals, and breathing room around them.</Text>
+                {buildError ? (
+                  <View style={styles.buildPromptError}>
+                    <Ionicons name="alert-circle-outline" size={18} color={colors.danger} />
+                    <Text style={styles.buildPromptErrorText}>{buildError}</Text>
+                  </View>
+                ) : null}
+                <Button onPress={() => void buildItinerary()} loading={buildingItinerary} style={styles.buildPromptPrimary}>
+                  {hasItinerary ? "Update my itinerary" : "Build my itinerary"}
+                </Button>
+                <Button variant="ghost" disabled={buildingItinerary} onPress={() => setBuildPromptOpen(false)} style={styles.buildPromptSecondary}>Keep exploring</Button>
+              </View>
+            </SafeAreaView>
+          </View>
+        )}
       </Modal>
     </View>
   )

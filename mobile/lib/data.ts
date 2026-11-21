@@ -240,6 +240,15 @@ export function readTripCache(userId: string, tripId: string): TripData | null {
   return { trip: cached, savedAttractions: [], offline: false }
 }
 
+export function cacheTripItinerary(userId: string, trip: Trip, itinerary: ItineraryDay[]) {
+  const cacheKey = `trip:${userId}:${trip.id}`
+  const cached = readCache<{ trip: Trip; savedAttractions: SavedAttraction[] } | Trip>(cacheKey)
+  writeCache(cacheKey, {
+    trip: { ...trip, itinerary, updated_at: new Date().toISOString() },
+    savedAttractions: cached && "trip" in cached ? cached.savedAttractions : [],
+  })
+}
+
 export async function loadTrip(userId: string, tripId: string) {
   const cacheKey = `trip:${userId}:${tripId}`
   const requestKey = `${userId}:${tripId}`
