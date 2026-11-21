@@ -18,10 +18,11 @@ import { Button, Card, EmptyState, Eyebrow, LoadingScreen, OfflineBanner, Screen
 import { Text, TextInput } from "@/components/typography"
 import { RemoteImage, RemoteImageBackground } from "@/components/remote-image"
 import { formatDayLabel, formatTripDates } from "@/lib/format"
-import { deleteTrip, generateTripItinerary, loadTrip, readTripCache, saveItinerary } from "@/lib/data"
+import { cacheTripItinerary, deleteTrip, generateTripItinerary, loadTrip, readTripCache, saveItinerary } from "@/lib/data"
 import { getTripImage } from "@/lib/destinations"
 import { absoluteMediaUrl } from "@/lib/media"
 import { moveItineraryItem, removeItineraryItem, reorderItineraryItem, updateItineraryItem } from "@/lib/itinerary-editing"
+import { isSavedPlaceDraft } from "@/lib/itinerary-generation"
 import { colors, shadows, typography } from "@/lib/theme"
 import type { ItineraryItem, SavedAttraction, Trip } from "@/lib/types"
 import { useAuth } from "@/providers/auth-provider"
@@ -118,6 +119,12 @@ export default function TripScreen() {
   const pendingSavedAttractions = useMemo(() => savedAttractions.filter(
     (saved) => !itineraryPlaceNames.has(normalizePlaceName(saved.attraction_name))
   ), [itineraryPlaceNames, savedAttractions])
+  const itineraryIsSavedPlaceDraft = useMemo(() => {
+    return isSavedPlaceDraft(
+      trip?.itinerary ?? [],
+      savedAttractions.map((saved) => saved.attraction_name)
+    )
+  }, [savedAttractions, trip?.itinerary])
   const abovePace = Boolean(day && day.items.length > paceLimits[pace])
   const currentShareUrl = trip && shareLink?.tripId === trip.id ? shareLink.url : ""
 
@@ -233,6 +240,7 @@ export default function TripScreen() {
       if (result.inclusion && result.inclusion.includedCount < result.inclusion.savedCount) {
         throw new Error(`Only ${result.inclusion.includedCount} of ${result.inclusion.savedCount} saved places were included. Nothing was replaced—please retry.`)
       }
+      if (user) cacheTripItinerary(user.id, trip, result.itinerary)
       setTrip({ ...trip, itinerary: result.itinerary })
       if (options.dayDate) {
         setSelectedDay(Math.max(0, result.itinerary.findIndex((candidate) => candidate.date === options.dayDate)))
@@ -326,6 +334,17 @@ export default function TripScreen() {
       [
         { text: "Cancel", style: "cancel" },
         { text: "Delete trip", style: "destructive", onPress: () => void removeTrip() },
+      ]
+    )
+  }
+
+  function confirmRegenerateItinerary() {
+    Alert.alert(
+      "Regenerate this itinerary?",
+      "This replaces the generated schedule and may overwrite manual edits. Your saved places will remain.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Regenerate", onPress: () => void generateItinerary() },
       ]
     )
   }
@@ -427,6 +446,19 @@ export default function TripScreen() {
 
       {trip.itinerary.length ? (
         <>
+          {itineraryIsSavedPlaceDraft ? (
+            <View style={styles.draftCard}>
+              <View style={styles.draftHeading}>
+                <View style={styles.draftIcon}><Ionicons name="sparkles" size={19} color={colors.primaryDark} /></View>
+                <View style={styles.draftCopy}>
+                  <Text style={styles.draftEyebrow}>SAVED-PLACE DRAFT</Text>
+                  <Text style={styles.draftTitle}>Finish building your itinerary</Text>
+                </View>
+              </View>
+              <Text style={styles.draftBody}>Your picks are safely arranged. Now add family-fit stops, meals, and breathing room around them.</Text>
+              <Button onPress={() => generateItinerary()} loading={generating} disabled={offline}>Finish itinerary</Button>
+            </View>
+          ) : null}
           {pendingSavedAttractions.length ? (
             <View style={styles.pendingPicks}>
               <View style={styles.pendingPicksHeading}>
@@ -462,7 +494,9 @@ export default function TripScreen() {
               Add stops
             </Button>
           </View>
-          <Button variant="secondary" onPress={() => generateItinerary()} loading={generating} disabled={offline}>Rebuild entire plan</Button>
+          {!itineraryIsSavedPlaceDraft ? (
+            <Button variant="secondary" onPress={confirmRegenerateItinerary} loading={generating} disabled={offline}>Regenerate itinerary</Button>
+          ) : null}
           <View style={styles.dayTabs}>
             {trip.itinerary.map((itineraryDay, index) => (
               <Pressable key={`${itineraryDay.date}-${index}`} onPress={() => setSelectedDay(index)} style={[styles.dayTab, selectedDay === index && styles.dayTabActive]}>
@@ -706,6 +740,13 @@ const styles = StyleSheet.create({
   generationErrorBody: { color: colors.danger, fontSize: 11, lineHeight: 17, marginTop: 3 },
   retryButton: { minHeight: 38, paddingHorizontal: 12, borderWidth: 1, borderColor: colors.danger, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   retryButtonText: { color: colors.danger, fontSize: 11, fontWeight: "800" },
+  draftCard: { gap: 14, borderRadius: 18, borderWidth: 1, borderColor: "#D8C3B6", backgroundColor: "#F7F0EA", padding: 16 },
+  draftHeading: { flexDirection: "row", alignItems: "center", gap: 11 },
+  draftIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#EAD8CC", alignItems: "center", justifyContent: "center" },
+  draftCopy: { flex: 1 },
+  draftEyebrow: { color: colors.primary, fontSize: 8, fontWeight: "900", letterSpacing: 1.25 },
+  draftTitle: { color: colors.text, fontSize: 19, lineHeight: 24, fontFamily: typography.serif, fontWeight: "700", marginTop: 3 },
+  draftBody: { color: colors.textMuted, fontSize: 12, lineHeight: 18 },
   pendingPicks: { gap: 13, borderRadius: 18, borderWidth: 1, borderColor: "#D8C3B6", backgroundColor: "#F7F0EA", padding: 16 },
   pendingPicksHeading: { flexDirection: "row", alignItems: "center", gap: 11 },
   pendingPicksIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: "#EAD8CC", alignItems: "center", justifyContent: "center" },
